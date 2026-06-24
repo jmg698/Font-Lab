@@ -1,73 +1,105 @@
 # Font Lab — Roadmap
 
 > Build order for the v1 slice: **fonts only, Next.js + Tailwind**. See
-> [`CONCEPT.md`](./CONCEPT.md) for the why and [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-> for the how. Every milestone is a vertical slice that runs end to end — we never
-> build a package in isolation and hope it integrates later.
+> [`CONCEPT.md`](./CONCEPT.md) for the why, [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the
+> how, [`SHIP-SPEC.md`](./SHIP-SPEC.md) for the codegen detail, and
+> [`CRITIQUE.md`](./CRITIQUE.md) for the decisions behind this ordering. Every milestone
+> is a vertical slice that runs end to end — we never build a package in isolation and
+> hope it integrates later.
 
 ## Guiding principle
 
-De-risk the magic before investing in structure. The whole concept lives or dies on the
-live, full-fidelity font swap (the **choosing moment**). M0 is the go/no-go; nothing
-downstream matters if it fails, so it comes first.
+De-risk the magic before investing in structure. The whole concept lives or dies on two
+things: the live, full-fidelity swap (the **choosing moment**) *and* the guarantee that
+**what they pick is exactly what ships.** M0 proves both; nothing downstream matters if it
+fails, so it comes first. The second-riskiest link — reliably applying the change into a
+real project — is pulled forward (M2), because it's the part nobody else closes and the
+one we'd previously under-scoped.
 
 ## Testbeds
 
-- **`examples/sample-next-site`** — deterministic in-repo Next.js + Tailwind fixture for
+- **`examples/sample-next-site`** — deterministic in-repo Next.js + Tailwind v4 fixture for
   fast, reproducible iteration.
 - **`jack-mcgovern.com`** — the real site, used as a periodic fidelity check against a
-  moving, production-grade target.
+  moving, production-grade target *and* as the dogfood surface (below).
+
+## The two cross-cutting threads (run the whole time)
+
+- **Dogfood, not fake-test, the demand.** The riskiest assumption is behavioral, not
+  technical: will a human pause to *choose*, or do they just want a good default? We don't
+  fake a demo to test it — we ship it and watch whether Jack reaches for it *unprompted* on
+  jack-mcgovern.com. If the builder of the tool doesn't open it next week, that's the
+  signal. The Bakaus (impeccable) DM is a "once it's real" move, not an early one.
+- **Capture the pick-stream from M1.** `selection.json` is append-only and logs every pick
+  locally (opt-in). Taste memory is the only asset that compounds and can't be backfilled,
+  so we start collecting before we need it.
 
 ## Milestones
 
-### M0 — Spike: de-risk the magic  *(go/no-go)*
-Proxy the sample site, inject **one hardcoded font swap**, and confirm it:
-- visibly changes the rendered site,
-- survives Next.js Fast Refresh (HMR),
-- looks full-fidelity (no flash, no layout break).
+### M0 — Parity + injection spike  *(go/no-go)*
+Two claims, both now de-riskable:
+1. **Injection survives HMR.** A dev-only `<FontLabDevPanel/>` swaps `--font-*` on `:root`,
+   visibly changes the rendered site, and **survives Next.js Fast Refresh** (because the
+   override lives outside React's tree). Panel UI isolated in a Shadow DOM so it isn't
+   restyled by its own swap.
+2. **Preview == ship, proven.** Precompute one font's primary + adjusted-fallback
+   `@font-face` (same woff2 subset + capsize metrics + formulas), preview it, then
+   *actually ship it* via `next/font` and **pixel-diff the rendered result.** A match is
+   the real go/no-go — not "does it feel cool," but "is the magic honest."
 
-Throwaway code. **If this doesn't feel magic, we stop and rethink before building
-anything else.**
+Throwaway code. **If preview doesn't equal ship, or the swap doesn't survive HMR, we stop
+and rethink before building anything else.**
 
 ### M1 — Walking skeleton (loop exists, end to end)
-CLI launches proxy + a bare panel with **2 hardcoded directions**; arrow keys flip the
-active font; a "Pick" button writes `.font-lab/selection.json`. Dumb but complete — the
-entire loop is real.
+CLI launches the dev panel with **2 hardcoded directions**; arrow keys flip the active
+font; a "Pick" button POSTs to a localhost endpoint that writes `.font-lab/selection.json`
+(and appends to the pick log). Dumb but complete — the entire loop is real.
 
-### M2 — Real analyzer
-Detect framework, current fonts, site type, and font wiring. Panel shows
-`current: Inter/Geist` and a **before/after toggle** against the live current state.
+### M2 — The ship engine (codegen)  *(promoted)*
+`selection.json` → the **exact** `next/font` + Tailwind edits, *applied to the project*,
+idempotently and reversibly. Built against the pinned `sample-next-site` (known App Router
++ Tailwind v4) so it doesn't block on the analyzer. ts-morph for the `.tsx` surgery, fenced
+markers for CSS/config, **backup-first** undo, verify-and-auto-restore on failure. This is
+the step nobody else closes — full spec in [`SHIP-SPEC.md`](./SHIP-SPEC.md).
 
-### M3 — Real catalog + curator
-~40-font hand-authored catalog; ~5 curated directions each with a name, vibe label, and
-one-line rationale. LLM ranks/explains only (directions may still be hardcoded for the
-testbed at this stage).
+### M3 — Real analyzer
+Detect framework, **App vs Pages Router**, **Tailwind v3 vs v4**, current fonts, and font
+wiring (CSS-var vs hardcoded). Feeds the codegen branch selection *and* the before/after
+toggle. Panel shows `current: Inter/Geist` and a **before/after toggle** against the live
+current state.
 
-### M4 — Codegen + handoff (loop closed)
-`selection.json` → the **exact** `next/font` + Tailwind snippet, applied to the project.
-Reversible; re-runnable. This is the step nobody else closes.
+### M4 — Parity catalog + curator
+~40-font catalog as **precomputed parity bundles** (woff2 + the two `@font-face` blocks +
+verified capsize coverage). ~5 curated directions, each a name + vibe label + one-line
+rationale, chosen by a deterministic lookup. **No runtime LLM.** Optionally seed the brief
+from an impeccable `detect --json` audit.
 
-### M5 — MCP server + skill
+### M5 — MCP server + skill (+ agent discoverability)
 Wrap the engine so an agent drives the whole loop: invoke → curate → preview → read the
-pick → apply. Distribution as an agent-installable tool.
+pick → apply. Tune the skill/tool **description** so agents reach for Font Lab when a user
+asks to pick a font ("SEO for agents"). Mirror impeccable's provider-native hook-manifest
+pattern, not just MCP.
 
 ### M6 — Polish the choosing moment
-Pin-two-to-compare, "more like this one," refined keyboard UX, mixed picks (heading from
-A, body from B).
+Pin-two-to-compare, "more like this one," refined keyboard UX, mixed picks (heading from A,
+body from B), and **multi-route flipping** — fonts read differently on a hero vs. a dense
+docs page vs. a form, so "your real site" means more than one screen.
 
-### Optional, alongside M3
-Call **impeccable** to seed the directions — proving the "we make impeccable's advice
-choosable" story.
+### Parallel front-door (awareness, not the product)
+A deliberately thin bookmarklet/extension whose only job is the wow on any live site →
+"install the skill to actually ship it." The agent-native loop is the conversion surface;
+it has no top-of-funnel without this.
 
 ## Definition of done for the v1 slice
 
 A human, inside their Next.js + Tailwind project, invokes Font Lab; sees ~5 tasteful
-directions rendered on *their own running site*; flips through, compares, and picks; and
-the agent ships the real `next/font` + Tailwind implementation. The human kept the taste
-decision; the agent did the typing.
+directions rendered on *their own running site* in CSS that is **byte-for-byte what will
+ship**; flips through, compares, and picks; and the agent applies the real `next/font` +
+Tailwind implementation — reversibly. The human kept the taste decision; the agent did the
+typing; and what they saw is exactly what shipped.
 
 ## Explicitly out of scope for v1 (north star, not now)
 
 - Other taste axes (color, spacing, radius, component style, motion).
-- Taste memory / per-user learning.
+- Taste memory / per-user learning (but we *log* the picks from M1 so it's buildable later).
 - Hosted "second opinion / share" link (the eventual single paid, hosted piece).

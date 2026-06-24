@@ -2,66 +2,104 @@
 
 > Engineering companion to [`CONCEPT.md`](./CONCEPT.md). This is the tech-lead view of
 > *how* the concept becomes real code. No specs are frozen here — it captures the
-> decisions we've made, the seams between pieces, and the one contract everything
-> hangs off.
+> decisions we've made, the seams between pieces, and the contracts everything hangs
+> off. The detailed plan for the ship step lives in [`SHIP-SPEC.md`](./SHIP-SPEC.md);
+> the decision history and open risks live in [`CRITIQUE.md`](./CRITIQUE.md).
 
 ## The crux: how the "choosing moment" actually works
 
-Everything in the concept is ordinary work **except** rendering the user's real,
-running site in a candidate font — live, flippable, full-fidelity. If that isn't
-magic, there's no product. So it drives the architecture.
+Everything in the concept is ordinary work **except** two things, and both are the
+product: (1) rendering the user's real, running site in a candidate font — live,
+flippable, full-fidelity — and (2) being able to prove that *what they pick is exactly
+what ships*. If either isn't true, there's no product. So they drive the architecture.
 
-The mechanism:
+### Mechanism 1 — live swap via a dev-only in-app panel (no proxy)
 
-1. **Local reverse proxy.** Font Lab runs a proxy in front of the user's dev server
-   (e.g. their `localhost:3000` → our `localhost:4000`).
-2. **HTML injection.** The proxy injects a `<style>`/`<script>` into their HTML on the
-   way through, and **strips frame-blocking headers** (`Content-Security-Policy:
-   frame-ancestors`, `X-Frame-Options`) — safe because it's all local.
-3. **Same-origin iframe.** The panel mounts the proxied site in an iframe. Because it
-   comes through our proxy, it's same-origin → we can reach into the DOM. No CORS, no
-   headless browser, no screenshots.
-4. **Font swap = CSS-variable override.** `next/font` exposes fonts as CSS custom
-   properties (`--font-sans`, etc.) that Tailwind's `fontFamily` points at. We inject
-   CSS that redefines those variables and loads the candidate font → the whole site
-   reflows instantly. Flipping directions = toggling which override is active.
+We run **inside the user's own dev server, as part of their app** — not behind a reverse
+proxy. Because the tool is agent-installable (or a dev dependency), we don't need a proxy
+to reach the page's origin; **we are the origin.**
 
-This is the entire trick, and it's cheap. It's also *why the agent/dev-tool form
-factor beats a bookmarklet* — running inside the project against the local dev server
-is what makes full-fidelity preview free.
+1. **Dev-only panel.** A `<FontLabDevPanel/>` client component is mounted in
+   `app/layout.tsx`, gated *inline* by `process.env.NODE_ENV === 'development'` so it is
+   dead-code-eliminated from production builds.
+2. **Swap = CSS variable override on `:root`.** The panel swaps fonts by calling
+   `document.documentElement.style.setProperty('--font-sans', …)`. `next/font` exposes
+   fonts as CSS custom properties (`--font-sans`, `--font-display`, `--font-mono`) that
+   Tailwind's font utilities resolve through, so overriding the variable reflows the
+   whole site instantly.
+3. **Survives HMR by construction.** Inline styles on `<html>` live *outside* React's
+   render tree, so Next.js Fast Refresh never wipes them. (A full reload re-applies from
+   `selection.json` on mount.) This was the original architecture's single biggest risk;
+   it's now answered by the mechanism itself.
+4. **Panel isolated in a Shadow DOM.** The panel's own UI is a fixed-position overlay
+   mounted in a Shadow DOM root, so the font swap it performs on the page doesn't restyle
+   the panel.
 
-### The riskiest assumption inside it
+This is cheaper and higher-fidelity than the proxy/iframe we originally sketched: no
+header stripping, no websocket proxying, no cross-origin dance. The proxy/iframe idea is
+parked for a *different, later* product (previewing a site we can't add a dependency to).
 
-- **HMR vs. injection.** Next.js Fast Refresh may re-render and wipe injected styles.
-  We need injection that survives HMR (persistent high-specificity `<style>`,
-  re-applied on mutation).
-- **Font wiring.** Real projects must route fonts through CSS variables for a
-  high-fidelity swap. Projects that hardcode `font-family` get a lower-fidelity
-  broad-override fallback.
+> **Why not a bundler plugin?** Turbopack is the default dev bundler in Next.js 16+ and
+> has no webpack-plugin API; a `webpack` key with no matching `turbopack` key now errors.
+> Injection therefore lives in *application code* (the component), which is identical on
+> both bundlers — not in the bundler.
 
-Both are answerable in the M0 spike (see [`ROADMAP.md`](./ROADMAP.md)). M0 is the
-go/no-go for the whole concept.
+### Mechanism 2 — preview/ship parity (the WYSIWYG guarantee)
+
+The honest version of "preview on your real site" is **the preview renders the exact CSS
+that will ship.** This is achievable because `next/font/google` is fully *build-time* and
+*deterministic*:
+
+- It self-hosts the woff2, subsets it, and emits **two** `@font-face` blocks: the real
+  font, plus an *adjusted-fallback* font carrying `size-adjust`, `ascent-override`,
+  `descent-override`, and `line-gap-override` (to prevent layout shift).
+- Those override values are computed by a pure function from a static metrics table
+  (`@capsizecss/metrics`; Arial as the sans fallback, Times New Roman as the serif
+  fallback). Same inputs → same output, every time.
+
+So the preview **precomputes the identical two `@font-face` blocks** — same woff2 subset,
+same metrics, same formulas — and injects them as plain CSS. At steady state (once fonts
+are loaded), the preview *is* the shipped CSS. Parity is provable, not approximate.
+
+The two places parity can drift, and how we close them:
+
+- **woff2 bytes / subset** — use the *same* subset/woff2 the project will ship. Eliminated
+  by sourcing identical files (the parity-bundle decision below).
+- **transient FOUT during a swap** — a load-time artifact, not a steady-state delta;
+  preloading all candidates up front removes it for flips.
+
+### The riskiest assumptions that remain
+
+- **Capsize coverage.** `next/font`'s metric table doesn't cover *every* Google font;
+  uncovered fonts throw `"Failed to find font override values"` at build. This gates the
+  *ship* path, not just preview. **Every catalog font must be verified covered** (or we
+  measure its metrics ourselves via fontkit). See Risks.
+- **Font wiring heterogeneity.** Projects that route fonts through CSS variables get the
+  high-fidelity swap; projects that hardcode `font-family` get a lower-fidelity broad
+  override. v1 is scoped to the CSS-variable path (our own stack).
+
+Both are exercised in the M0 spike (see [`ROADMAP.md`](./ROADMAP.md)). M0 is the go/no-go.
 
 ## Monorepo layout
 
 ```
 font-lab/
   packages/
-    catalog/        # the moat: hand-authored fonts + pairings + vibes (pure data)
-    analyzer/       # static read of the project: framework, current fonts, font wiring
-    curator/        # analysis + vibe -> ~5 directions (catalog lookup; LLM only ranks/explains)
-    preview-server/ # THE MAGIC: proxy + header strip + CSS injection + the panel UI
-    codegen/        # selection -> exact next/font + Tailwind snippet (the ship step)
-    cli/            # `npx font-lab` ties it together
+    catalog/        # parity bundles: woff2 + the two @font-face blocks + verified metrics
+    analyzer/       # static read of the project: framework, router, TW version, fonts, wiring
+    curator/        # analysis + vibe -> ~5 directions (deterministic lookup; no runtime LLM)
+    preview/        # THE MAGIC: dev-only panel, :root swap, parity CSS injection, panel UI
+    codegen/        # selection -> exact next/font + Tailwind edits, applied + reversible
+    cli/            # `npx font-lab` ties it together + the localhost write-back endpoint
     mcp/            # MCP server + skill so the agent drives all of the above
   examples/
-    sample-next-site/  # deterministic Next + Tailwind fixture to develop against
+    sample-next-site/  # deterministic Next + Tailwind v4 fixture to develop against
 ```
 
 Data flows one direction, each arrow a typed contract:
 
 ```
-analyzer  ->  curator  ->  preview-server  ->  selection.json  ->  codegen
+analyzer  ->  curator  ->  preview  ->  selection.json  ->  codegen
 ```
 
 Each package stays independently testable; any one can be swapped without touching the
@@ -69,30 +107,34 @@ others.
 
 ### What each package owns
 
-- **catalog** — Hand-authored font + pairing data (display/body/mono), vibe labels,
-  rationale. The human-taste asset. Pure data + types, no logic. The LLM never writes
-  to this; it only reads it.
-- **analyzer** — Static parsing of the target project: framework, current fonts, site
-  type, and *how fonts are wired* (CSS vars vs. hardcoded). Pure functions. This is the
-  gamut-engine pattern reused.
-- **curator** — Turns `analysis + vibe` into ~5 concrete directions. Catalog lookup for
-  the candidates; LLM used **only** to rank and explain, never to invent the list. For
-  v1, directions may be hardcoded to keep the LLM off the critical path.
-- **preview-server** — The proxy, header stripping, CSS injection, and the panel UI
-  (the chrome around the iframe: arrow-key flip, before/after toggle, pin-to-compare,
-  "more like this"). The hard package.
-- **codegen** — Takes the selection and emits the exact `next/font` + Tailwind snippet,
-  so the implementation is reliable, not guessed.
-- **cli** — `npx font-lab`; wires analyzer → curator → preview-server and writes the
-  selection.
-- **mcp** — Thin wrapper exposing the engine as MCP tools + a skill so an agent can
-  drive the loop end to end.
+- **catalog** — Not a taste asset (see [`CRITIQUE.md`](./CRITIQUE.md)); a **parity asset.**
+  For each font: the woff2 (matching the shippable subset), the precomputed primary +
+  adjusted-fallback `@font-face` CSS, and a flag confirming capsize-metric coverage. Pure
+  data. This is what makes preview == ship.
+- **analyzer** — Static parsing of the target project: framework, **App vs Pages Router**,
+  **Tailwind v3 vs v4**, current fonts, and *how fonts are wired* (CSS vars vs hardcoded).
+  Pure functions; the gamut-engine pattern reused. Its output selects the codegen branch.
+- **curator** — Turns `analysis + vibe` into ~5 concrete directions via a deterministic
+  lookup over the catalog, with pre-written rationale. **No runtime LLM call** — the
+  agent driving the tool *is* the LLM; the package stays dumb, instant, and free.
+  Optionally seeds the brief from an impeccable audit.
+- **preview** — The dev-only panel, the `:root` variable swap, the parity-CSS injection,
+  and the panel chrome (arrow-key flip, before/after toggle, pin-to-compare, "more like
+  this"). The hard package.
+- **codegen** — Takes the selection and applies the exact `next/font` + Tailwind edits to
+  the project, idempotently and reversibly. The link nobody else closes. Full spec in
+  [`SHIP-SPEC.md`](./SHIP-SPEC.md).
+- **cli** — `npx font-lab`; wires analyzer → curator → preview, and runs the small
+  localhost endpoint the browser panel POSTs the pick to.
+- **mcp** — Thin wrapper exposing the engine as MCP tools + a skill so an agent can drive
+  the loop end to end. Discoverability (how the agent learns to reach for us) is a
+  first-class concern here.
 
 ## The central contract: `.font-lab/selection.json`
 
 This file is the interface between **"human picked"** and **"agent ships."** The panel
-writes it; the agent (via codegen) reads it. We pin this schema early so the two halves
-can be built in parallel. Illustrative shape (not frozen):
+writes it (via the localhost endpoint); codegen reads it. We pin the schema early so the
+two halves can be built in parallel. Illustrative shape (not frozen):
 
 ```jsonc
 {
@@ -115,46 +157,72 @@ can be built in parallel. Illustrative shape (not frozen):
   },
   "target": {
     "framework": "next",
+    "router": "app",
     "styling": "tailwind",
+    "tailwindVersion": 4,
     "fontWiring": "css-variables"
   }
 }
 ```
 
-Note `roles` allows a **mixed pick** (heading from direction A, body from direction B),
-which the concept explicitly calls for.
+Two notes:
+
+- `roles` allows a **mixed pick** (heading from direction A, body from direction B),
+  which the concept explicitly calls for.
+- **Append, don't overwrite.** Every pick is logged from M1 onward (locally, opt-in). The
+  pick-stream is the only asset that compounds per-user (taste memory) and it can't be
+  backfilled — so we start capturing it before we need it.
 
 ## Key decisions (with rationale)
 
-- **TypeScript + pnpm workspaces.** Standard, fast, fits the npm-dev-dependency
-  distribution story.
-- **Engine is a CLI/library first; MCP + skill is a thin wrapper second.** If it works
-  from `npx font-lab`, wrapping it for the agent is trivial. MCP-first would couple our
-  hard problems to a protocol.
-- **`.font-lab/selection.json` is the contract.** Defined early; it's the seam that
-  lets the pick-side and ship-side proceed in parallel.
-- **Catalog is hand-authored; the LLM never invents the list.** LLM ranks and explains
-  only. v1 may hardcode directions entirely.
-- **Catalog standardizes on Google-Fonts-available families.** Gives preview-vs-ship
-  parity for free — identical font files in the iframe preview and in the shipped
-  `next/font/google` output. `next/font/local`-only families are a later special case.
-- **Testbeds: both.** A deterministic in-repo `examples/sample-next-site` for
-  day-to-day iteration, plus the real `jack-mcgovern.com` as the periodic fidelity
-  check.
+- **Dev-only in-app injection, not a proxy.** The agent/dev-dependency form factor already
+  puts us inside the origin; a proxy solves a problem we don't have and adds real risk
+  (header stripping, websocket proxying, HMR breakage). Swapping `--font-*` on `:root`
+  survives Fast Refresh for free.
+- **Preview precomputes next/font's exact output.** `next/font` is deterministic and
+  build-time; we reproduce its primary + adjusted-fallback `@font-face` so the preview is
+  the shipped CSS. This is what makes the WYSIWYG promise honest.
+- **Catalog is a parity asset, not a taste moat.** The list of font names is not
+  defensible; the precomputed parity bundles are the mechanism that makes preview == ship.
+- **Curator is LLM-free in v1.** Deterministic lookup + pre-written rationale → no API key,
+  no latency, no nondeterminism, no cost inside the package.
+- **Catalog standardizes on Google-Fonts families with verified capsize coverage.** Gives
+  preview-vs-ship parity for free *and* guarantees the CLS-safe fallback exists at ship
+  time. `next/font/local`-only families are a later special case.
+- **Codegen = ts-morph (AST) for `.tsx`, fenced markers for CSS/config, backup-first
+  undo.** Robust merges into code the user already owns, trivial reversibility for a
+  vibe-coder who hasn't committed. Full rationale in [`SHIP-SPEC.md`](./SHIP-SPEC.md).
+- **`.font-lab/selection.json` is the contract.** Defined early; the seam that lets the
+  pick-side and ship-side proceed in parallel.
+- **Engine is a CLI/library first; MCP + skill is a thin wrapper second.** If it works from
+  `npx font-lab`, wrapping it for the agent is trivial. MCP-first would couple our hard
+  problems to a protocol.
+- **Testbeds: both.** A deterministic in-repo `examples/sample-next-site` for day-to-day
+  iteration, plus the real `jack-mcgovern.com` as the periodic fidelity check.
 
 ## Where impeccable fits
 
-A stack, not a rivalry. impeccable is the **floor** (a critic: "this is generic, here's
-a direction"); Font Lab is the **ceiling** (a chooser). The analyzer/curator can
-**consume impeccable's audit as one input** to seed directions, and credit it — making
-us interoperable with a tool people already install.
+A stack, not a rivalry. impeccable is the **floor** (a critic: "this is generic"); Font
+Lab is the **ceiling** (a chooser). Integration is **best-effort, not a dependency**:
+impeccable ships no API, no MCP, and no stable report file — the only mechanism is shelling
+out to `npx impeccable detect --json` and parsing stdout (whose schema is undocumented, so
+we'd pin it against the installed version). Its font rules only *flag* (Inter, Geist, Space
+Grotesk, flat hierarchy, single family) — they don't suggest replacements. So impeccable
+**seeds the brief** ("you're on slop; you need a display/body pair with more contrast"), not
+the directions. It's Apache-2.0, so wrapping and crediting it is clean.
 
 ## Risks we're tracking
 
-1. **HMR vs. injected styles** — M0 answers it.
-2. **Font-wiring heterogeneity** — hardcoded `font-family` projects get a lower-fidelity
-   fallback; v1 is scoped to our own stack.
-3. **Preview/ship parity** — solved by sourcing identical font files (the Google Fonts
-   decision).
-4. **Distribution friction** — bet on the agent wave; CLI-first keeps us honest if MCP
-   shifts.
+1. **Capsize coverage gaps** — some Google fonts lack metric data and can't be shipped with
+   the CLS-safe fallback. Mitigation: verify coverage per catalog font; measure missing
+   metrics ourselves (fontkit). A hard gate on catalog membership.
+2. **Preview/ship parity drift** — closed by sourcing identical woff2/subset and replicating
+   the adjusted-fallback `@font-face`; verified by pixel-diff in M0.
+3. **DCE guard fragility** — the `NODE_ENV` guard must be written inline; wrapping it in a
+   helper ships the dev panel to production. Lint-enforce the inline form.
+4. **Font-wiring heterogeneity** — hardcoded `font-family` projects get a lower-fidelity
+   fallback; v1 is scoped to the CSS-variable path.
+5. **Demand / behavioral risk (the real one)** — will people pause to *choose*, rather than
+   want a good default? Not answerable in code; tested by dogfooding (see ROADMAP).
+6. **Distribution discovery** — "rides the agent wave" is a hope until the skill/tool
+   description is tuned so agents reach for us, plus a thin front-door lure for awareness.
