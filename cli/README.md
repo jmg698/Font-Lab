@@ -4,10 +4,14 @@ The first real (non-throwaway) slice: the whole loop runs end to end. The human 
 between curated directions on their own running site and picks one; the pick is written to
 `.font-lab/selection.json` — the seam the agent reads to ship the real code (M4).
 
-> **Status: M1 PASS** — `cli/run-m1.sh` drives the loop headlessly with 16/16 assertions
-> green (arrow-flip, live display+body+mono swap, Pick → `selection.json`, re-pick appends
-> to `picks.log.jsonl`). Evidence in `cli/out/m1-report.json`. Runs on Next 16 + Tailwind
-> v4 + Turbopack; the panel/catalog are gated out of production builds.
+> **Status: M1 + M2 PASS.**
+> - **M1** (`cli/run-m1.sh`, 16/16): arrow-flip, live display+body+mono swap, Pick →
+>   `selection.json`, re-pick appends to `picks.log.jsonl`.
+> - **M2** (`cli/run-m2.sh`, 19/19): `selection.json` → real `next/font` + Tailwind edits
+>   that **build** and **render** the picked fonts, applied **idempotently** and
+>   **reversibly** (backup-first undo, byte-identical restore). The link nobody else closes.
+>
+> Evidence in `cli/out/{m1,m2}-report.json`. Runs on Next 16 + Tailwind v4 + Turbopack.
 
 ## Run it
 
@@ -32,15 +36,29 @@ Then open the dev site: a panel (bottom-right) shows the current state + two dir
 `←`/`→` flip the active direction (display + body + mono swap live on your real content);
 `Enter` or **Pick** writes the selection.
 
+### Ship the pick (M2)
+
+```bash
+node cli/apply.mjs --project <your-project>   # selection.json -> next/font + Tailwind edits
+node cli/undo.mjs  --project <your-project>   # restore the files Font Lab last edited
+```
+
+`apply` edits `app/layout.tsx` (ts-morph: merges the next/font import, rewrites the
+font consts in a fenced block, merges the `<html>` className) and `app/globals.css`
+(a fenced `@theme` block), backing up every touched file first. Re-running is idempotent;
+`undo` restores byte-for-byte. Run `font-lab --apply` to ship a pick the moment it's made.
+
 ## Pieces
 
 | file | role |
 |---|---|
 | `directions.mjs` | the two hand-authored directions + the fonts they use (source of truth) |
 | `gen-catalog.mjs` | self-hosts each Google font and computes next/font's exact adjusted fallback (M0-proven parity); writes `app/_fontlab/catalog.generated.ts` |
-| `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`) |
-| `loop-test.mjs` | headless e2e of the whole loop |
-| `run-m1.sh` | builds catalog, starts dev server, runs the loop test |
+| `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
+| `codegen.mjs` | the ship engine (M2): `applySelection` / `undo` — ts-morph + fenced markers, backup-first |
+| `apply.mjs` / `undo.mjs` | thin CLI wrappers around the ship engine |
+| `loop-test.mjs` / `apply-test.mjs` | headless e2e of the loop (M1) and the ship engine (M2) |
+| `run-m1.sh` / `run-m2.sh` | builds catalog + runs the loop test; applies + builds + renders + checks idempotency/reversibility |
 
 ## The contract it writes
 

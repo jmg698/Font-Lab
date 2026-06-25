@@ -17,6 +17,7 @@ const arg = (flag, def) => {
 };
 const PORT = Number(arg("--port", "7777"));
 const PROJECT = path.resolve(arg("--project", process.cwd()));
+const AUTO_APPLY = process.argv.includes("--apply"); // pick -> ship, in one step
 const FLDIR = path.join(PROJECT, ".font-lab");
 const SELECTION = path.join(FLDIR, "selection.json");
 const PICKLOG = path.join(FLDIR, "picks.log.jsonl");
@@ -64,6 +65,14 @@ const server = http.createServer((req, res) => {
           JSON.stringify({ at: sel.pickedAt, direction: sel.direction?.id, roles: sel.roles }) + "\n",
         );
         printPick(sel);
+        if (AUTO_APPLY) {
+          import("./codegen.mjs")
+            .then(({ applySelection }) => {
+              const r = applySelection(PROJECT);
+              console.log(`  → applied to project: ${r.edited.join(", ")} (\`font-lab undo\` to revert)\n`);
+            })
+            .catch((e) => console.error(`  apply failed: ${e.message}\n`));
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end('{"ok":true}');
       } catch (e) {
