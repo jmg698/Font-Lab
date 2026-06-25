@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/*
+ * Font Lab fixture wiring.
+ *
+ * next/font (in layout.tsx) sets --font-inter / --font-jbmono on <html>.
+ * We introduce a single semantic override point per role (--fl-sans / --fl-display
+ * / --fl-mono). The dev panel swaps a font by setting these on :root via an inline
+ * style — which beats next/font's class-set values and reflows the whole site, while
+ * surviving Fast Refresh because inline styles on <html> live outside React's tree.
+ *
+ * Tailwind v4's @theme inline then maps the font-* utilities at this override point,
+ * so `font-sans` / `font-display` / `font-mono` follow the swap too.
+ */
+
+:root {
+  --fl-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --fl-display: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --fl-mono: var(--font-jbmono), ui-monospace, SFMono-Regular, monospace;
+
+  --background: #ffffff;
+  --foreground: #18181b;
+  --muted: #71717a;
+  --rule: #e4e4e7;
+  --accent: #1d4ed8;
+  --code-bg: #f4f4f5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--fl-sans);
+  --font-display: var(--fl-display);
+  --font-mono: var(--fl-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--fl-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

@@ -1,0 +1,19 @@
+{
+  "computed": {
+    "font": "Fraunces",
+    "fallback": "Times New Roman",
+    "sizeAdjust": "115.45%",
+    "ascentOverride": "84.71%",
+    "descentOverride": "22.09%",
+    "lineGapOverride": "0.00%"
+  },
+  "emitted": {
+    "sizeAdjust": "115.45%",
+    "ascentOverride": "84.71%",
+    "descentOverride": "22.09%",
+    "lineGapOverride": "0.0%"
+  },
+  "overridesMatch": true,
+  "copiedWoff2": "03bda585a99c6450-s.p.32sris142tqlb.woff2",
+  "frauncesFaceCount": 3
+}

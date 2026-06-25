@@ -1,0 +1,14 @@
+{
+  "log": {
+    "font.initial": "Inter, \"Inter Fallback\", ui-sans-serif, system-ui, sans-serif",
+    "active.afterClick": "fraunces",
+    "flSans.afterClick": "'FL Fraunces', 'FL Fraunces Fallback', serif",
+    "font.afterClick": "\"FL Fraunces\", \"FL Fraunces Fallback\", serif",
+    "hmr.applied": true,
+    "active.afterHMR": "fraunces",
+    "flSans.afterHMR": "'FL Fraunces', 'FL Fraunces Fallback', serif",
+    "font.afterHMR": "\"FL Fraunces\", \"FL Fraunces Fallback\", serif"
+  },
+  "hmrApplied": true,
+  "pass": true
+}

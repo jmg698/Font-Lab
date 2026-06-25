@@ -1,0 +1,12 @@
+{
+  "name": "font-lab-m0-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway M0 go/no-go spike: injection-survives-HMR + preview==ship parity.",
+  "dependencies": {
+    "@capsizecss/metrics": "^3.4.0",
+    "pixelmatch": "^6.0.0",
+    "playwright": "1.56.1",
+    "pngjs": "^7.0.0"
+  }
+}

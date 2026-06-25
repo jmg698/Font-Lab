@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "name": "imports Fraunces",
+      "pass": true
+    },
+    {
+      "name": "imports Libre_Franklin",
+      "pass": true
+    },
+    {
+      "name": "imports JetBrains_Mono",
+      "pass": true
+    },
+    {
+      "name": "declares fontLabDisplay on --font-display",
+      "pass": true
+    },
+    {
+      "name": "declares fontLabBody on --font-sans",
+      "pass": true
+    },
+    {
+      "name": "declares fontLabMono on --font-mono",
+      "pass": true
+    },
+    {
+      "name": "removed the replaced Inter import",
+      "pass": true
+    },
+    {
+      "name": "removed the old `const inter`",
+      "pass": true
+    },
+    {
+      "name": "html className has all 3 role variables",
+      "pass": true
+    },
+    {
+      "name": "html className dropped old inter.variable",
+      "pass": true
+    },
+    {
+      "name": "css has fenced @theme block",
+      "pass": true
+    },
+    {
+      "name": "layout.tsx unchanged on re-apply (idempotent)",
+      "pass": true
+    },
+    {
+      "name": "globals.css unchanged on re-apply (idempotent)",
+      "pass": true
+    },
+    {
+      "name": "project builds after apply",
+      "pass": true
+    },
+    {
+      "name": "h1 renders Fraunces",
+      "pass": true
+    },
+    {
+      "name": "body renders Libre Franklin",
+      "pass": true
+    },
+    {
+      "name": "code renders JetBrains Mono",
+      "pass": true
+    },
+    {
+      "name": "undo restores layout.tsx byte-identical",
+      "pass": true
+    },
+    {
+      "name": "undo restores globals.css byte-identical",
+      "pass": true
+    }
+  ]
+}
