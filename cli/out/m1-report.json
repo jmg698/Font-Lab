@@ -83,12 +83,12 @@
   ],
   "finalSelection": {
     "version": 1,
-    "pickedAt": "2026-06-25T03:14:33.201Z",
+    "pickedAt": "2026-06-25T23:19:25.685Z",
     "direction": {
       "id": "editorial-serif",
       "name": "Editorial",
       "vibe": "editorial",
-      "rationale": "Warm high-contrast serif headlines over a clean grotesque body."
+      "rationale": "Warm high-contrast serif headlines over a clean grotesque body. (replaces Inter.)"
     },
     "roles": {
       "display": {

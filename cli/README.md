@@ -10,6 +10,12 @@ between curated directions on their own running site and picks one; the pick is 
 > - **M2** (`cli/run-m2.sh`, 19/19): `selection.json` → real `next/font` + Tailwind edits
 >   that **build** and **render** the picked fonts, applied **idempotently** and
 >   **reversibly** (backup-first undo, byte-identical restore). The link nobody else closes.
+> - **M6** (`cli/run-m6.sh`, M1 16/16 + M6 17/17): the **choosing moment polished**, driven in
+>   a real browser. **Mixed picks** (heading from one direction, body from another), **before/
+>   after**, **pin-two-to-compare**, **more-like-this**, refined keyboard UX, and **multi-route
+>   flipping** — the working pairing persists across routes (`/`, `/dense`, `/form`) via
+>   sessionStorage, because a face reads differently on a hero vs. a dense page vs. a form. A
+>   mixed pick ships end to end (verified: Fraunces/Figtree/JetBrains Mono → real `next/font`).
 > - **M5** (`cli/run-m5.sh`, 26/26): the **MCP server + skill** so an agent drives the whole
 >   loop (analyze → curate *or* compose → preview → read the pick → apply). The agent gets the
 >   curated default for free **and can take the wheel** — composing its own directions from the
@@ -81,9 +87,16 @@ cd examples/sample-next-site && pnpm dev                   # your dev server
 node cli/font-lab.mjs --project examples/sample-next-site  # the pick endpoint (:7777)
 ```
 
-Then open the dev site: a panel (bottom-right) shows the current state + two directions.
-`←`/`→` flip the active direction (display + body + mono swap live on your real content);
-`Enter` or **Pick** writes the selection.
+Then open the dev site: a panel (bottom-right) shows the current state + the curated
+directions, swapping live on your real content. Keys (M6):
+
+- `←` `→` — flip direction · `↑` `↓` — focus a role · `[` `]` — swap just that role (**mixed
+  picks**: heading from one direction, body from another)
+- `B` — before/after · `P` then `Space` — **pin two and compare** · `M` — more like this
+- `Enter` or **Pick** — write the selection
+
+The working pairing follows you across routes (`/`, `/dense`, `/form`) so you can judge a face
+on a hero, a dense page, and a form — "your real site" is more than one screen.
 
 ### Let an agent drive it (M5)
 
@@ -135,8 +148,8 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |
 | `apply.mjs` / `undo.mjs` | thin CLI wrappers around the ship engine |
-| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` / `m5-test.mjs` | headless e2e of the loop (M1), ship engine (M2), analyzer + branch selection on the fixtures and the real jack site (M3), catalog coverage + curator logic (M4), and the engine facade + MCP server over stdio (M5) |
-| `run-m1.sh` … `run-m5.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen checks; catalog coverage + curator determinism; engine + MCP protocol |
+| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` / `m5-test.mjs` / `m6-test.mjs` | headless e2e of the loop (M1), ship engine (M2), analyzer + branch selection (M3), catalog + curator (M4), engine + MCP over stdio (M5), and the polished panel — mixed picks / pin / multi-route — in a real browser (M6) |
+| `run-m1.sh` … `run-m6.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen; catalog+curator; engine+MCP; mixed-picks/pin/multi-route in a browser |
 
 ## The contract it writes
 

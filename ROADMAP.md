@@ -96,10 +96,12 @@ discoverability** so agents reach for Font Lab when a user wants to choose a fon
 real stdio (initialize / tools-list / tools-call). Mirroring impeccable's provider-native
 hook-manifest pattern beyond MCP is left as a follow-on.
 
-### M6 — Polish the choosing moment
-Pin-two-to-compare, "more like this one," refined keyboard UX, mixed picks (heading from A,
-body from B), and **multi-route flipping** — fonts read differently on a hero vs. a dense
-docs page vs. a form, so "your real site" means more than one screen.
+### M6 — Polish the choosing moment  *(done — `cli/run-m6.sh`, M1 16/16 + M6 17/17, in a real browser)*
+**Mixed picks** (heading from one direction, body from another — assembled per role and shipped
+intact), **pin-two-to-compare**, **"more like this one,"** refined keyboard UX, and
+**multi-route flipping** — the working pairing persists across routes (`/`, `/dense`, `/form`)
+via sessionStorage, because a face reads differently on a hero vs. a dense docs page vs. a form.
+All driven and verified in a real browser; a mixed pick ships end to end through codegen.
 
 ### Parallel front-door (awareness, not the product)
 A deliberately thin bookmarklet/extension whose only job is the wow on any live site →
