@@ -98,6 +98,26 @@ directions, swapping live on your real content. Keys (M6):
 The working pairing follows you across routes (`/`, `/dense`, `/form`) so you can judge a face
 on a hero, a dense page, and a form — "your real site" is more than one screen.
 
+### Run it on your own project (`font-lab init`)
+
+One command makes any supported project (App Router + Tailwind v4 + CSS-variable fonts)
+previewable — it self-hosts the parity bundles, drops in the dev panel, and mounts it
+dev-only in your layout:
+
+```bash
+node cli/init.mjs --project <your-project>     # scaffold panel + parity bundles (reversible)
+cd <your-project> && <your dev command>        # e.g. next dev / npm run dev
+node cli/font-lab.mjs --project <your-project> # the pick endpoint (:7777)
+# → flip in the panel, Pick, then `node cli/apply.mjs --project <your-project>`
+node cli/init.mjs --project <your-project> --undo   # remove the panel scaffolding
+```
+
+The panel swaps through your project's **own** leaf font variables (the analyzer's `wiring`),
+so the live preview is byte-for-byte what `apply` ships. A role the site doesn't route through
+a variable is shown as *not wired* rather than faked. Proven end to end on the real
+jack-mcgovern.com (body swapped site-wide live → shipped Playfair Display / Source Serif 4 /
+Roboto Mono → reverted clean).
+
 ### Let an agent drive it (M5)
 
 Register the MCP server so an agent can run the whole loop (analyze → curate/compose →
@@ -144,6 +164,8 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 | `gen-catalog.mjs` | CLI: analyzer → curator → `generateCatalog`, bakes the real `current`/`target`/`directions` into `app/_fontlab/catalog.generated.ts` |
 | `engine.mjs` | **the engine facade (M5):** the stable API the MCP wraps — `analyze`, `listCatalog`, `curate`, `composeDirections` (option 3, catalog-gated), `preparePreview`, `readSelection`, `apply`, `undo` |
 | `mcp.mjs` | **the MCP server (M5):** dependency-free JSON-RPC/stdio server exposing the engine as 8 agent tools, descriptions tuned for discoverability |
+| `init.mjs` | **the installer:** scaffolds the panel + parity bundles into a real project and mounts it dev-only in the layout; `--undo` restores byte-for-byte. The last mile to "your own running site" |
+| `templates/font-lab-panel.tsx` | the portable dev panel `init` installs — same UX as the fixture's, but swaps through the analyzer's `wiring` so it's honest on any site |
 | `../skill/font-lab/SKILL.md` | the skill manifest — how an agent drives the loop and the rules (human picks; catalog-only; be honest about coverage) |
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |

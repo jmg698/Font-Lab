@@ -93,6 +93,10 @@ export const catalogFontFaceCss = ${JSON.stringify("\n" + faceCss.join("\n") + "
 export const target = ${JSON.stringify(meta.target ?? null, null, 2)} as const;
 export const replaces = ${JSON.stringify(meta.replaces ?? null, null, 2)} as const;
 
+// Per-role preview swap target (M5/M6): which leaf var to override and on which element. The
+// portable panel reads this so the live swap is honest on any site. null = unswappable role.
+export const wiring = ${JSON.stringify(meta.wiring ?? null, null, 2)} as const;
+
 export type Role = "display" | "body" | "mono";
 export type RoleFont = { family: string; source: string; weights: number[]; stack: string };
 export type Direction = {

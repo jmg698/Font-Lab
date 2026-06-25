@@ -385,6 +385,21 @@ export function analyzeProject(projectDir) {
   };
 }
 
+// The preview swap target, per role: which leaf next/font variable to override and on which
+// element next/font set it. This is what makes the live panel honest on ANY site — override
+// the same variable that ship rewrites, at the same element, so preview == ship by
+// construction. Roles with no next/font variable (e.g. a system-mono `--font-mono`) are null:
+// the panel can't preview a swap the site doesn't wire (we say so instead of faking it).
+export function wiringFor(a) {
+  const el = a.classNameTarget || "html";
+  const w = {};
+  for (const role of ROLES) {
+    const r = a.roles[role];
+    w[role] = r && r.nextFontVar ? { var: r.nextFontVar, el } : null;
+  }
+  return w;
+}
+
 // The subset codegen and selection.json care about.
 export function toTarget(a) {
   return {

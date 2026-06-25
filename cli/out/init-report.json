@@ -1,0 +1,40 @@
+{
+  "results": [
+    {
+      "name": "init: catalog.generated.ts written",
+      "pass": true
+    },
+    {
+      "name": "init: generated module carries wiring",
+      "pass": true
+    },
+    {
+      "name": "init: portable panel copied",
+      "pass": true
+    },
+    {
+      "name": "init: layout imports next/dynamic",
+      "pass": true
+    },
+    {
+      "name": "init: layout declares the dev-only panel",
+      "pass": true
+    },
+    {
+      "name": "init: panel mounted in <body>",
+      "pass": true
+    },
+    {
+      "name": "init: re-init doesn't duplicate the mount",
+      "pass": true
+    },
+    {
+      "name": "undo: layout restored byte-identical",
+      "pass": true
+    },
+    {
+      "name": "undo: _fontlab removed",
+      "pass": true
+    }
+  ]
+}

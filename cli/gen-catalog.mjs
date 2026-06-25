@@ -9,7 +9,7 @@
 
 import { fileURLToPath } from "node:url";
 import { curate } from "./curator.mjs";
-import { analyzeProject, toTarget } from "./analyzer.mjs";
+import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
 
 const arg = (flag, def) => {
@@ -28,5 +28,5 @@ console.log(
 );
 console.log(`  curated ${directions.length} directions: ${directions.map((d) => d.name).join(", ")}`);
 
-const r = await generateCatalog(APP, directions, { target, replaces }, { log: (m) => console.log(m) });
+const r = await generateCatalog(APP, directions, { target, replaces, wiring: wiringFor(analysis) }, { log: (m) => console.log(m) });
 console.log(`\nwrote app/_fontlab/catalog.generated.ts (${r.fonts.length} fonts, ${r.directions.length} directions)`);
