@@ -1,8 +1,6 @@
 // M0 injection — prove the dev panel's :root font swap survives Next.js Fast Refresh.
-//
-// Steps: load /, click the panel's "Fraunces" button (sets --fl-* on <html> via inline
-// style), then edit app/page.tsx to trigger a real Fast Refresh (we rewrite a marker and
-// wait for it to appear), then assert the swap is still in effect. Reverts the edit after.
+// Panel-agnostic: it flips to the first available direction, then edits app/page.tsx to
+// trigger a real Fast Refresh, and asserts the inline --fl-* override on <html> is intact.
 
 import { chromium } from "playwright";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -22,7 +20,8 @@ const rec = (k, v) => {
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 2 });
-const bodyFont = () => page.evaluate(() => getComputedStyle(document.body).fontFamily);
+const flSans = () => page.evaluate(() => document.documentElement.style.getPropertyValue("--fl-sans"));
+const activeId = () => page.evaluate(() => document.documentElement.getAttribute("data-fontlab-active"));
 
 await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
 await page.evaluate(async () => {
@@ -30,21 +29,20 @@ await page.evaluate(async () => {
   return true;
 });
 await page.waitForTimeout(700);
-rec("font.initial", await bodyFont());
+rec("flSans.initial", await flSans());
 
-// Flip to Fraunces via the shadow-DOM panel.
+// Flip to the first real direction (index 1; index 0 is "current").
 await page.evaluate(() => {
-  const host = document.getElementById("fontlab-panel-host");
-  host.shadowRoot.querySelector('button[data-fl="fraunces"]').click();
+  const buttons = document.getElementById("fontlab-panel-host").shadowRoot.querySelectorAll("button.dir");
+  buttons[1].click();
 });
 await page.evaluate(async () => {
   await document.fonts.ready;
   return true;
 });
 await page.waitForTimeout(400);
-rec("active.afterClick", await page.evaluate(() => document.documentElement.getAttribute("data-fontlab-active")));
-rec("flSans.afterClick", await page.evaluate(() => document.documentElement.style.getPropertyValue("--fl-sans")));
-rec("font.afterClick", await bodyFont());
+rec("active.afterClick", await activeId());
+rec("flSans.afterClick", await flSans());
 await page.screenshot({ path: OUT + "hmr-before.png", fullPage: true });
 
 // Trigger a real Fast Refresh by editing the page component.
@@ -64,9 +62,8 @@ try {
     await page.waitForTimeout(250);
   }
   rec("hmr.applied", hmrApplied);
-  rec("active.afterHMR", await page.evaluate(() => document.documentElement.getAttribute("data-fontlab-active")));
-  rec("flSans.afterHMR", await page.evaluate(() => document.documentElement.style.getPropertyValue("--fl-sans")));
-  rec("font.afterHMR", await bodyFont());
+  rec("active.afterHMR", await activeId());
+  rec("flSans.afterHMR", await flSans());
   await page.screenshot({ path: OUT + "hmr-after.png", fullPage: true });
 } finally {
   writeFileSync(PAGE_FILE, orig); // always revert
@@ -75,8 +72,10 @@ try {
 
 const pass =
   hmrApplied &&
-  log["active.afterHMR"] === "fraunces" &&
-  /FL Fraunces/i.test(log["font.afterHMR"] || "");
+  log["active.afterHMR"] !== "current" &&
+  log["active.afterHMR"] === log["active.afterClick"] &&
+  log["flSans.afterHMR"] !== "" &&
+  log["flSans.afterHMR"] === log["flSans.afterClick"];
 writeFileSync(OUT + "hmr-report.json", JSON.stringify({ log, hmrApplied, pass }, null, 2));
 console.log("HMR PASS =", pass);
 if (!pass) process.exit(4);

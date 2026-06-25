@@ -1,0 +1,132 @@
+{
+  "results": [
+    {
+      "name": "starts on current state",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "current body is Inter",
+      "pass": true,
+      "extra": "Inter, \"Inter Fallback\", ui-sans-serif, system-ui, sans-serif"
+    },
+    {
+      "name": "ArrowRight selects editorial-serif",
+      "pass": true,
+      "extra": "editorial-serif"
+    },
+    {
+      "name": "body swapped to Libre Franklin",
+      "pass": true,
+      "extra": "\"FL Libre Franklin\", \"FL Libre Franklin Fallback\", sans-serif"
+    },
+    {
+      "name": "click selects modern-grotesque",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "body swapped to Figtree",
+      "pass": true,
+      "extra": "\"FL Figtree\", \"FL Figtree Fallback\", sans-serif"
+    },
+    {
+      "name": "display swapped to Bricolage",
+      "pass": true,
+      "extra": "\"FL Bricolage Grotesque\", \"FL Bricolage Grotesque Fallback\", sans-serif"
+    },
+    {
+      "name": "selection.json written",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "direction id = modern-grotesque",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "body family = Figtree",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "display family = Bricolage Grotesque",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "mono family = JetBrains Mono",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "target tailwind v4",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "records replaces (Inter)",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "Enter re-picks editorial-serif",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "picks.log appended (2 entries)",
+      "pass": true,
+      "extra": "lines=2"
+    }
+  ],
+  "finalSelection": {
+    "version": 1,
+    "pickedAt": "2026-06-25T03:14:33.201Z",
+    "direction": {
+      "id": "editorial-serif",
+      "name": "Editorial",
+      "vibe": "editorial",
+      "rationale": "Warm high-contrast serif headlines over a clean grotesque body."
+    },
+    "roles": {
+      "display": {
+        "family": "Fraunces",
+        "source": "google",
+        "weights": [
+          400,
+          700
+        ]
+      },
+      "body": {
+        "family": "Libre Franklin",
+        "source": "google",
+        "weights": [
+          400,
+          600
+        ]
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "source": "google",
+        "weights": [
+          400,
+          700
+        ]
+      }
+    },
+    "replaces": {
+      "display": "Inter",
+      "body": "Inter",
+      "mono": "JetBrains Mono"
+    },
+    "target": {
+      "framework": "next",
+      "router": "app",
+      "styling": "tailwind",
+      "tailwindVersion": 4,
+      "fontWiring": "css-variables"
+    }
+  }
+}

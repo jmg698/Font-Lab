@@ -1,0 +1,19 @@
+{
+  "name": "font-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Font Lab CLI — the walking-skeleton loop: serve the pick endpoint, build the parity catalog.",
+  "bin": { "font-lab": "./font-lab.mjs" },
+  "scripts": {
+    "gen": "node gen-catalog.mjs",
+    "start": "node font-lab.mjs",
+    "m1": "bash run-m1.sh"
+  },
+  "dependencies": {
+    "@capsizecss/metrics": "^3.4.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
