@@ -10,6 +10,11 @@ between curated directions on their own running site and picks one; the pick is 
 > - **M2** (`cli/run-m2.sh`, 19/19): `selection.json` → real `next/font` + Tailwind edits
 >   that **build** and **render** the picked fonts, applied **idempotently** and
 >   **reversibly** (backup-first undo, byte-identical restore). The link nobody else closes.
+> - **M5** (`cli/run-m5.sh`, 26/26): the **MCP server + skill** so an agent drives the whole
+>   loop (analyze → curate *or* compose → preview → read the pick → apply). The agent gets the
+>   curated default for free **and can take the wheel** — composing its own directions from the
+>   catalog (option 3) — but only from catalog fonts, so preview == ship still holds. The human
+>   always makes the final pick. Verified over real stdio (initialize / tools-list / tools-call).
 > - **M4** (`cli/run-m4.sh`, 96/96): the **parity catalog + curator**. A 41-font catalog of
 >   variable Google fonts, each gated on *verified* capsize coverage (checked by importing
 >   the metrics) and single-woff2 variable parity. A deterministic, **LLM-free** curator
@@ -80,6 +85,27 @@ Then open the dev site: a panel (bottom-right) shows the current state + two dir
 `←`/`→` flip the active direction (display + body + mono swap live on your real content);
 `Enter` or **Pick** writes the selection.
 
+### Let an agent drive it (M5)
+
+Register the MCP server so an agent can run the whole loop (analyze → curate/compose →
+preview → read pick → apply):
+
+```jsonc
+// .mcp.json (or your client's MCP config)
+{
+  "mcpServers": {
+    "font-lab": { "command": "node", "args": ["/abs/path/to/cli/mcp.mjs"] }
+  }
+}
+```
+
+The 8 tools (`font_lab_analyze`, `font_lab_list_catalog`, `font_lab_curate`,
+`font_lab_compose_directions`, `font_lab_prepare_preview`, `font_lab_read_pick`,
+`font_lab_apply`, `font_lab_undo`) and the loop are described in
+[`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md). The agent gets the curated default
+for free and can compose its own directions from the catalog — but the **human always makes
+the pick**, and composed fonts must be catalog members so preview still equals ship.
+
 ### Ship the pick (M2)
 
 ```bash
@@ -101,12 +127,16 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 | `catalog.mjs` | **the catalog (M4):** ~41 variable Google fonts as parity bundles — each with a verified capsize slug, a discovered css2 latin query, role suitability, and vibe tags. Pure data; the parity asset |
 | `curator.mjs` | **the curator (M4):** ~12 hand-authored directions + a deterministic `curate(analysis, {vibe, count})` that returns ~5, moving off the current fonts. No runtime LLM |
 | `curate.mjs` | thin CLI to preview the directions for a project (`--project`, `--vibe`, `--count`, `--json`) |
-| `gen-catalog.mjs` | runs analyzer → curator, self-hosts the curated directions' fonts and computes next/font's exact adjusted fallback (M0-proven parity), and bakes the real `current`/`target`/`directions` into `app/_fontlab/catalog.generated.ts` |
+| `catalog-build.mjs` | reusable `generateCatalog(projectDir, directions, meta)` — self-hosts fonts + computes parity fallbacks + writes the generated module. Built from curated OR agent-composed directions |
+| `gen-catalog.mjs` | CLI: analyzer → curator → `generateCatalog`, bakes the real `current`/`target`/`directions` into `app/_fontlab/catalog.generated.ts` |
+| `engine.mjs` | **the engine facade (M5):** the stable API the MCP wraps — `analyze`, `listCatalog`, `curate`, `composeDirections` (option 3, catalog-gated), `preparePreview`, `readSelection`, `apply`, `undo` |
+| `mcp.mjs` | **the MCP server (M5):** dependency-free JSON-RPC/stdio server exposing the engine as 8 agent tools, descriptions tuned for discoverability |
+| `../skill/font-lab/SKILL.md` | the skill manifest — how an agent drives the loop and the rules (human picks; catalog-only; be honest about coverage) |
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |
 | `apply.mjs` / `undo.mjs` | thin CLI wrappers around the ship engine |
-| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` | headless e2e of the loop (M1), the ship engine (M2), the analyzer + branch selection on the fixtures and the real jack site (M3), and the catalog coverage + curator logic (M4) |
-| `run-m1.sh` … `run-m4.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen structural checks; catalog coverage + curator determinism |
+| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` / `m5-test.mjs` | headless e2e of the loop (M1), ship engine (M2), analyzer + branch selection on the fixtures and the real jack site (M3), catalog coverage + curator logic (M4), and the engine facade + MCP server over stdio (M5) |
+| `run-m1.sh` … `run-m5.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen checks; catalog coverage + curator determinism; engine + MCP protocol |
 
 ## The contract it writes
 

@@ -85,11 +85,16 @@ current fonts, ranks by vibe, and is fully reproducible. `gen-catalog` now runs 
 analyzer → curator → parity-bundle pipeline. Seeding the brief from an impeccable
 `detect --json` audit is left as an optional future hook.
 
-### M5 — MCP server + skill (+ agent discoverability)
-Wrap the engine so an agent drives the whole loop: invoke → curate → preview → read the
-pick → apply. Tune the skill/tool **description** so agents reach for Font Lab when a user
-asks to pick a font ("SEO for agents"). Mirror impeccable's provider-native hook-manifest
-pattern, not just MCP.
+### M5 — MCP server + skill (+ agent discoverability)  *(done — `cli/mcp.mjs`, `cli/engine.mjs`, `skill/font-lab/SKILL.md`, `cli/run-m5.sh` 26/26)*
+A dependency-free JSON-RPC/stdio **MCP server** wraps the engine as 8 tools so an agent drives
+the whole loop: invoke → curate → preview → read the pick → apply. The agent gets the curated
+default for free **and can take the wheel** — composing its own directions from the catalog
+(option 3) — but only from catalog fonts, so preview == ship still holds, and the **human
+always makes the final pick** (the engine only ever prepares a preview; it never auto-selects).
+A `SKILL.md` documents the loop and the rules, with tool/skill **descriptions tuned for
+discoverability** so agents reach for Font Lab when a user wants to choose a font. Verified over
+real stdio (initialize / tools-list / tools-call). Mirroring impeccable's provider-native
+hook-manifest pattern beyond MCP is left as a follow-on.
 
 ### M6 — Polish the choosing moment
 Pin-two-to-compare, "more like this one," refined keyboard UX, mixed picks (heading from A,

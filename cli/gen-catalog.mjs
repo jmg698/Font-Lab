@@ -1,29 +1,23 @@
-// M4 — build the "parity catalog" the dev panel previews from. The flow is now the full
-// analyzer → curator → preview pipeline:
+// `font-lab gen` — build the parity catalog the dev panel previews from. Thin CLI over the
+// full analyzer → curator → generateCatalog pipeline:
 //   1. analyze the project (M3) → target + the real current fonts;
 //   2. curate ~5 directions for it (M4, deterministic, no LLM);
-//   3. for every font those directions use, self-host the Google variable woff2 and compute
-//      next/font's exact adjusted fallback (M0 proved this renders identically to ship);
-//   4. write the generated module the panel imports, + the woff2 into public/fontlab/.
+//   3. self-host each font's variable woff2 + compute next/font's exact adjusted fallback
+//      (M0-proven parity) and write app/_fontlab/catalog.generated.ts.
 //
 // Uses curl (which honors the sandbox HTTPS proxy) to fetch from Google.
 
-import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { get as catalogGet } from "./catalog.mjs";
-import { curate, fontsForDirections } from "./curator.mjs";
+import { curate } from "./curator.mjs";
 import { analyzeProject, toTarget } from "./analyzer.mjs";
+import { generateCatalog } from "./catalog-build.mjs";
 
 const arg = (flag, def) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
 };
-const APP = (arg("--project", fileURLToPath(new URL("../examples/sample-next-site/", import.meta.url))) + "/").replace(/\/+$/, "/");
-const PUBLIC = APP + "public/fontlab/";
-mkdirSync(PUBLIC, { recursive: true });
+const APP = arg("--project", fileURLToPath(new URL("../examples/sample-next-site/", import.meta.url))).replace(/\/+$/, "");
 
-// 1) analyze → target + current state. 2) curate ~5 directions for this project.
 const analysis = analyzeProject(APP);
 const target = toTarget(analysis);
 const replaces = analysis.replaces;
@@ -34,103 +28,5 @@ console.log(
 );
 console.log(`  curated ${directions.length} directions: ${directions.map((d) => d.name).join(", ")}`);
 
-const UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
-const slug = (family) => family.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-const pct = (n) => `${(Math.abs(n) * 100).toFixed(2)}%`;
-const generic = (cat) => (cat === "serif" ? "serif" : cat === "monospace" ? "monospace" : "sans-serif");
-
-async function metricsFor(capsizeSlug) {
-  return (await import("@capsizecss/metrics/" + capsizeSlug)).default;
-}
-
-// Compute next/font's adjusted-fallback descriptors for `main` against its fallback.
-function overrides(main, fallback) {
-  const sizeAdjust = main.xWidthAvg / main.unitsPerEm / (fallback.xWidthAvg / fallback.unitsPerEm);
-  return {
-    sizeAdjust: pct(sizeAdjust),
-    ascent: pct(main.ascent / (main.unitsPerEm * sizeAdjust)),
-    descent: pct(main.descent / (main.unitsPerEm * sizeAdjust)),
-    lineGap: pct(main.lineGap / (main.unitsPerEm * sizeAdjust)),
-  };
-}
-
-const arial = await metricsFor("arial");
-const timesNewRoman = await metricsFor("timesNewRoman");
-
-const faceCss = [];
-const stacks = {}; // family -> css family stack string
-
-const families = fontsForDirections(directions);
-
-for (const family of families) {
-  const spec = catalogGet(family); // throws if not a verified catalog member
-
-  // 1) fetch the latin woff2 URL from Google css2 and self-host it.
-  const css = execFileSync("curl", ["-sSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });
-  const m = css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/);
-  if (!m) throw new Error(`Could not find latin woff2 for "${family}"`);
-  const dest = PUBLIC + slug(family) + ".woff2";
-  execFileSync("curl", ["-sSL", "-A", UA, "-o", dest, m[1]]);
-
-  // 2) compute next/font-identical adjusted fallback from capsize.
-  const main = await metricsFor(spec.capsize);
-  const isSerif = main.category === "serif";
-  const fb = isSerif ? timesNewRoman : arial;
-  const fbName = isSerif ? "Times New Roman" : "Arial";
-  const o = overrides(main, fb);
-
-  faceCss.push(
-    `@font-face{font-family:'FL ${family}';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/${slug(family)}.woff2') format('woff2');}`,
-    `@font-face{font-family:'FL ${family} Fallback';src:local('${fbName}');size-adjust:${o.sizeAdjust};ascent-override:${o.ascent};descent-override:${o.descent};line-gap-override:${o.lineGap};}`,
-  );
-  stacks[family] = `'FL ${family}', 'FL ${family} Fallback', ${generic(main.category)}`;
-  console.log(`  ${family.padEnd(20)} -> ${slug(family)}.woff2  (fallback ${fbName}, size-adjust ${o.sizeAdjust})`);
-}
-
-// Assemble the generated directions with both data (for selection.json) and css stacks.
-const outDirections = directions.map((d) => ({
-  id: d.id,
-  name: d.name,
-  vibe: d.vibe,
-  rationale: d.rationale,
-  roles: Object.fromEntries(
-    Object.entries(d.roles).map(([role, r]) => [
-      role,
-      { family: r.family, source: "google", weights: r.weights, stack: stacks[r.family] },
-    ]),
-  ),
-}));
-
-const ts = `// AUTO-GENERATED by cli/gen-catalog.mjs — do not edit by hand.
-import type { CSSProperties } from "react";
-
-export const catalogFontFaceCss = ${JSON.stringify("\n" + faceCss.join("\n") + "\n")};
-
-export const target = ${JSON.stringify(target, null, 2)} as const;
-export const replaces = ${JSON.stringify(replaces, null, 2)} as const;
-
-export type Role = "display" | "body" | "mono";
-export type RoleFont = { family: string; source: string; weights: number[]; stack: string };
-export type Direction = {
-  id: string;
-  name: string;
-  vibe: string;
-  rationale: string;
-  roles: Record<Role, RoleFont>;
-};
-
-export const directions: Direction[] = ${JSON.stringify(outDirections, null, 2)};
-
-// CSS-variable overrides a direction applies on :root (the swap mechanism, M0-proven).
-export function directionVars(d: Direction): CSSProperties {
-  return {
-    "--fl-display": d.roles.display.stack,
-    "--fl-sans": d.roles.body.stack,
-    "--fl-mono": d.roles.mono.stack,
-  } as CSSProperties;
-}
-`;
-
-writeFileSync(APP + "app/_fontlab/catalog.generated.ts", ts);
-console.log(`\nwrote app/_fontlab/catalog.generated.ts (${families.length} fonts, ${outDirections.length} directions)`);
+const r = await generateCatalog(APP, directions, { target, replaces }, { log: (m) => console.log(m) });
+console.log(`\nwrote app/_fontlab/catalog.generated.ts (${r.fonts.length} fonts, ${r.directions.length} directions)`);

@@ -9,7 +9,8 @@
     "font-lab-apply": "./apply.mjs",
     "font-lab-undo": "./undo.mjs",
     "font-lab-analyze": "./analyze.mjs",
-    "font-lab-curate": "./curate.mjs"
+    "font-lab-curate": "./curate.mjs",
+    "font-lab-mcp": "./mcp.mjs"
   },
   "scripts": {
     "gen": "node gen-catalog.mjs",
@@ -18,10 +19,12 @@
     "curate": "node curate.mjs",
     "apply": "node apply.mjs",
     "undo": "node undo.mjs",
+    "mcp": "node mcp.mjs",
     "m1": "bash run-m1.sh",
     "m2": "bash run-m2.sh",
     "m3": "bash run-m3.sh",
-    "m4": "bash run-m4.sh"
+    "m4": "bash run-m4.sh",
+    "m5": "bash run-m5.sh"
   },
   "dependencies": {
     "@capsizecss/metrics": "^3.4.0",

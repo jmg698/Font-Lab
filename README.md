@@ -21,12 +21,13 @@ agent ships the implementation.
 
 ## Status
 
-**M0 → M4 shipped.** The go/no-go spike (M0) proved the live swap survives HMR and that
+**M0 → M5 shipped.** The go/no-go spike (M0) proved the live swap survives HMR and that
 **preview equals ship**; M1 is the end-to-end choosing loop; M2 is the reversible ship
 engine; **M3 is the real analyzer** (framework, router, Tailwind version, current fonts,
 wiring + coverage diagnostics), verified on the in-repo fixtures *and* the real
 jack-mcgovern.com site; **M4 is the parity catalog + curator** — a 41-font catalog of
-capsize-verified variable fonts and a deterministic, LLM-free curator that turns the analysis
-into ~5 tasteful directions. See [`ROADMAP.md`](./ROADMAP.md) and
-[`cli/README.md`](./cli/README.md) for the per-milestone evidence. Next up: **M5** — MCP
-server + skill so an agent drives the whole loop.
+capsize-verified variable fonts and a deterministic, LLM-free curator; **M5 is the MCP server
++ skill** that lets an agent drive the whole loop (and compose its own directions from the
+catalog) while the human keeps the final pick. See [`ROADMAP.md`](./ROADMAP.md) and
+[`cli/README.md`](./cli/README.md) for the per-milestone evidence. Next up: **M6** — polish the
+choosing moment (pin-to-compare, "more like this," mixed picks, multi-route flipping).
