@@ -8,11 +8,27 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { fonts, directions, target, replaces } from "./directions.mjs";
+import { fonts, directions } from "./directions.mjs";
+import { analyzeProject, toTarget } from "./analyzer.mjs";
 
-const APP = fileURLToPath(new URL("../examples/sample-next-site/", import.meta.url));
+const arg = (flag, def) => {
+  const i = process.argv.indexOf(flag);
+  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
+};
+const APP = (arg("--project", fileURLToPath(new URL("../examples/sample-next-site/", import.meta.url))) + "/").replace(/\/+$/, "/");
 const PUBLIC = APP + "public/fontlab/";
 mkdirSync(PUBLIC, { recursive: true });
+
+// M3: the panel's "current" and before/after toggle are no longer hand-written — the
+// analyzer reads the real project. target -> codegen branch; replaces -> the live current
+// state the preview compares each direction against.
+const analysis = analyzeProject(APP);
+const target = toTarget(analysis);
+const replaces = analysis.replaces;
+console.log(
+  `  analyzed ${analysis.router}/${target.framework} · tailwind v${target.tailwindVersion} · ${target.fontWiring}` +
+    ` · current: ${replaces.display ?? "—"} / ${replaces.body ?? "—"} / ${replaces.mono ?? "—"}`,
+);
 
 const UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";

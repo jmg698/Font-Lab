@@ -1,18 +1,8 @@
-// M1 walking skeleton — the two hardcoded directions (the "curated set"), the current
-// fonts they replace, and the ship target. In later milestones the catalog/curator
-// (M4) produce these and the analyzer (M3) detects `target`/`replaces`; for now they are
-// hand-authored so the whole loop can run end to end.
-
-export const target = {
-  framework: "next",
-  router: "app",
-  styling: "tailwind",
-  tailwindVersion: 4,
-  fontWiring: "css-variables",
-};
-
-// What the fixture currently ships (the slop baseline the directions move away from).
-export const replaces = { display: "Inter", body: "Inter", mono: "JetBrains Mono" };
+// The curated set — the two hand-authored directions and the fonts they use. M4's
+// catalog/curator will produce these; for now they are hand-authored so the loop runs end
+// to end. The ship `target` and the `replaces` (current fonts) are NO LONGER hand-written
+// here — as of M3 the analyzer (analyzer.mjs) reads them from the real project, and
+// gen-catalog bakes that real analysis into the generated catalog.
 
 // How to self-host each family from Google (css2 query) and how to measure it (capsize
 // slug, for next/font-identical adjusted fallbacks). Every family here has capsize

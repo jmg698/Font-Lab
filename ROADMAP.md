@@ -62,11 +62,18 @@ idempotently and reversibly. Built against the pinned `sample-next-site` (known 
 markers for CSS/config, **backup-first** undo, verify-and-auto-restore on failure. This is
 the step nobody else closes — full spec in [`SHIP-SPEC.md`](./SHIP-SPEC.md).
 
-### M3 — Real analyzer
+### M3 — Real analyzer  *(done — `cli/analyzer.mjs`, `cli/run-m3.sh` 55/55)*
 Detect framework, **App vs Pages Router**, **Tailwind v3 vs v4**, current fonts, and font
 wiring (CSS-var vs hardcoded). Feeds the codegen branch selection *and* the before/after
-toggle. Panel shows `current: Inter/Geist` and a **before/after toggle** against the live
-current state.
+toggle. Panel shows `current: …` and a **before/after toggle** against the live current
+state. The analyzer traces the CSS custom-property graph from each role var (`--font-display`)
+back through any indirection to the next/font const that feeds it — so it names the real
+current font on a site that maps `--font-display: var(--font-bricolage)` as readily as on the
+fixture's `--font-sans → --fl-sans → --font-inter`. Codegen consumes it two ways: it
+**refuses** out-of-branch projects (v3 / Pages / hardcoded) with a clear reason, and on the
+supported branch it either replaces a role-var const or **adopts** the project's own variable
+(rewriting the const in place, minimal diff). Verified end-to-end on **jack-mcgovern.com**:
+analyzed, applied, **built**, rendered, and reverted byte-for-byte.
 
 ### M4 — Parity catalog + curator
 ~40-font catalog as **precomputed parity bundles** (woff2 + the two `@font-face` blocks +

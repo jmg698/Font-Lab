@@ -21,6 +21,10 @@ agent ships the implementation.
 
 ## Status
 
-Pre-code. Planning and architecture are committed; implementation starts at **M0** — the
-go/no-go spike that proves the live font swap **survives HMR** and that **preview equals
-ship**. See [`ROADMAP.md`](./ROADMAP.md).
+**M0 → M3 shipped.** The go/no-go spike (M0) proved the live swap survives HMR and that
+**preview equals ship**; M1 is the end-to-end choosing loop; M2 is the reversible ship
+engine; **M3 is the real analyzer** — it reads any Next.js + Tailwind project (framework,
+router, Tailwind version, current fonts, wiring) and feeds both codegen's branch selection
+and the panel's before/after. Verified on the in-repo fixtures *and* the real
+jack-mcgovern.com site. See [`ROADMAP.md`](./ROADMAP.md) and [`cli/README.md`](./cli/README.md)
+for the per-milestone evidence. Next up: **M4** — the parity catalog + curator.
