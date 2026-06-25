@@ -75,11 +75,15 @@ supported branch it either replaces a role-var const or **adopts** the project's
 (rewriting the const in place, minimal diff). Verified end-to-end on **jack-mcgovern.com**:
 analyzed, applied, **built**, rendered, and reverted byte-for-byte.
 
-### M4 — Parity catalog + curator
-~40-font catalog as **precomputed parity bundles** (woff2 + the two `@font-face` blocks +
-verified capsize coverage). ~5 curated directions, each a name + vibe label + one-line
-rationale, chosen by a deterministic lookup. **No runtime LLM.** Optionally seed the brief
-from an impeccable `detect --json` audit.
+### M4 — Parity catalog + curator  *(done — `cli/catalog.mjs`, `cli/curator.mjs`, `cli/run-m4.sh` 96/96)*
+A **41-font catalog** of variable Google fonts as precomputed parity bundles (self-hosted
+woff2 + the two `@font-face` blocks), each gated on **verified capsize coverage** (checked
+by importing the metrics) *and* single-woff2 variable parity — the two hard requirements for
+"preview == ship." A deterministic **LLM-free curator** turns `analysis + vibe` into ~5
+curated directions, each a name + vibe label + one-line rationale; it moves off the project's
+current fonts, ranks by vibe, and is fully reproducible. `gen-catalog` now runs the whole
+analyzer → curator → parity-bundle pipeline. Seeding the brief from an impeccable
+`detect --json` audit is left as an optional future hook.
 
 ### M5 — MCP server + skill (+ agent discoverability)
 Wrap the engine so an agent drives the whole loop: invoke → curate → preview → read the

@@ -1,14 +1,18 @@
-// M1 — build the "parity catalog" the dev panel previews from: for every font in the two
-// directions, self-host the Google woff2 and compute next/font's exact adjusted fallback
-// (M0 proved this renders identically to ship). Writes the generated module the fixture's
-// panel imports, plus the woff2 files into the fixture's public/fontlab/.
+// M4 — build the "parity catalog" the dev panel previews from. The flow is now the full
+// analyzer → curator → preview pipeline:
+//   1. analyze the project (M3) → target + the real current fonts;
+//   2. curate ~5 directions for it (M4, deterministic, no LLM);
+//   3. for every font those directions use, self-host the Google variable woff2 and compute
+//      next/font's exact adjusted fallback (M0 proved this renders identically to ship);
+//   4. write the generated module the panel imports, + the woff2 into public/fontlab/.
 //
 // Uses curl (which honors the sandbox HTTPS proxy) to fetch from Google.
 
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { fonts, directions } from "./directions.mjs";
+import { get as catalogGet } from "./catalog.mjs";
+import { curate, fontsForDirections } from "./curator.mjs";
 import { analyzeProject, toTarget } from "./analyzer.mjs";
 
 const arg = (flag, def) => {
@@ -19,16 +23,16 @@ const APP = (arg("--project", fileURLToPath(new URL("../examples/sample-next-sit
 const PUBLIC = APP + "public/fontlab/";
 mkdirSync(PUBLIC, { recursive: true });
 
-// M3: the panel's "current" and before/after toggle are no longer hand-written — the
-// analyzer reads the real project. target -> codegen branch; replaces -> the live current
-// state the preview compares each direction against.
+// 1) analyze → target + current state. 2) curate ~5 directions for this project.
 const analysis = analyzeProject(APP);
 const target = toTarget(analysis);
 const replaces = analysis.replaces;
+const directions = curate(analysis, { vibe: arg("--vibe", undefined), count: Number(arg("--count", "5")) });
 console.log(
   `  analyzed ${analysis.router}/${target.framework} · tailwind v${target.tailwindVersion} · ${target.fontWiring}` +
     ` · current: ${replaces.display ?? "—"} / ${replaces.body ?? "—"} / ${replaces.mono ?? "—"}`,
 );
+console.log(`  curated ${directions.length} directions: ${directions.map((d) => d.name).join(", ")}`);
 
 const UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
@@ -57,11 +61,10 @@ const timesNewRoman = await metricsFor("timesNewRoman");
 const faceCss = [];
 const stacks = {}; // family -> css family stack string
 
-const families = [...new Set(directions.flatMap((d) => Object.values(d.roles).map((r) => r.family)))];
+const families = fontsForDirections(directions);
 
 for (const family of families) {
-  const spec = fonts[family];
-  if (!spec) throw new Error(`No fonts[] entry for "${family}"`);
+  const spec = catalogGet(family); // throws if not a verified catalog member
 
   // 1) fetch the latin woff2 URL from Google css2 and self-host it.
   const css = execFileSync("curl", ["-sSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });

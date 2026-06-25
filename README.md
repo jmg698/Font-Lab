@@ -21,10 +21,12 @@ agent ships the implementation.
 
 ## Status
 
-**M0 → M3 shipped.** The go/no-go spike (M0) proved the live swap survives HMR and that
+**M0 → M4 shipped.** The go/no-go spike (M0) proved the live swap survives HMR and that
 **preview equals ship**; M1 is the end-to-end choosing loop; M2 is the reversible ship
-engine; **M3 is the real analyzer** — it reads any Next.js + Tailwind project (framework,
-router, Tailwind version, current fonts, wiring) and feeds both codegen's branch selection
-and the panel's before/after. Verified on the in-repo fixtures *and* the real
-jack-mcgovern.com site. See [`ROADMAP.md`](./ROADMAP.md) and [`cli/README.md`](./cli/README.md)
-for the per-milestone evidence. Next up: **M4** — the parity catalog + curator.
+engine; **M3 is the real analyzer** (framework, router, Tailwind version, current fonts,
+wiring + coverage diagnostics), verified on the in-repo fixtures *and* the real
+jack-mcgovern.com site; **M4 is the parity catalog + curator** — a 41-font catalog of
+capsize-verified variable fonts and a deterministic, LLM-free curator that turns the analysis
+into ~5 tasteful directions. See [`ROADMAP.md`](./ROADMAP.md) and
+[`cli/README.md`](./cli/README.md) for the per-milestone evidence. Next up: **M5** — MCP
+server + skill so an agent drives the whole loop.

@@ -10,7 +10,12 @@ between curated directions on their own running site and picks one; the pick is 
 > - **M2** (`cli/run-m2.sh`, 19/19): `selection.json` → real `next/font` + Tailwind edits
 >   that **build** and **render** the picked fonts, applied **idempotently** and
 >   **reversibly** (backup-first undo, byte-identical restore). The link nobody else closes.
-> - **M3** (`cli/run-m3.sh`, 55/55): the **real analyzer** reads framework, App vs Pages
+> - **M4** (`cli/run-m4.sh`, 96/96): the **parity catalog + curator**. A 41-font catalog of
+>   variable Google fonts, each gated on *verified* capsize coverage (checked by importing
+>   the metrics) and single-woff2 variable parity. A deterministic, **LLM-free** curator
+>   turns the analysis into ~5 directions — moving off the current fonts, rankable by vibe,
+>   reproducible. Evidence in `cli/out/m4-report.json`.
+> - **M3** (`cli/run-m3.sh`, 60/60): the **real analyzer** reads framework, App vs Pages
 >   Router, Tailwind v3 vs v4, current fonts per role, and font wiring — and feeds both the
 >   codegen branch selection and the panel's before/after. Verified on the in-repo fixtures
 >   **and the real jack-mcgovern.com site**, where it correctly reads `Bricolage Grotesque /
@@ -64,7 +69,8 @@ with a headless browser, asserting the pick lands on disk. Verdict + assertions 
 
 ```bash
 node cli/analyze.mjs --project <your-project>             # what Font Lab sees (read-only)
-node cli/analyze.mjs --project <your-project> --json      # machine-readable analysis
+node cli/curate.mjs  --project <your-project>             # the ~5 directions it would offer
+node cli/curate.mjs  --project <your-project> --vibe editorial
 node cli/gen-catalog.mjs                                   # self-host fonts + build catalog
 cd examples/sample-next-site && pnpm dev                   # your dev server
 node cli/font-lab.mjs --project examples/sample-next-site  # the pick endpoint (:7777)
@@ -92,13 +98,15 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 |---|---|
 | `analyzer.mjs` | **the analyzer (M3):** pure, read-only audit of a project — framework, router, Tailwind version, current fonts per role, and wiring. Traces the CSS custom-property graph from `--font-*` back to the next/font const that feeds it. **Coverage diagnostics**: flags dead roles (a swap that won't be visible) and other font subsystems (routes a global swap won't reach) |
 | `analyze.mjs` | thin CLI around the analyzer (`--project`, `--json`) |
-| `directions.mjs` | the two hand-authored directions + the fonts they use (source of truth) |
-| `gen-catalog.mjs` | self-hosts each Google font and computes next/font's exact adjusted fallback (M0-proven parity); runs the analyzer to bake the **real** `current`/`target` into `app/_fontlab/catalog.generated.ts` |
+| `catalog.mjs` | **the catalog (M4):** ~41 variable Google fonts as parity bundles — each with a verified capsize slug, a discovered css2 latin query, role suitability, and vibe tags. Pure data; the parity asset |
+| `curator.mjs` | **the curator (M4):** ~12 hand-authored directions + a deterministic `curate(analysis, {vibe, count})` that returns ~5, moving off the current fonts. No runtime LLM |
+| `curate.mjs` | thin CLI to preview the directions for a project (`--project`, `--vibe`, `--count`, `--json`) |
+| `gen-catalog.mjs` | runs analyzer → curator, self-hosts the curated directions' fonts and computes next/font's exact adjusted fallback (M0-proven parity), and bakes the real `current`/`target`/`directions` into `app/_fontlab/catalog.generated.ts` |
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |
 | `apply.mjs` / `undo.mjs` | thin CLI wrappers around the ship engine |
-| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` | headless e2e of the loop (M1), the ship engine (M2), and the analyzer + branch selection on the fixtures and the real jack site (M3) |
-| `run-m1.sh` / `run-m2.sh` / `run-m3.sh` | builds catalog + runs the loop test; applies + builds + renders + checks idempotency/reversibility; analyzer + codegen structural checks |
+| `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` | headless e2e of the loop (M1), the ship engine (M2), the analyzer + branch selection on the fixtures and the real jack site (M3), and the catalog coverage + curator logic (M4) |
+| `run-m1.sh` … `run-m4.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen structural checks; catalog coverage + curator determinism |
 
 ## The contract it writes
 
