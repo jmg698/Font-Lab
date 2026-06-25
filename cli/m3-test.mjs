@@ -86,6 +86,8 @@ try {
   assert("clean: no display font wired", aClean.replaces.display === null, String(aClean.replaces.display));
   assert("clean: body Inter via --font-sans", aClean.replaces.body === "Inter", String(aClean.replaces.body));
   assert("clean: supported", aClean.supported === true, aClean.reasons.join("; "));
+  assert("clean: no dead roles (no false positives)", aClean.coverage.deadRoles.length === 0, aClean.coverage.deadRoles.join(","));
+  assert("sample: no dead roles (no false positives)", aSample.coverage.deadRoles.length === 0, aSample.coverage.deadRoles.join(","));
 
   const haveJack = existsSync(JACK);
   let aJack = null;
@@ -102,6 +104,10 @@ try {
     assert("jack: display rides --font-bricolage", aJack.roles.display?.nextFontVar === "--font-bricolage", String(aJack.roles.display?.nextFontVar));
     assert("jack: body rides --font-hanken", aJack.roles.body?.nextFontVar === "--font-hanken", String(aJack.roles.body?.nextFontVar));
     assert("jack: supported", aJack.supported === true, aJack.reasons.join("; "));
+    // Coverage diagnostics — the foolproofing: detect a swap that won't be visible.
+    assert("jack: flags display as a dead role", aJack.coverage.deadRoles.includes("display"), aJack.coverage.deadRoles.join(","));
+    assert("jack: does NOT flag body as dead", !aJack.coverage.deadRoles.includes("body"));
+    assert("jack: reports other font subsystems (/gus, /fonts)", aJack.coverage.otherSubsystems.length >= 2, String(aJack.coverage.otherSubsystems.length));
   } else {
     console.log("note: jack-mcgovern-site not found alongside Font-Lab — skipping its assertions");
   }

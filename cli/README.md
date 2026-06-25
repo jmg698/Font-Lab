@@ -32,6 +32,23 @@ Lab **preserved that behavior faithfully** rather than silently "fixing" it — 
 honesty the WYSIWYG promise requires: we swap the families through the project's own wiring
 and change nothing else.
 
+That dogfood turned into a feature. The analyzer now ships **coverage diagnostics** so the
+tool *detects* this class of problem instead of being surprised by it:
+
+- **Dead roles.** Under `@theme inline`, Tailwind v4 doesn't publish `--font-*` as a `:root`
+  variable — only the generated `font-*` utilities deref it. A site that hand-writes
+  `font-family: var(--font-display)` (a very common pattern) therefore has *silently broken*
+  display wiring. `analyze` flags it: `⚠ dead display — swap invisible until rewired`.
+- **Other subsystems.** Fonts declared with their own next/font in another route/component
+  (jack's `/gus` uses `--font-fraunces`/`--font-dm-sans`) are reported, so the agent/user
+  knows a global swap's true scope (full per-route flipping is M6).
+
+The principle this protects: **preview and ship must operate on the same leaf next/font
+variable, applied at the same element next/font uses** (the analyzer reports both
+`classNameTarget` and each role's `nextFontVar`). When they match, preview == ship *by
+construction* on any site — and when a swap genuinely can't be seen, the tool says so rather
+than letting the user pick blind.
+
 ## Run it
 
 ```bash
@@ -73,7 +90,7 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 
 | file | role |
 |---|---|
-| `analyzer.mjs` | **the analyzer (M3):** pure, read-only audit of a project — framework, router, Tailwind version, current fonts per role, and wiring. Traces the CSS custom-property graph from `--font-*` back to the next/font const that feeds it |
+| `analyzer.mjs` | **the analyzer (M3):** pure, read-only audit of a project — framework, router, Tailwind version, current fonts per role, and wiring. Traces the CSS custom-property graph from `--font-*` back to the next/font const that feeds it. **Coverage diagnostics**: flags dead roles (a swap that won't be visible) and other font subsystems (routes a global swap won't reach) |
 | `analyze.mjs` | thin CLI around the analyzer (`--project`, `--json`) |
 | `directions.mjs` | the two hand-authored directions + the fonts they use (source of truth) |
 | `gen-catalog.mjs` | self-hosts each Google font and computes next/font's exact adjusted fallback (M0-proven parity); runs the analyzer to bake the **real** `current`/`target` into `app/_fontlab/catalog.generated.ts` |

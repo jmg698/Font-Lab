@@ -198,6 +198,84 @@ function detectTailwind(css, deps, twConfig) {
   return { version, signals: { cssV4, cssV3, pkgMajor, hasV4Postcss, hasConfig: !!twConfig } };
 }
 
+// ---- coverage diagnostics (will a swap actually be visible? at scale) -------
+//
+// Two ways a swap silently does nothing on a real site, both of which we'd rather REPORT
+// than be surprised by:
+//
+//  1. Dead role — a role var is declared in `@theme inline { … }`, but the site consumes it
+//     via a *raw* `var(--font-display)` somewhere (e.g. `@layer base { h1 { font-family:
+//     var(--font-display) } }`). Under `@theme inline`, Tailwind v4 does NOT publish the
+//     theme var as a `:root` custom property — only the generated `font-*` utilities deref
+//     it. So that raw reference resolves to nothing and the element silently inherits its
+//     parent's font. Swapping that role is invisible until it's rewired through the utility.
+//     (This is exactly what jack-mcgovern.com does with its headings.)
+//
+//  2. Other subsystems — fonts declared with their own next/font + variables in a different
+//     route/component (jack's `/gus` uses `--font-fraunces`/`--font-dm-sans` via inline
+//     styles). A global swap of the layout fonts won't reach them; the agent/user should
+//     know the swap's true scope (full per-route flipping is M6).
+
+const THEME_BLOCK_RE = /@theme(\s+inline)?\s*\{([^}]*)\}/g;
+const reVar = (v) => new RegExp(`var\\(\\s*${v}\\s*\\)`);
+
+function deadRoles(css) {
+  // role vars declared inside an `@theme inline` block
+  const inlineVars = new Set();
+  let m;
+  THEME_BLOCK_RE.lastIndex = 0;
+  while ((m = THEME_BLOCK_RE.exec(css))) {
+    if (!m[1]) continue; // plain @theme (not inline) DOES publish the var — not dead
+    for (const v of Object.values(ROLE_VARS)) if (new RegExp(`${v}\\s*:`).test(m[2])) inlineVars.add(v);
+  }
+  const cssNoTheme = css.replace(THEME_BLOCK_RE, "");
+  const dead = [];
+  for (const role of ROLES) {
+    const rv = ROLE_VARS[role];
+    if (inlineVars.has(rv) && reVar(rv).test(cssNoTheme)) dead.push(role);
+  }
+  return dead;
+}
+
+function walkSourceFiles(dir, acc, depth = 0) {
+  if (depth > 6) return acc;
+  let entries = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return acc;
+  }
+  for (const e of entries) {
+    if (e.name === "node_modules" || e.name === ".next" || e.name === ".git" || e.name.startsWith(".")) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walkSourceFiles(full, acc, depth + 1);
+    else if (/\.(tsx|ts|jsx|js)$/.test(e.name)) acc.push(full);
+  }
+  return acc;
+}
+
+function otherFontSubsystems(projectDir, declarationFile) {
+  const declAbs = declarationFile ? path.join(projectDir, declarationFile) : null;
+  const roots = ["app", "src/app", "components", "src/components"].map((d) => path.join(projectDir, d));
+  const files = [];
+  for (const r of roots) walkSourceFiles(r, files);
+  const out = [];
+  for (const f of [...new Set(files)]) {
+    if (f === declAbs) continue;
+    let text = "";
+    try {
+      text = readFileSync(f, "utf8");
+    } catch {
+      continue;
+    }
+    if (!/from\s+["']next\/font\/(google|local)["']/.test(text)) continue;
+    const families = [...new Set([...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']next\/font\/(?:google|local)["']/g)].flatMap((m) => m[1].split(",").map((s) => s.trim()).filter(Boolean)))];
+    const variables = [...new Set([...text.matchAll(/variable\s*:\s*["'](--[A-Za-z0-9-]+)["']/g)].map((m) => m[1]))];
+    out.push({ file: path.relative(projectDir, f), families, variables });
+  }
+  return out;
+}
+
 // ---- the public surface -----------------------------------------------------
 
 export function analyzeProject(projectDir) {
@@ -271,11 +349,22 @@ export function analyzeProject(projectDir) {
   if (fontWiring === "none") reasons.push("no fonts detected to replace");
   const supported = reasons.length === 0;
 
+  // Coverage: will a swap actually be visible, and is this the only font subsystem?
+  const dead = deadRoles(css).filter((role) => roles[role]); // only roles we'd actually swap
+  const otherSubsystems = otherFontSubsystems(projectDir, rel(projectDir, declarationFile));
+  const coverage = { deadRoles: dead, otherSubsystems };
+
   const notes = [];
   if (decl.localFonts.length)
     notes.push(`next/font/local in use (${decl.localFonts.map((f) => f.constName).join(", ")}) — repointed, not deleted`);
   if (decl.classNameTarget === "body") notes.push("font variables applied on <body> (not <html>)");
   for (const role of ROLES) if (!roles[role]) notes.push(`no ${role} font wired (codegen will add one)`);
+  for (const role of dead)
+    notes.push(
+      `${role}: consumed via raw var(${ROLE_VARS[role]}) under @theme inline — Tailwind v4 doesn't expose it as a :root var, so it's dead on the live site; swapping ${role} is invisible until rewired through the font-${role === "body" ? "sans" : role} utility`,
+    );
+  for (const s of otherSubsystems)
+    notes.push(`other font subsystem in ${s.file} (${[...s.families].join(", ") || s.variables.join(", ")}) — a global swap won't reach it (M6: multi-route)`);
 
   return {
     projectDir,
@@ -289,6 +378,7 @@ export function analyzeProject(projectDir) {
     nextFonts: decl.nextFonts,
     localFonts: decl.localFonts,
     tailwindSignals: tw.signals,
+    coverage,
     supported,
     reasons,
     notes,
@@ -318,6 +408,9 @@ export function summarize(a) {
     `  files       ${[a.declarationFile, a.cssFile].filter(Boolean).join(", ") || "—"}`,
     `  ships now    ${a.supported ? "yes (App + Tailwind v4 + CSS variables)" : "no — " + a.reasons.join("; ")}`,
   ];
-  if (a.notes.length) lines.push(`  notes       ${a.notes.join("; ")}`);
+  if (a.coverage.deadRoles.length) lines.push(`  ⚠ dead      ${a.coverage.deadRoles.join(", ")} — declared but not actually rendered (swap invisible until rewired)`);
+  if (a.coverage.otherSubsystems.length)
+    lines.push(`  ⚠ scope     other font subsystems: ${a.coverage.otherSubsystems.map((s) => s.file).join(", ")} (global swap won't reach them)`);
+  if (a.notes.length) lines.push(`  notes       ${a.notes.join("\n              ")}`);
   return lines.join("\n");
 }

@@ -45,6 +45,14 @@
       "pass": true
     },
     {
+      "name": "clean: no dead roles (no false positives)",
+      "pass": true
+    },
+    {
+      "name": "sample: no dead roles (no false positives)",
+      "pass": true
+    },
+    {
       "name": "jack: framework next",
       "pass": true
     },
@@ -86,6 +94,18 @@
     },
     {
       "name": "jack: supported",
+      "pass": true
+    },
+    {
+      "name": "jack: flags display as a dead role",
+      "pass": true
+    },
+    {
+      "name": "jack: does NOT flag body as dead",
+      "pass": true
+    },
+    {
+      "name": "jack: reports other font subsystems (/gus, /fonts)",
       "pass": true
     },
     {
