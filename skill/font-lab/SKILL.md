@@ -44,5 +44,7 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   CLS-safe ship both depend on it. `compose_directions` enforces this and suggests alternates.
 - **Be honest about coverage.** If `analyze` flags a dead role (a font declared but not actually
   rendered, common with Tailwind v4 `@theme inline` + raw `var(--font-*)`), tell the user a
-  swap there won't be visible until it's rewired — don't pretend it worked.
+  swap there won't be visible until it's rewired — don't pretend it worked. Offer
+  `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
+  font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.

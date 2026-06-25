@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "font-lab": {
+      "command": "node",
+      "args": ["cli/mcp.mjs"]
+    }
+  }
+}

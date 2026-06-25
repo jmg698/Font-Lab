@@ -340,6 +340,46 @@ export function applySelection(projectDir) {
   };
 }
 
+// Rewire dead roles — fix a role the analyzer flags as declared-but-not-rendered. Under
+// Tailwind v4 `@theme inline`, a hand-written `font-family: var(--font-display)` resolves to
+// nothing (the theme var isn't published to :root). The fix: point those raw usages at the
+// PUBLISHED leaf var the next/font const actually sets (e.g. var(--font-bricolage)), which is
+// inherited wherever the font is used. Minimal, backup-first, reversible — and it makes both
+// the live preview and the shipped swap visible on that role. Opt-in (we never auto-edit a
+// user's base styles during a normal apply).
+export function rewireCoverage(projectDir) {
+  const analysis = analyzeProject(projectDir);
+  const dead = analysis.coverage?.deadRoles || [];
+  const { css } = resolveTargets(projectDir);
+  if (!dead.length) return { rewired: [], dead, note: "no dead roles to rewire" };
+
+  // protect @theme blocks (their `--font-display: var(--font-x)` definitions stay as-is)
+  let text = readFileSync(css, "utf8");
+  const blocks = [];
+  let work = text.replace(/@theme(\s+inline)?\s*\{[^}]*\}/g, (m) => `__FLTHEME${blocks.push(m) - 1}__`);
+
+  const rewired = [];
+  for (const role of dead) {
+    const roleVar = ROLE_VARS[role];
+    const leaf = analysis.roles[role]?.nextFontVar;
+    if (!leaf) continue;
+    let n = 0;
+    work = work.replace(new RegExp(`var\\(\\s*${roleVar}\\s*\\)`, "g"), () => (n++, `var(${leaf})`));
+    if (n) rewired.push({ role, from: roleVar, to: leaf, count: n });
+  }
+  work = work.replace(/__FLTHEME(\d+)__/g, (_, i) => blocks[Number(i)]);
+  if (!rewired.length) return { rewired: [], dead, note: "dead roles found, but no raw var() usages to rewire" };
+
+  const { dir: backupDir, runId } = backup(projectDir, [css]);
+  writeFileSync(css, work);
+  const manifestPath = path.join(backupDir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  for (const f of manifest.files) f.appliedSha256 = sha(readFileSync(path.join(projectDir, f.path)));
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  return { runId, rewired, edited: [path.relative(projectDir, css)], backupDir: path.relative(projectDir, backupDir) };
+}
+
 export function undo(projectDir) {
   const flDir = path.join(projectDir, ".font-lab");
   const latest = path.join(flDir, "backups", "latest.txt");

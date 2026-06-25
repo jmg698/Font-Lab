@@ -118,23 +118,34 @@ a variable is shown as *not wired* rather than faked. Proven end to end on the r
 jack-mcgovern.com (body swapped site-wide live → shipped Playfair Display / Source Serif 4 /
 Roboto Mono → reverted clean).
 
-### Let an agent drive it (M5)
+### Fix a dead role (`font-lab rewire`)
 
-Register the MCP server so an agent can run the whole loop (analyze → curate/compose →
-preview → read pick → apply):
+If `analyze` flags a role as **dead** (declared but not actually rendered — a heading rule that
+reads `var(--font-display)` under `@theme inline`), `rewire` points those raw usages at the
+published leaf var so the font renders. Reversible.
 
-```jsonc
-// .mcp.json (or your client's MCP config)
-{
-  "mcpServers": {
-    "font-lab": { "command": "node", "args": ["/abs/path/to/cli/mcp.mjs"] }
-  }
-}
+```bash
+node cli/rewire.mjs --project <your-project>   # var(--font-display) → var(--font-bricolage)
+node cli/undo.mjs   --project <your-project>   # revert
 ```
 
-The 8 tools (`font_lab_analyze`, `font_lab_list_catalog`, `font_lab_curate`,
+Proven on the real jack-mcgovern.com: headings rendered `Hanken Grotesk` (body font) before →
+`Bricolage Grotesque` after, build-verified, then reverted.
+
+### Let an agent drive it (M5)
+
+A ready-to-use [`.mcp.json`](../.mcp.json) is committed at the repo root — open this repo in
+Claude Code (or any MCP client that reads `.mcp.json`) and the **font-lab** server loads
+automatically (after `cd cli && pnpm install`). To use it from another project, copy the entry
+into that project's `.mcp.json` (or your user-scope MCP config) with an absolute path:
+
+```jsonc
+{ "mcpServers": { "font-lab": { "command": "node", "args": ["/abs/path/to/cli/mcp.mjs"] } } }
+```
+
+The 9 tools (`font_lab_analyze`, `font_lab_list_catalog`, `font_lab_curate`,
 `font_lab_compose_directions`, `font_lab_prepare_preview`, `font_lab_read_pick`,
-`font_lab_apply`, `font_lab_undo`) and the loop are described in
+`font_lab_apply`, `font_lab_rewire_dead_roles`, `font_lab_undo`) and the loop are described in
 [`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md). The agent gets the curated default
 for free and can compose its own directions from the catalog — but the **human always makes
 the pick**, and composed fonts must be catalog members so preview still equals ship.
@@ -165,11 +176,12 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 | `engine.mjs` | **the engine facade (M5):** the stable API the MCP wraps — `analyze`, `listCatalog`, `curate`, `composeDirections` (option 3, catalog-gated), `preparePreview`, `readSelection`, `apply`, `undo` |
 | `mcp.mjs` | **the MCP server (M5):** dependency-free JSON-RPC/stdio server exposing the engine as 8 agent tools, descriptions tuned for discoverability |
 | `init.mjs` | **the installer:** scaffolds the panel + parity bundles into a real project and mounts it dev-only in the layout; `--undo` restores byte-for-byte. The last mile to "your own running site" |
+| `.mcp.json` (repo root) | ready-to-use MCP registration — open the repo in an MCP client and the `font-lab` server loads |
 | `templates/font-lab-panel.tsx` | the portable dev panel `init` installs — same UX as the fixture's, but swaps through the analyzer's `wiring` so it's honest on any site |
 | `../skill/font-lab/SKILL.md` | the skill manifest — how an agent drives the loop and the rules (human picks; catalog-only; be honest about coverage) |
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |
-| `apply.mjs` / `undo.mjs` | thin CLI wrappers around the ship engine |
+| `apply.mjs` / `undo.mjs` / `rewire.mjs` | thin CLI wrappers around the ship engine (`rewire` fixes dead roles) |
 | `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` / `m5-test.mjs` / `m6-test.mjs` | headless e2e of the loop (M1), ship engine (M2), analyzer + branch selection (M3), catalog + curator (M4), engine + MCP over stdio (M5), and the polished panel — mixed picks / pin / multi-route — in a real browser (M6) |
 | `run-m1.sh` … `run-m6.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen; catalog+curator; engine+MCP; mixed-picks/pin/multi-route in a browser |
 

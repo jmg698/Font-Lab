@@ -1,0 +1,40 @@
+{
+  "results": [
+    {
+      "name": "analyzer flags display as dead",
+      "pass": true
+    },
+    {
+      "name": "analyzer does NOT flag body (uses utility)",
+      "pass": true
+    },
+    {
+      "name": "rewire reports display fixed",
+      "pass": true
+    },
+    {
+      "name": "base rule now uses the leaf var",
+      "pass": true
+    },
+    {
+      "name": "@theme definition left intact",
+      "pass": true
+    },
+    {
+      "name": "did not touch body / --font-sans",
+      "pass": true
+    },
+    {
+      "name": "dead flag cleared after rewire",
+      "pass": true
+    },
+    {
+      "name": "undo restores globals byte-identical",
+      "pass": true
+    },
+    {
+      "name": "re-rewire after undo finds the dead role again",
+      "pass": true
+    }
+  ]
+}

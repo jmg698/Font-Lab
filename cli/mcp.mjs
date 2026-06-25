@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.5.0" };
+const SERVER = { name: "font-lab", version: "0.6.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
@@ -99,8 +99,15 @@ const TOOLS = [
     handler: (a) => engine.apply(a.projectDir),
   },
   {
+    name: "font_lab_rewire_dead_roles",
+    description:
+      "Fix a role that font_lab_analyze flags as DEAD — declared but not actually rendered (common with Tailwind v4 @theme inline + a hand-written `font-family: var(--font-display)`, which resolves to nothing). Points those raw usages at the published leaf variable so the font renders, making the swap visible. Reversible via font_lab_undo. Offer this when analyze reports dead roles and the user wants that role to actually change.",
+    inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
+    handler: (a) => engine.rewire(a.projectDir),
+  },
+  {
     name: "font_lab_undo",
-    description: "Revert Font Lab's last apply, restoring the edited files byte-for-byte from the backup.",
+    description: "Revert Font Lab's last apply or rewire, restoring the edited files byte-for-byte from the backup.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.undo(a.projectDir),
   },

@@ -15,7 +15,7 @@ import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { analyzeProject, toTarget } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
-import { applySelection, undo as undoApply } from "./codegen.mjs";
+import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
 
 const ROLES = ["display", "body", "mono"];
 const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -104,6 +104,11 @@ export function readSelection(projectDir) {
 
 export function apply(projectDir) {
   return applySelection(path.resolve(projectDir));
+}
+
+// Fix a role the analyzer flags as dead (declared but not actually rendered). Reversible.
+export function rewire(projectDir) {
+  return rewireCoverage(path.resolve(projectDir));
 }
 
 export function undo(projectDir) {

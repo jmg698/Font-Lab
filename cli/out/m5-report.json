@@ -81,6 +81,10 @@
       "pass": true
     },
     {
+      "name": "MCP exposes font_lab_rewire_dead_roles",
+      "pass": true
+    },
+    {
       "name": "MCP exposes font_lab_undo",
       "pass": true
     },
