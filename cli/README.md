@@ -4,6 +4,32 @@ The first real (non-throwaway) slice: the whole loop runs end to end. The human 
 between curated directions on their own running site and picks one; the pick is written to
 `.font-lab/selection.json` — the seam the agent reads to ship the real code (M4).
 
+## Install (one command)
+
+Inside your Next.js + Tailwind project — or just ask your agent *"install Font Lab"*:
+
+```bash
+npx @jmg698/font-lab install
+```
+
+This does two things, idempotently and reversibly (mirroring the `npx impeccable install`
+pattern):
+
+1. **Skill** → copies the `font-lab` skill into `~/.claude/skills/font-lab`, so the agent
+   *discovers* it every session. You just say "pick new fonts" and it reaches for Font Lab.
+2. **MCP server** → registers `font-lab` in the project's `.mcp.json` so the agent has the
+   `font_lab_*` tools to drive the loop. (A newly registered MCP server is picked up on the
+   next session/MCP reload.)
+
+```bash
+npx @jmg698/font-lab uninstall      # remove the skill + the .mcp.json entry
+```
+
+Useful flags: `--project <dir>` (target a project other than the cwd), `--no-mcp` /
+`--no-skill` (do only one half), `--local` (register the MCP server as `node <checkout>/mcp.mjs`
+for testing an unpublished clone), `--dry-run` (print the plan, write nothing).
+
+
 > **Status: M1 + M2 + M3 PASS.**
 > - **M1** (`cli/run-m1.sh`, 16/16): arrow-flip, live display+body+mono swap, Pick →
 >   `selection.json`, re-pick appends to `picks.log.jsonl`.

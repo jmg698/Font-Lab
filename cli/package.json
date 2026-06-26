@@ -1,11 +1,37 @@
 {
-  "name": "font-lab",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@jmg698/font-lab",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Font Lab CLI — the walking-skeleton loop: serve the pick endpoint, build the parity catalog.",
+  "description": "Font Lab — a decision surface for typography in Next.js + Tailwind apps. Curate tasteful font directions on your real running site, let a human pick, and ship the exact next/font + Tailwind code. Installs as an agent skill + MCP server.",
+  "keywords": [
+    "fonts",
+    "typography",
+    "nextjs",
+    "next-font",
+    "tailwindcss",
+    "claude",
+    "claude-code",
+    "mcp",
+    "agent",
+    "skill"
+  ],
+  "license": "MIT",
+  "author": "jmg698",
+  "homepage": "https://github.com/jmg698/Font-Lab#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jmg698/Font-Lab.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/jmg698/Font-Lab/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "font-lab": "./font-lab.mjs",
+    "font-lab-install": "./install.mjs",
     "font-lab-apply": "./apply.mjs",
     "font-lab-undo": "./undo.mjs",
     "font-lab-rewire": "./rewire.mjs",
@@ -14,16 +40,26 @@
     "font-lab-init": "./init.mjs",
     "font-lab-mcp": "./mcp.mjs"
   },
+  "files": [
+    "*.mjs",
+    "templates/",
+    "skill/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "gen": "node gen-catalog.mjs",
     "start": "node font-lab.mjs",
-    "init": "node init.mjs",
+    "setup": "node install.mjs",
     "analyze": "node analyze.mjs",
     "curate": "node curate.mjs",
     "apply": "node apply.mjs",
     "undo": "node undo.mjs",
     "rewire": "node rewire.mjs",
     "mcp": "node mcp.mjs",
+    "prepack": "node bundle-skill.mjs",
     "m1": "bash run-m1.sh",
     "m2": "bash run-m2.sh",
     "m3": "bash run-m3.sh",
