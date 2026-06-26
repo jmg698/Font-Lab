@@ -1,15 +1,48 @@
 #!/usr/bin/env node
-// Font Lab CLI — M1 walking skeleton.
+// Font Lab CLI — entry point.
 //
-// Runs the localhost write-back endpoint the dev panel POSTs a pick to, persists it to
-// `.font-lab/selection.json` (+ appends `.font-lab/picks.log.jsonl`), and prints the pick.
-// This is the seam where M4's codegen will hook in: pick lands here -> agent ships it.
+// Subcommands:
+//   install            wire Font Lab into your machine + project (skill + MCP server)
+//   uninstall          undo the above
+//   mcp                run the MCP server (stdio) — what `.mcp.json` launches
+//   serve  (default)   run the localhost write-back endpoint the dev panel POSTs a pick to,
+//                      persist it to `.font-lab/selection.json` (+ append picks.log.jsonl).
+//                      This is the seam where codegen hooks in: pick lands here -> agent ships it.
 //
-// Usage: node cli/font-lab.mjs [--project <dir>] [--port <n>]
+// Usage:
+//   npx font-lab install [--project <dir>] [--no-mcp] [--local] [--dry-run]
+//   npx font-lab uninstall [--project <dir>]
+//   node cli/font-lab.mjs [serve] [--project <dir>] [--port <n>] [--apply]
 
 import http from "node:http";
 import path from "node:path";
 import { writeFileSync, appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+
+// ---- subcommand dispatch ---------------------------------------------------
+// The first non-flag arg selects a subcommand. Anything else (or a leading flag)
+// falls through to `serve`, preserving the original `--project/--port` invocation.
+const SUB = process.argv[2] && !process.argv[2].startsWith("-") ? process.argv[2] : "serve";
+if (SUB === "install" || SUB === "uninstall") {
+  const { runInstall, runUninstall } = await import("./install.mjs");
+  if (SUB === "install") runInstall();
+  else runUninstall();
+} else if (SUB === "mcp") {
+  await import("./mcp.mjs"); // self-runs the stdio server on import
+} else if (SUB === "help" || SUB === "--help" || SUB === "-h") {
+  console.log(
+    [
+      "Font Lab",
+      "  font-lab install [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]",
+      "  font-lab uninstall [--project <dir>]",
+      "  font-lab mcp                      run the MCP server (stdio)",
+      "  font-lab serve [--project <dir>] [--port <n>] [--apply]   pick write-back endpoint",
+    ].join("\n"),
+  );
+} else {
+  runServe();
+}
+
+function runServe() {
 
 const arg = (flag, def) => {
   const i = process.argv.indexOf(flag);
@@ -86,10 +119,11 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 
-server.listen(PORT, () => {
-  console.log(`Font Lab — walking skeleton`);
-  console.log(`  endpoint  http://localhost:${PORT}  (POST /select, GET /selection)`);
-  console.log(`  project   ${PROJECT}`);
-  console.log(`  Open your dev site, flip directions in the panel (← →), and hit Pick.`);
-  console.log(`  Waiting for a pick…`);
-});
+  server.listen(PORT, () => {
+    console.log(`Font Lab — walking skeleton`);
+    console.log(`  endpoint  http://localhost:${PORT}  (POST /select, GET /selection)`);
+    console.log(`  project   ${PROJECT}`);
+    console.log(`  Open your dev site, flip directions in the panel (← →), and hit Pick.`);
+    console.log(`  Waiting for a pick…`);
+  });
+}

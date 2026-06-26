@@ -198,3 +198,146 @@ export function uninit(projectDir) {
 export function undo(projectDir) {
   return undoApply(path.resolve(projectDir));
 }
+
+// ── headless pick mode ────────────────────────────────────────────────────────
+// When there's no live browser for the human to flip in (web/cloud sessions, phones), the
+// agent screenshots the site in each direction, shows the images, the human picks by id, and
+// we record that pick — the SAME selection.json the panel writes, so `apply` ships it
+// identically. The taste decision still belongs to the human; only the surface changes.
+
+// Record the human's pick from a chosen direction id — no panel click needed. Supports a mixed
+// pick: each role can be sourced from a different direction (heading from one, body from another).
+export function selectDirection(projectDir, { directionId, directions, vibe, count, roles: roleSrc } = {}) {
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  const byId = (id) => dirs.find((d) => d.id === id || slugId(d.name) === id);
+  const chosen = byId(directionId);
+  if (!chosen) throw new Error(`no direction "${directionId}" — available: ${dirs.map((d) => d.id).join(", ")}`);
+  const roles = {};
+  for (const role of ROLES) {
+    const src = roleSrc?.[role] ? byId(roleSrc[role]) : chosen;
+    if (!src) throw new Error(`no direction "${roleSrc[role]}" for role ${role}`);
+    roles[role] = src.roles[role];
+  }
+  const selection = {
+    direction: { id: chosen.id, name: chosen.name, vibe: chosen.vibe },
+    roles,
+    pickedAt: new Date().toISOString(),
+    via: "headless",
+  };
+  const flDir = path.join(dir, ".font-lab");
+  mkdirSync(flDir, { recursive: true });
+  writeFileSync(path.join(flDir, "selection.json"), JSON.stringify(selection, null, 2) + "\n");
+  return selection;
+}
+
+// Ready-to-run commands to launch the FULL live editor (flip / mix / compare in a real browser),
+// for when the screenshots aren't enough. Detects the project's dev command + package manager.
+export function liveInstructions(projectDir) {
+  const dir = path.resolve(projectDir);
+  let devCmd = "npm run dev";
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+    if (pkg.scripts?.dev) {
+      const pm = existsSync(path.join(dir, "pnpm-lock.yaml"))
+        ? "pnpm"
+        : existsSync(path.join(dir, "yarn.lock"))
+          ? "yarn"
+          : existsSync(path.join(dir, "bun.lockb"))
+            ? "bun"
+            : "npm run";
+      devCmd = `${pm} dev`;
+    }
+  } catch {}
+  return {
+    note: "Run these in a local terminal — your Mac/Linux terminal, or the integrated terminal in VS Code / Cursor / the Claude Code IDE extension — to flip, mix, and compare the directions live on your real site.",
+    steps: [
+      "npx font-lab init --project .          # scaffold the live panel + parity bundles (reversible)",
+      `${devCmd}                              # start your dev server`,
+      "npx font-lab --project . &             # the pick endpoint on :7777 (records your choice)",
+      "# open your site (e.g. http://localhost:3000): ← → flip · [ ] mix a role · B before/after · Pick",
+      "npx font-lab-apply --project .         # the agent ships exactly what you picked",
+    ],
+    teardown: "npx font-lab init --project . --undo   # remove the panel scaffolding when done",
+  };
+}
+
+// Headless capture: drive the REAL live panel through each direction and screenshot the site, so
+// the images are faithful to what ships. Requires init() done and a dev server running at baseUrl.
+// Makes no project edits — it only reads the running site. Returns a manifest the agent shows.
+export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true } = {}) {
+  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
+  let chromium;
+  try {
+    ({ chromium } = await import("playwright"));
+  } catch {
+    throw new Error(
+      "Playwright/Chromium isn't available for screenshots. Install it (`npm i -D playwright && npx playwright install chromium`), or use the live editor instead — see liveInstructions().",
+    );
+  }
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  const dirs = directions && directions.length ? directions : curateDirections(analysis, {});
+  const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
+  mkdirSync(out, { recursive: true });
+  const base = baseUrl.replace(/\/+$/, "");
+  const route = routes[0] || "/";
+
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
+    await page.goto(base + route, { waitUntil: "networkidle" });
+    await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 });
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+
+    const setPanel = (v) =>
+      page.evaluate((vis) => {
+        const h = document.getElementById("fontlab-panel-host");
+        if (h) h.style.visibility = vis;
+      }, v);
+
+    const shots = [];
+    // current / before
+    await setPanel("hidden");
+    const curPath = path.join(out, "current.png");
+    await page.screenshot({ path: curPath, fullPage });
+    await setPanel("visible");
+    shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", screenshot: curPath });
+
+    for (const d of dirs) {
+      const clicked = await page.evaluate((id) => {
+        const host = document.getElementById("fontlab-panel-host");
+        const btn = host?.shadowRoot?.querySelector(`button[data-fl-id="${id}"]`);
+        if (!btn) return false;
+        btn.click();
+        return true;
+      }, d.id);
+      if (!clicked) {
+        shots.push({ id: d.id, name: d.name, vibe: d.vibe, rationale: d.rationale, error: "no panel chip — direction not in the preview build (re-run init/preparePreview with these directions)" });
+        continue;
+      }
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+      await page.waitForTimeout(350);
+      await setPanel("hidden");
+      const file = path.join(out, `${d.id}.png`);
+      await page.screenshot({ path: file, fullPage });
+      await setPanel("visible");
+      shots.push({
+        id: d.id,
+        name: d.name,
+        vibe: d.vibe,
+        rationale: d.rationale,
+        fonts: { display: d.roles.display.family, body: d.roles.body.family, mono: d.roles.mono.family },
+        screenshot: file,
+      });
+    }
+    return { baseUrl: base, route, outDir: out, shots, live: liveInstructions(dir) };
+  } finally {
+    await browser.close();
+  }
+}
