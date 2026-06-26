@@ -10,12 +10,15 @@
 //   • the curator is the strong default the agent gets for free.
 
 import path from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
-import { analyzeProject, toTarget } from "./analyzer.mjs";
+import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
+
+const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
 
 const ROLES = ["display", "body", "mono"];
 const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -109,6 +112,87 @@ export function apply(projectDir) {
 // Fix a role the analyzer flags as dead (declared but not actually rendered). Reversible.
 export function rewire(projectDir) {
   return rewireCoverage(path.resolve(projectDir));
+}
+
+// ── install / uninstall the live panel (the agent's "setup" step) ────────────
+
+const INIT_START = "// font-lab:init:start";
+const INIT_END = "// font-lab:init:end";
+
+function resolveAppDir(projectDir) {
+  const d = ["app", "src/app"].map((x) => path.join(projectDir, x)).find((x) => existsSync(path.join(x, "layout.tsx")));
+  if (!d) throw new Error("could not find app/layout.tsx (App Router only)");
+  return d;
+}
+function insertAfterImports(text, snippet) {
+  const re = /^import\s[^\n]*$/gm;
+  let last = 0, m;
+  while ((m = re.exec(text))) last = m.index + m[0].length;
+  return `${text.slice(0, last).replace(/\s*$/, "")}\n\n${snippet}\n\n${text.slice(last).replace(/^\s*/, "")}`;
+}
+function mountPanel(layoutPath) {
+  let src = readFileSync(layoutPath, "utf8");
+  if (src.includes(INIT_START)) return false;
+  if (!/from\s+["']next\/dynamic["']/.test(src)) src = insertAfterImports(src, `import dynamic from "next/dynamic"`);
+  const block = [
+    INIT_START,
+    `const FontLabDevPanel =`,
+    `  process.env.NODE_ENV === "development"`,
+    `    ? dynamic(() => import("./_fontlab/FontLabDevPanel").then((m) => m.FontLabDevPanel))`,
+    `    : () => null;`,
+    INIT_END,
+  ].join("\n");
+  src = insertAfterImports(src, block);
+  if (!/<FontLabDevPanel\s*\/>/.test(src)) src = src.replace(/<\/body>/, `  {process.env.NODE_ENV === "development" && <FontLabDevPanel />}\n      </body>`);
+  writeFileSync(layoutPath, src);
+  return true;
+}
+
+// Set the project up so the human can preview live: self-host the parity bundles, drop in the
+// portable dev panel, and mount it (dev-only) in the layout. Idempotent + reversible (uninit).
+export async function init(projectDir, { vibe, count, fetch = true, log } = {}) {
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  if (!analysis.supported) throw new Error(`project not supported yet: ${analysis.reasons.join("; ")}`);
+  const appDir = resolveAppDir(dir);
+  const layout = path.join(appDir, "layout.tsx");
+
+  const backupDir = path.join(dir, ".font-lab", "init-backup");
+  mkdirSync(backupDir, { recursive: true });
+  const backupLayout = path.join(backupDir, "layout.tsx");
+  if (!existsSync(backupLayout)) copyFileSync(layout, backupLayout); // never clobber the original
+
+  const directions = curateDirections(analysis, { vibe, count });
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
+  const built = await generateCatalog(dir, directions, meta, { fetch, log });
+
+  mkdirSync(path.join(appDir, "_fontlab"), { recursive: true });
+  copyFileSync(PANEL_TEMPLATE, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"));
+  const mounted = mountPanel(layout);
+
+  return {
+    analysis,
+    directions: directions.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
+    wiring: meta.wiring,
+    deadRoles: analysis.coverage?.deadRoles || [],
+    otherSubsystems: analysis.coverage?.otherSubsystems || [],
+    prepared: built.fonts,
+    mounted,
+    layout: path.relative(dir, layout),
+    nextStep: "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. Then read_pick → apply.",
+  };
+}
+
+export function uninit(projectDir) {
+  const dir = path.resolve(projectDir);
+  const appDir = resolveAppDir(dir);
+  const layout = path.join(appDir, "layout.tsx");
+  const backupLayout = path.join(dir, ".font-lab", "init-backup", "layout.tsx");
+  if (existsSync(backupLayout)) copyFileSync(backupLayout, layout);
+  rmSync(path.join(appDir, "_fontlab"), { recursive: true, force: true });
+  rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
+  rmSync(path.join(dir, ".font-lab", "init-backup"), { recursive: true, force: true });
+  return { restored: path.relative(dir, layout), removed: ["app/_fontlab", "public/fontlab"] };
 }
 
 export function undo(projectDir) {

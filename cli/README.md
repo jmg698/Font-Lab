@@ -132,23 +132,38 @@ node cli/undo.mjs   --project <your-project>   # revert
 Proven on the real jack-mcgovern.com: headings rendered `Hanken Grotesk` (body font) before →
 `Bricolage Grotesque` after, build-verified, then reverted.
 
-### Let an agent drive it (M5)
+### Let an agent drive it (the easy way)
 
-A ready-to-use [`.mcp.json`](../.mcp.json) is committed at the repo root — open this repo in
-Claude Code (or any MCP client that reads `.mcp.json`) and the **font-lab** server loads
-automatically (after `cd cli && pnpm install`). To use it from another project, copy the entry
-into that project's `.mcp.json` (or your user-scope MCP config) with an absolute path:
+Register the server once with Claude Code (user scope = available in every project):
+
+```bash
+cd Font-Lab/cli && pnpm install                     # one-time
+claude mcp add font-lab -s user -- node "$(pwd)/mcp.mjs"
+```
+
+Then, in any supported project, just tell Claude:
+
+> "Use Font Lab to pick fonts for this site."
+
+Claude runs the whole setup — `analyze` → `init` (installs the panel + self-hosts the fonts) →
+`rewire` if headings are dead → starts your dev server + the pick endpoint. **Your only job:**
+open the site, flip/mix/compare in the panel, and hit **Pick**. Claude reads your pick and
+ships it (`apply`), reversibly.
+
+Prefer not to use the CLI? A ready-to-use [`.mcp.json`](../.mcp.json) is committed at the repo
+root (loads automatically when you open this repo), or copy the entry into another project's
+`.mcp.json` with an absolute path:
 
 ```jsonc
 { "mcpServers": { "font-lab": { "command": "node", "args": ["/abs/path/to/cli/mcp.mjs"] } } }
 ```
 
-The 9 tools (`font_lab_analyze`, `font_lab_list_catalog`, `font_lab_curate`,
-`font_lab_compose_directions`, `font_lab_prepare_preview`, `font_lab_read_pick`,
-`font_lab_apply`, `font_lab_rewire_dead_roles`, `font_lab_undo`) and the loop are described in
-[`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md). The agent gets the curated default
-for free and can compose its own directions from the catalog — but the **human always makes
-the pick**, and composed fonts must be catalog members so preview still equals ship.
+The 11 tools (`analyze`, `list_catalog`, `curate`, `compose_directions`, `init`, `uninit`,
+`prepare_preview`, `read_pick`, `apply`, `rewire_dead_roles`, `undo` — all `font_lab_*`) and the
+loop are described in [`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md). The agent gets
+the curated default for free and can compose its own directions from the catalog — but the
+**human always makes the pick**, and composed fonts must be catalog members so preview still
+equals ship. Proven end to end over MCP on the real jack-mcgovern.com.
 
 ### Ship the pick (M2)
 
