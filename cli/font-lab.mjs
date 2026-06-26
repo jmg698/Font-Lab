@@ -10,8 +10,8 @@
 //                      This is the seam where codegen hooks in: pick lands here -> agent ships it.
 //
 // Usage:
-//   npx @jmg698/font-lab install [--project <dir>] [--no-mcp] [--local] [--dry-run]
-//   npx @jmg698/font-lab uninstall [--project <dir>]
+//   npx font-lab install [--project <dir>] [--no-mcp] [--local] [--dry-run]
+//   npx font-lab uninstall [--project <dir>]
 //   node cli/font-lab.mjs [serve] [--project <dir>] [--port <n>] [--apply]
 
 import http from "node:http";

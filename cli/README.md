@@ -9,7 +9,7 @@ between curated directions on their own running site and picks one; the pick is 
 Inside your Next.js + Tailwind project — or just ask your agent *"install Font Lab"*:
 
 ```bash
-npx @jmg698/font-lab install
+npx font-lab install
 ```
 
 This does two things, idempotently and reversibly (mirroring the `npx impeccable install`
@@ -22,7 +22,7 @@ pattern):
    next session/MCP reload.)
 
 ```bash
-npx @jmg698/font-lab uninstall      # remove the skill + the .mcp.json entry
+npx font-lab uninstall      # remove the skill + the .mcp.json entry
 ```
 
 Useful flags: `--project <dir>` (target a project other than the cwd), `--no-mcp` /

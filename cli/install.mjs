@@ -9,8 +9,8 @@
 //
 // Both steps are idempotent (re-running is a no-op) and reversible (`font-lab uninstall`).
 //
-//   npx @jmg698/font-lab install [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]
-//   npx @jmg698/font-lab uninstall [--project <dir>]
+//   npx font-lab install [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]
+//   npx font-lab uninstall [--project <dir>]
 //
 // Flags:
 //   --project <dir>   project to wire the MCP server into (default: cwd)
@@ -26,7 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cpSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 
-const PKG_NAME = "@jmg698/font-lab"; // single source of truth for the published name
+const PKG_NAME = "font-lab"; // single source of truth for the published name
 const SKILL_NAME = "font-lab";
 const MCP_KEY = "font-lab";
 
@@ -63,7 +63,7 @@ function skillsDir() {
 }
 
 // The command the agent's host will run to launch the MCP server.
-//   published (default):  npx -y @jmg698/font-lab mcp
+//   published (default):  npx -y font-lab mcp
 //   --local (dev/test):   node <abs>/cli/mcp.mjs
 function mcpServerEntry() {
   if (has("--local")) {
