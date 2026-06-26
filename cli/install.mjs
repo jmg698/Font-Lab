@@ -162,9 +162,16 @@ export function runUninstall() {
     if (json && json.mcpServers && json.mcpServers[MCP_KEY]) {
       if (!dry) {
         delete json.mcpServers[MCP_KEY];
-        writeFileSync(mcpFile, JSON.stringify(json, null, 2) + "\n");
+        // If we left the file empty (no other servers and no other top-level keys), remove
+        // it — install likely created it, so a bare `{"mcpServers":{}}` shouldn't linger.
+        const otherKeys = Object.keys(json).filter((k) => k !== "mcpServers");
+        const emptied = Object.keys(json.mcpServers).length === 0 && otherKeys.length === 0;
+        if (emptied) rmSync(mcpFile, { force: true });
+        else writeFileSync(mcpFile, JSON.stringify(json, null, 2) + "\n");
+        console.log(`  removed mcp     ${rel(mcpFile)} ["${MCP_KEY}"]${emptied ? " (removed empty .mcp.json)" : ""}`);
+      } else {
+        console.log(`  removed mcp     ${rel(mcpFile)} ["${MCP_KEY}"]`);
       }
-      console.log(`  removed mcp     ${rel(mcpFile)} ["${MCP_KEY}"]`);
     } else {
       console.log(`  mcp             entry not present in ${rel(mcpFile)}`);
     }
