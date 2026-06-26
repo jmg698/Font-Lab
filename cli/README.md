@@ -29,6 +29,52 @@ Useful flags: `--project <dir>` (target a project other than the cwd), `--no-mcp
 `--no-skill` (do only one half), `--local` (register the MCP server as `node <checkout>/mcp.mjs`
 for testing an unpublished clone), `--dry-run` (print the plan, write nothing).
 
+## The choosing moment: Headless vs Live
+
+This is the heart of Font Lab. **The human always makes the taste decision** — Font Lab's job
+is to hand you a *curated, controlled* menu (never a 1,500-font dump), rendered on your own
+site, and ship exactly what you pick. There are two ways to present that menu. They are the
+same loop and the same catalog — only the surface differs.
+
+### 1. Headless — the default, works everywhere
+
+The agent screenshots your real site in each direction and shows you the images right in the
+chat. You pick one by name (on a phone: just tap it). The agent ships it.
+
+- Works in **every** surface: Claude Code on the web, the iPhone/desktop apps, any MCP agent.
+- No dev server for *you* to babysit, no browser window to manage — you compare finished
+  pictures and choose.
+- The screenshots are driven through the real preview engine, so **what you see is what ships**
+  (same `next/font` + Tailwind, same metric-matched fallback).
+
+Tools: `font_lab_screenshot_directions({ projectDir, baseUrl })` → show the images → the human
+picks → `font_lab_select({ projectDir, directionId })` → `font_lab_apply`.
+
+### 2. Live — the full UI, when you want to drive
+
+A real dev-panel on your running site: flip with `← →`, mix a heading from one direction with a
+body from another (`[ ]`), toggle before/after (`B`), pin two to compare, "more like this," and
+see each face across multiple routes. This is the richest way to choose — and it needs a browser
+*you* can click in, so it runs **locally**: a Mac/Linux terminal, or the integrated terminal in
+**VS Code / Cursor / the Claude Code IDE extension**.
+
+Get the exact commands anytime with `font_lab_live_instructions({ projectDir })`.
+
+### How an agent should offer this
+
+> **Default to Headless.** Present the screenshots first — it works no matter where the user is.
+> Then tell them the full live UI exists: *"Want to flip, mix, and compare these yourself? I can
+> give you a one-time command to open the full editor locally."* Give them the option; never
+> auto-pick. Curated and controlled, with a clear path to expand — that's how Font Lab rolls.
+
+| | Headless (default) | Live (full UI) |
+|---|---|---|
+| Where it runs | anywhere (web, phone, any agent) | local terminal / IDE / Cursor |
+| You interact with | screenshots in chat | a live panel on your site |
+| Mix roles, before/after, multi-route | pick a whole direction | yes — the complete UX |
+| Fidelity | preview == ship | preview == ship |
+| Who decides | **the human** | **the human** |
+
 
 > **Status: M1 + M2 + M3 PASS.**
 > - **M1** (`cli/run-m1.sh`, 16/16): arrow-flip, live display+body+mono swap, Pick →
