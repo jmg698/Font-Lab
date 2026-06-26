@@ -62,28 +62,46 @@ idempotently and reversibly. Built against the pinned `sample-next-site` (known 
 markers for CSS/config, **backup-first** undo, verify-and-auto-restore on failure. This is
 the step nobody else closes — full spec in [`SHIP-SPEC.md`](./SHIP-SPEC.md).
 
-### M3 — Real analyzer
+### M3 — Real analyzer  *(done — `cli/analyzer.mjs`, `cli/run-m3.sh` 55/55)*
 Detect framework, **App vs Pages Router**, **Tailwind v3 vs v4**, current fonts, and font
 wiring (CSS-var vs hardcoded). Feeds the codegen branch selection *and* the before/after
-toggle. Panel shows `current: Inter/Geist` and a **before/after toggle** against the live
-current state.
+toggle. Panel shows `current: …` and a **before/after toggle** against the live current
+state. The analyzer traces the CSS custom-property graph from each role var (`--font-display`)
+back through any indirection to the next/font const that feeds it — so it names the real
+current font on a site that maps `--font-display: var(--font-bricolage)` as readily as on the
+fixture's `--font-sans → --fl-sans → --font-inter`. Codegen consumes it two ways: it
+**refuses** out-of-branch projects (v3 / Pages / hardcoded) with a clear reason, and on the
+supported branch it either replaces a role-var const or **adopts** the project's own variable
+(rewriting the const in place, minimal diff). Verified end-to-end on **jack-mcgovern.com**:
+analyzed, applied, **built**, rendered, and reverted byte-for-byte.
 
-### M4 — Parity catalog + curator
-~40-font catalog as **precomputed parity bundles** (woff2 + the two `@font-face` blocks +
-verified capsize coverage). ~5 curated directions, each a name + vibe label + one-line
-rationale, chosen by a deterministic lookup. **No runtime LLM.** Optionally seed the brief
-from an impeccable `detect --json` audit.
+### M4 — Parity catalog + curator  *(done — `cli/catalog.mjs`, `cli/curator.mjs`, `cli/run-m4.sh` 96/96)*
+A **41-font catalog** of variable Google fonts as precomputed parity bundles (self-hosted
+woff2 + the two `@font-face` blocks), each gated on **verified capsize coverage** (checked
+by importing the metrics) *and* single-woff2 variable parity — the two hard requirements for
+"preview == ship." A deterministic **LLM-free curator** turns `analysis + vibe` into ~5
+curated directions, each a name + vibe label + one-line rationale; it moves off the project's
+current fonts, ranks by vibe, and is fully reproducible. `gen-catalog` now runs the whole
+analyzer → curator → parity-bundle pipeline. Seeding the brief from an impeccable
+`detect --json` audit is left as an optional future hook.
 
-### M5 — MCP server + skill (+ agent discoverability)
-Wrap the engine so an agent drives the whole loop: invoke → curate → preview → read the
-pick → apply. Tune the skill/tool **description** so agents reach for Font Lab when a user
-asks to pick a font ("SEO for agents"). Mirror impeccable's provider-native hook-manifest
-pattern, not just MCP.
+### M5 — MCP server + skill (+ agent discoverability)  *(done — `cli/mcp.mjs`, `cli/engine.mjs`, `skill/font-lab/SKILL.md`, `cli/run-m5.sh` 26/26)*
+A dependency-free JSON-RPC/stdio **MCP server** wraps the engine as 8 tools so an agent drives
+the whole loop: invoke → curate → preview → read the pick → apply. The agent gets the curated
+default for free **and can take the wheel** — composing its own directions from the catalog
+(option 3) — but only from catalog fonts, so preview == ship still holds, and the **human
+always makes the final pick** (the engine only ever prepares a preview; it never auto-selects).
+A `SKILL.md` documents the loop and the rules, with tool/skill **descriptions tuned for
+discoverability** so agents reach for Font Lab when a user wants to choose a font. Verified over
+real stdio (initialize / tools-list / tools-call). Mirroring impeccable's provider-native
+hook-manifest pattern beyond MCP is left as a follow-on.
 
-### M6 — Polish the choosing moment
-Pin-two-to-compare, "more like this one," refined keyboard UX, mixed picks (heading from A,
-body from B), and **multi-route flipping** — fonts read differently on a hero vs. a dense
-docs page vs. a form, so "your real site" means more than one screen.
+### M6 — Polish the choosing moment  *(done — `cli/run-m6.sh`, M1 16/16 + M6 17/17, in a real browser)*
+**Mixed picks** (heading from one direction, body from another — assembled per role and shipped
+intact), **pin-two-to-compare**, **"more like this one,"** refined keyboard UX, and
+**multi-route flipping** — the working pairing persists across routes (`/`, `/dense`, `/form`)
+via sessionStorage, because a face reads differently on a hero vs. a dense docs page vs. a form.
+All driven and verified in a real browser; a mixed pick ships end to end through codegen.
 
 ### Parallel front-door (awareness, not the product)
 A deliberately thin bookmarklet/extension whose only job is the wow on any live site →

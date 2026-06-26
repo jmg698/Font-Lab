@@ -1,0 +1,112 @@
+{
+  "results": [
+    {
+      "name": "analyze returns target + current",
+      "pass": true
+    },
+    {
+      "name": "listCatalog filters by role (mono)",
+      "pass": true
+    },
+    {
+      "name": "listCatalog filters by tag (serif)",
+      "pass": true
+    },
+    {
+      "name": "curate returns the default menu (~5)",
+      "pass": true
+    },
+    {
+      "name": "composeDirections accepts catalog fonts",
+      "pass": true
+    },
+    {
+      "name": "composeDirections normalizes id + weights",
+      "pass": true
+    },
+    {
+      "name": "composeDirections refuses non-catalog fonts",
+      "pass": true
+    },
+    {
+      "name": "preparePreview writes catalog.generated.ts",
+      "pass": true
+    },
+    {
+      "name": "preparePreview reports prepared fonts",
+      "pass": true
+    },
+    {
+      "name": "readSelection is null before a pick",
+      "pass": true
+    },
+    {
+      "name": "readSelection returns the pick after one exists",
+      "pass": true
+    },
+    {
+      "name": "MCP initialize returns serverInfo",
+      "pass": true
+    },
+    {
+      "name": "MCP initialize advertises tools capability",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_analyze",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_list_catalog",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_curate",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_compose_directions",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_prepare_preview",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_read_pick",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_apply",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_rewire_dead_roles",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_undo",
+      "pass": true
+    },
+    {
+      "name": "MCP tool descriptions mention the human keeps the pick",
+      "pass": true
+    },
+    {
+      "name": "MCP analyze call returns analysis",
+      "pass": true
+    },
+    {
+      "name": "MCP curate call returns 3 directions",
+      "pass": true
+    },
+    {
+      "name": "MCP surfaces tool errors in-band (isError)",
+      "pass": true
+    },
+    {
+      "name": "MCP rejects unknown tool",
+      "pass": true
+    }
+  ]
+}

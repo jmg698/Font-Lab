@@ -1,21 +1,32 @@
-// Font Lab codegen (M2) — turn .font-lab/selection.json into real, reversible next/font +
-// Tailwind edits. Strategy per SHIP-SPEC.md:
+// Font Lab codegen (M2 + M3) — turn .font-lab/selection.json into real, reversible
+// next/font + Tailwind edits, with the analyzer (M3) choosing the branch so codegen never
+// guesses. Strategy per SHIP-SPEC.md:
 //   • ts-morph for the AST-sensitive bits: merge the next/font import, rewrite the <html>
-//     className, and remove the font consts we're replacing;
+//     (or <body>) className, and either replace or adopt the consts we're swapping;
 //   • fenced markers for the append-only regions (the generated font consts in layout.tsx
 //     and the @theme block in globals.css) — trivially find/replace/remove, so re-apply is
 //     byte-idempotent and undo is exact;
 //   • backup-first undo that needs nothing of the user (no clean tree, no git).
 //
-// Scope: the common case — App Router + Tailwind v4, fonts wired through CSS variables.
+// Two wiring shapes, both now handled (the analyzer says which applies per role):
+//   • ROLE-VAR — a font const lives on a role variable (`--font-sans`) or the role is empty.
+//     We replace/create a Font-Lab const on that role var (the M2 path; jack's missing mono).
+//   • ADOPT — a font const lives on the project's own variable (`--font-bricolage`) wired to
+//     a role through `@theme inline`. We rewrite that const's family IN PLACE, keeping its
+//     variable, name, and className token — a minimal diff that leaves the project's own
+//     wiring intact (SHIP-SPEC "adopt an existing variable rather than introduce a competitor").
+//
+// Scope gate: App Router + Tailwind v4 + CSS-variable wiring. The analyzer enforces it.
 
 import { Project, Node, SyntaxKind, QuoteKind } from "ts-morph";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { analyzeProject } from "./analyzer.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
+const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const constName = (role) => "fontLab" + cap(role);
 const importName = (family) => family.replace(/[^A-Za-z0-9]+/g, "_");
@@ -32,7 +43,7 @@ function resolveTargets(projectDir) {
   return { layout, css };
 }
 
-// ---- layout.tsx: AST bits (import + className + removing replaced fonts) ----
+// ---- layout.tsx: AST bits (import + className + replace/adopt consts) -------
 
 function getStringProp(obj, name) {
   const p = obj.getProperty(name);
@@ -43,11 +54,14 @@ function getStringProp(obj, name) {
   return init.getText().replace(/^["'`]|["'`]$/g, "");
 }
 
-function findHtml(sf) {
-  return (
-    sf.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).find((e) => e.getTagNameNode().getText() === "html") ||
-    sf.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).find((e) => e.getTagNameNode().getText() === "html")
-  );
+// Find the element (preferring the analyzer's choice) that wears the font variables.
+function findClassTarget(sf, preferred) {
+  const els = [
+    ...sf.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+    ...sf.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+  ];
+  const byTag = (tag) => els.find((e) => e.getTagNameNode().getText() === tag);
+  return (preferred && byTag(preferred)) || byTag("html") || byTag("body") || null;
 }
 
 function classNameTokens(attr) {
@@ -82,52 +96,69 @@ function buildClassNameInit(dynamic, statics) {
   return "{`" + dyn + stat + "`}";
 }
 
-function editLayoutAst(sf, roles) {
-  // 1) ensure the next/font/google import carries our families.
+function editLayoutAst(sf, roles, classTarget) {
+  // 1) ensure the next/font/google import carries every new family.
   let imp = sf.getImportDeclaration((d) => d.getModuleSpecifierValue() === "next/font/google");
   if (!imp) imp = sf.addImportDeclaration({ moduleSpecifier: "next/font/google", namedImports: [] });
   const named = new Set(imp.getNamedImports().map((n) => n.getName()));
-  for (const r of roles) if (!named.has(r.importName)) imp.addNamedImport(r.importName);
+  for (const r of roles)
+    if (!named.has(r.importName)) {
+      imp.addNamedImport(r.importName);
+      named.add(r.importName);
+    }
 
-  // 2) remove existing *non-Font-Lab* font consts on a role var (the fonts we replace).
-  //    Font Lab's own consts live in a fenced block managed as text — never here.
-  const roleVarSet = new Set(Object.values(ROLE_VARS));
-  const removeNames = [];
-  const removedCallees = [];
   const replaced = [];
+  const oldImports = new Set();
+
+  // 2a) ADOPT — rewrite the existing const's family in place, keep its variable/name.
+  for (const r of roles.filter((r) => r.mode === "adopt")) {
+    const vd = sf.getVariableDeclaration(r.constName);
+    const init = vd?.getInitializer();
+    if (!init || !Node.isCallExpression(init)) continue;
+    const callee = init.getExpression();
+    const old = callee.getText();
+    if (old !== r.importName) {
+      replaced.push({ variable: r.adoptVar, font: old });
+      oldImports.add(old);
+      callee.replaceWithText(r.importName);
+    }
+  }
+
+  // 2b) ROLE-VAR — remove existing non-Font-Lab consts sitting on a role var (the ones we
+  //     replace). Font Lab's own consts live in a fenced block managed as text — never here.
+  const removeNames = [];
   for (const vd of sf.getVariableDeclarations()) {
     if (vd.getName().startsWith("fontLab")) continue;
     const init = vd.getInitializer();
     if (!init || !Node.isCallExpression(init)) continue;
     const obj = init.getArguments()[0];
     const varVal = obj && Node.isObjectLiteralExpression(obj) ? getStringProp(obj, "variable") : null;
-    if (varVal && roleVarSet.has(varVal)) {
+    if (varVal && ROLE_VAR_SET.has(varVal)) {
       removeNames.push(vd.getName());
-      removedCallees.push(init.getExpression().getText());
       replaced.push({ variable: varVal, font: init.getExpression().getText() });
+      oldImports.add(init.getExpression().getText());
       vd.getVariableStatementOrThrow().remove();
     }
   }
 
-  // 3) merge our variable classes into <html className>, dropping the replaced fonts'.
-  const html = findHtml(sf);
-  if (!html) throw new Error("no <html> element in layout.tsx");
-  const attr = html.getAttribute("className");
+  // 3) className: drop the removed role-var consts' tokens, add a token for every role-var
+  //    role. Adopted roles already carry their token and we leave it untouched.
+  const el = findClassTarget(sf, classTarget);
+  if (!el) throw new Error(`no <${classTarget || "html"}> element in layout.tsx`);
+  const attr = el.getAttribute("className");
   const { dynamic, statics } = classNameTokens(attr);
   const kept = dynamic.filter((d) => !removeNames.some((n) => d === n || d.startsWith(n + ".")));
-  for (const r of roles) {
+  for (const r of roles.filter((r) => r.mode === "rolevar")) {
     const token = `${r.constName}.variable`;
     if (!kept.includes(token)) kept.push(token);
   }
   const initText = buildClassNameInit(kept, statics);
   if (attr) attr.setInitializer(initText);
-  else html.addAttribute({ name: "className", initializer: initText });
+  else el.addAttribute({ name: "className", initializer: initText });
 
-  // 4) drop now-unused imports for replaced fonts — but never a font a role still needs
-  //    (the generated fenced consts reference role imports and are added as text later, so
-  //    they're invisible to this AST pass).
+  // 4) drop now-unused imports for replaced/adopted fonts — never one a role still needs.
   const roleImports = new Set(roles.map((r) => r.importName));
-  for (const callee of new Set(removedCallees)) {
+  for (const callee of oldImports) {
     if (roleImports.has(callee)) continue;
     const stillUsed = sf
       .getDescendantsOfKind(SyntaxKind.Identifier)
@@ -139,20 +170,25 @@ function editLayoutAst(sf, roles) {
 }
 
 // ---- layout.tsx: fenced const block (text, idempotent) ---------------------
+// Only role-var roles need a generated const; adopted roles are rewritten above.
 
 function setFencedConsts(text, roles) {
+  const rv = roles.filter((r) => r.mode === "rolevar");
+  const strip = (t) => t.replace(/\n*\/\/ font-lab:start[\s\S]*?\/\/ font-lab:end\n*/g, "\n\n");
+  if (!rv.length) return strip(text);
   const lines = [
     "// font-lab:start",
     "// generated — re-run `font-lab apply` to update, `font-lab undo` to revert",
-    ...roles.map(
+    ...rv.map(
       (r) => `const ${r.constName} = ${r.importName}({ subsets: ["latin"], display: "swap", variable: "${r.varName}" });`,
     ),
     "// font-lab:end",
   ];
   const block = lines.join("\n");
-  // remove any prior block, then insert a fresh one right after the import region.
-  text = text.replace(/\n*\/\/ font-lab:start[\s\S]*?\/\/ font-lab:end\n*/g, "\n\n");
-  const importRe = /^import[^\n]*;[ \t]*$/gm;
+  text = strip(text);
+  // Match import statements with or without a trailing semicolon (Prettier `semi: false`
+  // projects — e.g. jack-mcgovern.com — write `import x from 'y'` with no `;`).
+  const importRe = /^import\s[^\n]*$/gm;
   let last = 0;
   let m;
   while ((m = importRe.exec(text))) last = m.index + m[0].length;
@@ -161,28 +197,37 @@ function setFencedConsts(text, roles) {
   return `${before}\n\n${block}\n\n${after}`;
 }
 
-function verifyLayout(sf, roles) {
+function verifyLayout(sf, roles, classTarget) {
   for (const r of roles) {
-    if (!sf.getVariableDeclaration(r.constName)) throw new Error(`verify: missing const ${r.constName}`);
+    const vd = sf.getVariableDeclaration(r.constName);
+    if (!vd) throw new Error(`verify: missing const ${r.constName}`);
+    if (r.mode === "adopt") {
+      const callee = vd.getInitializer()?.getExpression?.().getText();
+      if (callee !== r.importName) throw new Error(`verify: ${r.constName} not rewritten to ${r.importName}`);
+    }
   }
-  const { dynamic } = classNameTokens(findHtml(sf)?.getAttribute("className"));
+  const { dynamic } = classNameTokens(findClassTarget(sf, classTarget)?.getAttribute("className"));
   for (const r of roles) {
-    if (!dynamic.includes(`${r.constName}.variable`)) throw new Error(`verify: <html> missing ${r.constName}.variable`);
+    if (!dynamic.includes(`${r.constName}.variable`)) throw new Error(`verify: <${classTarget}> missing ${r.constName}.variable`);
   }
 }
 
 // ---- globals.css (fenced markers) ------------------------------------------
+// Only role-var roles need a @theme mapping; adopted roles reuse the project's existing one.
 
-function editCss(cssPath) {
+function editCss(cssPath, roles) {
+  const rv = roles.filter((r) => r.mode === "rolevar");
   let css = readFileSync(cssPath, "utf8");
+  const re = /\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//;
+  if (!rv.length) {
+    if (re.test(css)) writeFileSync(cssPath, css.replace(/\n*\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\/\n*/, "\n"));
+    return;
+  }
   const block = `/* font-lab:start */
 @theme inline {
-  --font-display: var(--font-display);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+${rv.map((r) => `  ${r.varName}: var(${r.varName});`).join("\n")}
 }
 /* font-lab:end */`;
-  const re = /\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//;
   if (re.test(css)) css = css.replace(re, block);
   else if (/@import\s+["']tailwindcss["'];/.test(css)) css = css.replace(/(@import\s+["']tailwindcss["'];\n?)/, `$1\n${block}\n`);
   else css = `${block}\n${css}`;
@@ -217,36 +262,62 @@ function restore(projectDir, backupDir) {
   for (const f of manifest.files) copyFileSync(path.join(backupDir, f.path), path.join(projectDir, f.path));
 }
 
+// Decide per-role whether to adopt the project's existing wiring or write a role-var const.
+function planRoles(selection, analysis) {
+  return ["display", "body", "mono"].map((role) => {
+    const family = selection.roles[role].family;
+    const existing = analysis.roles[role];
+    const adopt = existing && existing.nextFontVar && !ROLE_VAR_SET.has(existing.nextFontVar);
+    return adopt
+      ? {
+          role,
+          family,
+          importName: importName(family),
+          mode: "adopt",
+          constName: existing.constName,
+          adoptVar: existing.nextFontVar,
+        }
+      : {
+          role,
+          family,
+          importName: importName(family),
+          mode: "rolevar",
+          constName: constName(role),
+          varName: ROLE_VARS[role],
+        };
+  });
+}
+
 export function applySelection(projectDir) {
   const selPath = path.join(projectDir, ".font-lab", "selection.json");
   if (!existsSync(selPath)) throw new Error(`no selection at ${selPath} — pick one first`);
   const selection = JSON.parse(readFileSync(selPath, "utf8"));
-  const { layout, css } = resolveTargets(projectDir);
 
-  const roles = ["display", "body", "mono"].map((role) => ({
-    role,
-    family: selection.roles[role].family,
-    importName: importName(selection.roles[role].family),
-    varName: ROLE_VARS[role],
-    constName: constName(role),
-  }));
+  // M3: the analyzer picks the branch; codegen refuses anything it can't ship cleanly.
+  const analysis = analyzeProject(projectDir);
+  if (!analysis.supported)
+    throw new Error(`project not supported by codegen yet: ${analysis.reasons.join("; ")}`);
+
+  const { layout, css } = resolveTargets(projectDir);
+  const classTarget = analysis.classNameTarget || "html";
+  const roles = planRoles(selection, analysis);
 
   const { dir: backupDir, runId } = backup(projectDir, [layout, css]);
 
-  // 1) AST edits (import + className + remove replaced fonts), then save.
+  // 1) AST edits (import + className + replace/adopt consts), then save.
   const project = new Project({ manipulationSettings: { quoteKind: QuoteKind.Double, useTrailingCommas: false } });
   const sf = project.addSourceFileAtPath(layout);
-  const { replaced } = editLayoutAst(sf, roles);
+  const { replaced } = editLayoutAst(sf, roles, classTarget);
   sf.saveSync();
 
-  // 2) Fenced const block (text) + the CSS @theme block.
+  // 2) Fenced const block (text) + the CSS @theme block — role-var roles only.
   writeFileSync(layout, setFencedConsts(readFileSync(layout, "utf8"), roles));
-  editCss(css);
+  editCss(css, roles);
 
   // 3) Verify; on failure restore the backup so the tree is never left half-edited.
   try {
     const vsf = new Project().addSourceFileAtPath(layout);
-    verifyLayout(vsf, roles);
+    verifyLayout(vsf, roles, classTarget);
   } catch (e) {
     restore(projectDir, backupDir);
     throw new Error(`apply aborted (${e.message}); restored from backup`);
@@ -261,11 +332,52 @@ export function applySelection(projectDir) {
   return {
     runId,
     direction: selection.direction,
-    roles: roles.map((r) => ({ role: r.role, family: r.family })),
+    roles: roles.map((r) => ({ role: r.role, family: r.family, mode: r.mode })),
     replaced,
+    classTarget,
     edited: [path.relative(projectDir, layout), path.relative(projectDir, css)],
     backupDir: path.relative(projectDir, backupDir),
   };
+}
+
+// Rewire dead roles — fix a role the analyzer flags as declared-but-not-rendered. Under
+// Tailwind v4 `@theme inline`, a hand-written `font-family: var(--font-display)` resolves to
+// nothing (the theme var isn't published to :root). The fix: point those raw usages at the
+// PUBLISHED leaf var the next/font const actually sets (e.g. var(--font-bricolage)), which is
+// inherited wherever the font is used. Minimal, backup-first, reversible — and it makes both
+// the live preview and the shipped swap visible on that role. Opt-in (we never auto-edit a
+// user's base styles during a normal apply).
+export function rewireCoverage(projectDir) {
+  const analysis = analyzeProject(projectDir);
+  const dead = analysis.coverage?.deadRoles || [];
+  const { css } = resolveTargets(projectDir);
+  if (!dead.length) return { rewired: [], dead, note: "no dead roles to rewire" };
+
+  // protect @theme blocks (their `--font-display: var(--font-x)` definitions stay as-is)
+  let text = readFileSync(css, "utf8");
+  const blocks = [];
+  let work = text.replace(/@theme(\s+inline)?\s*\{[^}]*\}/g, (m) => `__FLTHEME${blocks.push(m) - 1}__`);
+
+  const rewired = [];
+  for (const role of dead) {
+    const roleVar = ROLE_VARS[role];
+    const leaf = analysis.roles[role]?.nextFontVar;
+    if (!leaf) continue;
+    let n = 0;
+    work = work.replace(new RegExp(`var\\(\\s*${roleVar}\\s*\\)`, "g"), () => (n++, `var(${leaf})`));
+    if (n) rewired.push({ role, from: roleVar, to: leaf, count: n });
+  }
+  work = work.replace(/__FLTHEME(\d+)__/g, (_, i) => blocks[Number(i)]);
+  if (!rewired.length) return { rewired: [], dead, note: "dead roles found, but no raw var() usages to rewire" };
+
+  const { dir: backupDir, runId } = backup(projectDir, [css]);
+  writeFileSync(css, work);
+  const manifestPath = path.join(backupDir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  for (const f of manifest.files) f.appliedSha256 = sha(readFileSync(path.join(projectDir, f.path)));
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  return { runId, rewired, edited: [path.relative(projectDir, css)], backupDir: path.relative(projectDir, backupDir) };
 }
 
 export function undo(projectDir) {

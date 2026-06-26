@@ -1,0 +1,163 @@
+@import 'tailwindcss';
+
+/* font-lab:start */
+@theme inline {
+  --font-mono: var(--font-mono);
+}
+/* font-lab:end */
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Warm paper + ink. A true off-white nudged a hair toward the clay brand —
+     deliberately NOT the AI cream/sand band (chroma stays tiny). */
+  --background: oklch(0.985 0.004 70);
+  --foreground: oklch(0.24 0.012 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.012 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.012 60);
+  --primary: oklch(0.24 0.012 60);
+  --primary-foreground: oklch(0.985 0.004 70);
+  --secondary: oklch(0.965 0.006 70);
+  --secondary-foreground: oklch(0.24 0.012 60);
+  --muted: oklch(0.95 0.006 70);
+  --muted-foreground: oklch(0.47 0.018 55); /* darkened: ~6.5:1 on paper */
+
+  /* Signature: terracotta / clay. Warm and human; passes 4.5:1 as text on paper. */
+  --brand: oklch(0.55 0.13 42);
+  --brand-strong: oklch(0.48 0.13 40);
+
+  --accent: oklch(0.93 0.035 45);
+  --accent-foreground: oklch(0.30 0.04 45);
+  --destructive: oklch(0.58 0.20 27);
+  --destructive-foreground: oklch(0.985 0.004 70);
+  --border: oklch(0.90 0.008 60);
+  --input: oklch(0.90 0.008 60);
+  --ring: oklch(0.55 0.13 42);
+  --radius: 0.75rem;
+
+  /* Cohesive earthen card family: one envelope (L~0.93, low chroma), warm-led,
+     replacing the scattered candy pastels. The forest card stays deep for contrast. */
+  --card-icy: oklch(0.93 0.03 230);
+  --card-sage: oklch(0.93 0.035 150);
+  --card-peach: oklch(0.94 0.04 60);
+  --card-lavender: oklch(0.92 0.035 300);
+  --card-rose: oklch(0.93 0.045 30);
+  --card-forest: oklch(0.32 0.035 45); /* deep espresso for the inverted card */
+
+  --tint-icy: oklch(0.93 0.03 230);
+  --tint-sage: oklch(0.93 0.035 150);
+  --tint-peach: oklch(0.94 0.04 60);
+  --tint-lavender: oklch(0.92 0.035 300);
+  --tint-rose: oklch(0.93 0.045 30);
+
+  /* Motion */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@theme inline {
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-card-icy: var(--card-icy);
+  --color-card-sage: var(--card-sage);
+  --color-card-peach: var(--card-peach);
+  --color-card-lavender: var(--card-lavender);
+  --color-card-forest: var(--card-forest);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+  }
+}
+
+/* Entrance / reveal motion. Content is fully visible by default; motion is a
+   pure-CSS enhancement that only runs when the user welcomes it, so nothing is
+   ever gated behind a reveal that can fail to fire (no-JS, hidden tab, crawler). */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal-load {
+    animation: reveal-rise 0.7s var(--ease-out-quint) both;
+    animation-delay: calc(var(--i, 0) * 90ms);
+  }
+  /* Scroll-reveal. Elements are visible by default; useReveal only "arms"
+     (hides) the ones that start below the fold, then flips them to "in" on
+     intersection — a per-card stagger via --i, with nothing ever shipping blank. */
+  .reveal-card[data-reveal="armed"] {
+    opacity: 0;
+  }
+  .reveal-card[data-reveal="in"] {
+    animation: reveal-rise 0.7s var(--ease-out-quint) both;
+    animation-delay: calc(var(--i, 0) * 90ms);
+  }
+}
+
+/* Project card surface: a lush shadow lift on hover, a snappy darken on press. */
+.project-card-surface {
+  transition:
+    box-shadow 0.45s var(--ease-out-quint),
+    transform 0.12s ease-out,
+    filter 0.12s ease-out;
+}
+
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "results": [
+    {
+      "name": "starts on current (Inter)",
+      "pass": true
+    },
+    {
+      "name": "editorial: display Fraunces",
+      "pass": true
+    },
+    {
+      "name": "editorial: body Libre Franklin",
+      "pass": true
+    },
+    {
+      "name": "mixed: body changed independently",
+      "pass": true
+    },
+    {
+      "name": "mixed: display still Fraunces",
+      "pass": true
+    },
+    {
+      "name": "mixed: active flips to 'mixed'",
+      "pass": true
+    },
+    {
+      "name": "mixed pick written",
+      "pass": true
+    },
+    {
+      "name": "mixed pick: direction id = mixed",
+      "pass": true
+    },
+    {
+      "name": "mixed pick: display = Fraunces",
+      "pass": true
+    },
+    {
+      "name": "mixed pick: body = the swapped font",
+      "pass": true
+    },
+    {
+      "name": "mixed pick: display ≠ body (it's a real mix)",
+      "pass": true
+    },
+    {
+      "name": "before/after shows current",
+      "pass": true
+    },
+    {
+      "name": "before/after restores the build",
+      "pass": true
+    },
+    {
+      "name": "pin compare toggles between A and B",
+      "pass": true
+    },
+    {
+      "name": "one of the pinned views is Geist (clean-geometric)",
+      "pass": true
+    },
+    {
+      "name": "panel persists across route nav (multi-route)",
+      "pass": true
+    },
+    {
+      "name": "dense route renders the mixed display too",
+      "pass": true
+    }
+  ],
+  "finalSelection": {
+    "version": 1,
+    "pickedAt": "2026-06-25T23:19:27.455Z",
+    "direction": {
+      "id": "mixed",
+      "name": "Mixed",
+      "vibe": "mixed",
+      "rationale": "Custom pairing — Fraunces / Figtree / JetBrains Mono."
+    },
+    "roles": {
+      "display": {
+        "family": "Fraunces",
+        "source": "google",
+        "weights": [
+          400,
+          700
+        ]
+      },
+      "body": {
+        "family": "Figtree",
+        "source": "google",
+        "weights": [
+          400,
+          600
+        ]
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "source": "google",
+        "weights": [
+          400,
+          700
+        ]
+      }
+    },
+    "replaces": {
+      "display": "Inter",
+      "body": "Inter",
+      "mono": "JetBrains Mono"
+    },
+    "target": {
+      "framework": "next",
+      "router": "app",
+      "styling": "tailwind",
+      "tailwindVersion": 4,
+      "fontWiring": "css-variables"
+    }
+  }
+}
