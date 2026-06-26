@@ -69,6 +69,14 @@
       "pass": true
     },
     {
+      "name": "MCP exposes font_lab_init",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_uninit",
+      "pass": true
+    },
+    {
       "name": "MCP exposes font_lab_prepare_preview",
       "pass": true
     },

@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.6.0" };
+const SERVER = { name: "font-lab", version: "0.7.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
@@ -72,6 +72,23 @@ const TOOLS = [
       required: ["directions"],
     },
     handler: (a) => engine.composeDirections(a.directions),
+  },
+  {
+    name: "font_lab_init",
+    description:
+      "SET UP Font Lab in the project so the human can preview live — self-hosts the parity bundles, installs the dev panel, and mounts it (dev-only) in the layout. This is the one-shot setup: run it after font_lab_analyze, then start the dev server and tell the human to flip fonts in the panel (bottom-right) and Pick. Idempotent and reversible (font_lab_uninit). Reports any dead roles (offer font_lab_rewire_dead_roles).",
+    inputSchema: {
+      type: "object",
+      properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.init(a.projectDir, { vibe: a.vibe, count: a.count, log }),
+  },
+  {
+    name: "font_lab_uninit",
+    description: "Remove Font Lab's panel scaffolding from the project (restores the layout, removes the generated panel + self-hosted fonts). Use to clean up if the user doesn't want to keep previewing.",
+    inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
+    handler: (a) => engine.uninit(a.projectDir),
   },
   {
     name: "font_lab_prepare_preview",

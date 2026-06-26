@@ -31,11 +31,18 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      to browse, then `font_lab_compose_directions({ directions: [...] })` to build your own.
      Every family must be a catalog member — that's what keeps preview == ship.
    Mix freely: start from `curate`, swap a direction or two with composed ones.
-3. **Preview** — `font_lab_prepare_preview({ projectDir, directions | vibe })`. This builds the
-   live preview into the project. Then tell the human to open their dev server and flip through
-   the directions (← →, `B` for before/after) and **pick one**. Wait for the human.
-4. **Read the pick** — poll `font_lab_read_pick({ projectDir })` until it returns a selection.
-5. **Ship it** — `font_lab_apply({ projectDir })`. Reversible via `font_lab_undo`.
+3. **Set up the live preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
+   fonts, installs the dev panel, and mounts it (dev-only). If `analyze` flagged a dead role and
+   the user wants it to change, also call `font_lab_rewire_dead_roles({ projectDir })`.
+   (Already initialized and just changing the options? `font_lab_prepare_preview` rebuilds the
+   bundles without re-mounting.)
+4. **Hand off to the human** — start the dev server and the pick endpoint in the background
+   (`<dev command>` and `node cli/font-lab.mjs --project <dir>`), then tell the human to open
+   their site, flip through the directions in the panel (← →, `↑↓`+`[ ]` to mix, `B` for
+   before/after), and **pick one**. Wait for them.
+5. **Read the pick** — poll `font_lab_read_pick({ projectDir })` until it returns a selection.
+6. **Ship it** — `font_lab_apply({ projectDir })`. Reversible via `font_lab_undo`; remove the
+   panel scaffolding with `font_lab_uninit`.
 
 ## Rules
 
