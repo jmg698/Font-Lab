@@ -128,6 +128,48 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.undo(a.projectDir),
   },
+  {
+    name: "font_lab_screenshot_directions",
+    description:
+      "HEADLESS pick mode — when the human has no live browser to flip in (a web/cloud session, or they're on a phone), screenshot the running site in each curated direction so they can pick from IMAGES instead of a live panel. Requires font_lab_init done and the project's dev server running; pass its baseUrl (e.g. http://localhost:3000). Returns a manifest of {id, name, vibe, rationale, fonts, screenshot path} per direction (plus a 'current' before-shot) — SHOW these images to the human and ask them to pick an id. The screenshots are driven through the real preview panel, so they are faithful to what ships. Makes no edits.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000." },
+        routes: { type: "array", items: { type: "string" }, description: "Route(s) to capture; defaults to ['/']." },
+        outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
+      },
+      required: ["projectDir", "baseUrl"],
+    },
+    handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir }),
+  },
+  {
+    name: "font_lab_select",
+    description:
+      "Record the human's pick by direction id — the HEADLESS counterpart to clicking Pick in the panel. Use AFTER the human has chosen from the screenshots (you must still let the HUMAN make the call — never auto-select). Writes the same selection.json the panel writes, so font_lab_apply ships it identically. Supports a mixed pick: pass roles {display, body, mono} as direction ids to take each role from a different direction.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        directionId: { type: "string", description: "The id the human picked (from curate/screenshots)." },
+        roles: {
+          type: "object",
+          description: "Optional mixed pick — per-role direction ids, e.g. {display:'editorial-serif', body:'modern-grotesque'}.",
+          properties: { display: { type: "string" }, body: { type: "string" }, mono: { type: "string" } },
+        },
+      },
+      required: ["projectDir", "directionId"],
+    },
+    handler: (a) => engine.selectDirection(a.projectDir, { directionId: a.directionId, roles: a.roles }),
+  },
+  {
+    name: "font_lab_live_instructions",
+    description:
+      "Get ready-to-run commands to launch the FULL live editor (flip / mix / compare directions in a real browser) — for when the headless screenshots aren't enough and the human wants to drive it themselves. Detects the project's dev command. These run in a local terminal: a Mac/Linux terminal or the integrated terminal in VS Code / Cursor / the Claude Code IDE extension.",
+    inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
+    handler: (a) => engine.liveInstructions(a.projectDir),
+  },
 ];
 
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");

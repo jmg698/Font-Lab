@@ -31,18 +31,32 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      to browse, then `font_lab_compose_directions({ directions: [...] })` to build your own.
      Every family must be a catalog member — that's what keeps preview == ship.
    Mix freely: start from `curate`, swap a direction or two with composed ones.
-3. **Set up the live preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
+3. **Set up the preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
    fonts, installs the dev panel, and mounts it (dev-only). If `analyze` flagged a dead role and
    the user wants it to change, also call `font_lab_rewire_dead_roles({ projectDir })`.
    (Already initialized and just changing the options? `font_lab_prepare_preview` rebuilds the
    bundles without re-mounting.)
-4. **Hand off to the human** — start the dev server and the pick endpoint in the background
-   (`<dev command>` and `node cli/font-lab.mjs --project <dir>`), then tell the human to open
-   their site, flip through the directions in the panel (← →, `↑↓`+`[ ]` to mix, `B` for
-   before/after), and **pick one**. Wait for them.
-5. **Read the pick** — poll `font_lab_read_pick({ projectDir })` until it returns a selection.
-6. **Ship it** — `font_lab_apply({ projectDir })`. Reversible via `font_lab_undo`; remove the
-   panel scaffolding with `font_lab_uninit`.
+4. **The choosing moment** — pick the path that fits where you're running. Start the dev server
+   in the background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
+
+   - **Live (best — when the human has a real browser on this machine):** you're in a local
+     terminal / IDE (Mac or Linux terminal, VS Code, Cursor, the Claude Code IDE extension).
+     Also start the pick endpoint (`node cli/font-lab.mjs --project <dir>`), then tell the human
+     to open their site and flip the panel (← →, `↑↓`+`[ ]` to mix, `B` for before/after) and
+     **pick one**. Read the pick with `font_lab_read_pick` (poll until it returns a selection).
+
+   - **Headless (when there's NO live browser for the human — a web/cloud session, or they're on
+     a phone):** call `font_lab_screenshot_directions({ projectDir, baseUrl })`. It drives the
+     real panel and screenshots the site in each direction (faithful to what ships). **Show those
+     images to the human** and ask them to pick an id. Record it with
+     `font_lab_select({ projectDir, directionId })` (supports a mixed pick via `roles`). You are
+     still only preparing the menu — **the human makes the call.**
+
+   Always offer the live escape hatch: if the screenshots aren't enough and the human wants to
+   flip/mix/compare themselves, give them `font_lab_live_instructions({ projectDir })` —
+   ready-to-run commands to launch the full editor locally (works in any terminal / IDE / Cursor).
+5. **Ship it** — once a selection exists (from either path), `font_lab_apply({ projectDir })`.
+   Reversible via `font_lab_undo`; remove the panel scaffolding with `font_lab_uninit`.
 
 ## Rules
 
@@ -55,3 +69,7 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
   font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.
+- **Headless needs Chromium.** `font_lab_screenshot_directions` uses Playwright (present in Claude
+  Code on the web; elsewhere `npm i -D playwright && npx playwright install chromium`). If it isn't
+  available, don't fake a pick — hand the human `font_lab_live_instructions` and let them choose in
+  a real browser. The live, local path is always the highest-fidelity option.

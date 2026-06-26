@@ -38,6 +38,8 @@
     "font-lab-analyze": "./analyze.mjs",
     "font-lab-curate": "./curate.mjs",
     "font-lab-init": "./init.mjs",
+    "font-lab-screenshots": "./screenshots.mjs",
+    "font-lab-select": "./select.mjs",
     "font-lab-mcp": "./mcp.mjs"
   },
   "files": [
