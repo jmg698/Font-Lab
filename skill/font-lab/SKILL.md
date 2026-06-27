@@ -69,7 +69,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
   font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.
-- **Headless needs Chromium.** `font_lab_screenshot_directions` uses Playwright (present in Claude
-  Code on the web; elsewhere `npm i -D playwright && npx playwright install chromium`). If it isn't
-  available, don't fake a pick — hand the human `font_lab_live_instructions` and let them choose in
-  a real browser. The live, local path is always the highest-fidelity option.
+- **Headless needs a Chromium.** `font_lab_screenshot_directions` needs the `playwright` library
+  (`npm i -D playwright`), but it drives **whatever Chromium is already on the machine** — a
+  pre-installed build (cloud envs), the user's system Chrome/Edge, or Playwright's bundle; no exact
+  version match required (pass `executablePath` to force one). If none launches, don't fake a pick —
+  hand the human `font_lab_live_instructions` and let them choose in a real browser. The live, local
+  path is always the highest-fidelity option.

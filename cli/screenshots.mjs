@@ -13,11 +13,12 @@ const project = path.resolve(arg("--project", process.cwd()));
 const baseUrl = arg("--base", arg("--base-url", "http://localhost:3000"));
 const out = arg("--out", undefined);
 const routes = arg("--route", "/").split(",");
+const executablePath = arg("--chromium", undefined); // optional: point at any Chrome/Chromium
 const rel = (p) => path.relative(process.cwd(), p) || ".";
 
 try {
-  const r = await engine.captureDirections(project, { baseUrl, outDir: out, routes });
-  console.log(`Font Lab — captured ${r.shots.length} preview(s) from ${r.baseUrl}${r.route} → ${rel(r.outDir)}`);
+  const r = await engine.captureDirections(project, { baseUrl, outDir: out, routes, executablePath });
+  console.log(`Font Lab — captured ${r.shots.length} preview(s) from ${r.baseUrl}${r.route} → ${rel(r.outDir)}  [${r.browser}]`);
   for (const s of r.shots) {
     console.log(`  ${s.error ? "✗" : "✓"} ${s.id.padEnd(22)} ${s.error || rel(s.screenshot)}`);
   }

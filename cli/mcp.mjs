@@ -139,10 +139,11 @@ const TOOLS = [
         baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000." },
         routes: { type: "array", items: { type: "string" }, description: "Route(s) to capture; defaults to ['/']." },
         outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
+        executablePath: { type: "string", description: "Optional path to a Chrome/Chromium binary. Usually unnecessary — it finds a system/pre-installed browser automatically." },
       },
       required: ["projectDir", "baseUrl"],
     },
-    handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir }),
+    handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir, executablePath: a.executablePath }),
   },
   {
     name: "font_lab_select",

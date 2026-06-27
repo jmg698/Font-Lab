@@ -19,9 +19,11 @@ import path from "node:path";
 import { writeFileSync, appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 
 // ---- subcommand dispatch ---------------------------------------------------
-// The first non-flag arg selects a subcommand. Anything else (or a leading flag)
-// falls through to `serve`, preserving the original `--project/--port` invocation.
-const SUB = process.argv[2] && !process.argv[2].startsWith("-") ? process.argv[2] : "serve";
+// Bare `font-lab` (no args) prints help — it must NOT silently boot a long-running server, which
+// an agent exploring the CLI would hang on. A leading flag (`--project …`) still means `serve`
+// for back-compat; an explicit word selects that subcommand.
+const first = process.argv[2];
+const SUB = !first ? "help" : first.startsWith("-") ? "serve" : first;
 if (SUB === "install" || SUB === "uninstall") {
   const { runInstall, runUninstall } = await import("./install.mjs");
   if (SUB === "install") runInstall();
