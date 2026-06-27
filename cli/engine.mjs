@@ -9,9 +9,10 @@
 //     font it chooses must be a catalog member, so the parity / ship guarantee always holds.
 //   • the curator is the strong default the agent gets for free.
 
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
@@ -148,6 +149,23 @@ function mountPanel(layoutPath) {
   return true;
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// The exact inverse of mountPanel — surgically strips ONLY the dev-panel scaffolding so an
+// intervening `apply` (which edits the same file) is preserved. Never restores from a backup.
+function unmountPanel(src) {
+  let out = src;
+  // 1) the fenced dev-panel const block (+ the blank lines insertAfterImports padded it with)
+  out = out.replace(new RegExp(`\\n*${escapeRe(INIT_START)}[\\s\\S]*?${escapeRe(INIT_END)}\\n*`, "g"), "\n");
+  // 2) the dev-only render expression (loose match, robust to reformatting)
+  out = out.replace(/[ \t]*\{[^\n}]*<FontLabDevPanel\b[^\n}]*\}\n?/g, "");
+  // 3) the next/dynamic import we may have added — only if nothing else uses dynamic()
+  if (/from\s+["']next\/dynamic["']/.test(out) && !/\bdynamic\s*\(/.test(out)) {
+    out = out.replace(/^[ \t]*import\s+dynamic\s+from\s+["']next\/dynamic["'];?[ \t]*\n/m, "");
+  }
+  return out;
+}
+
 // Set the project up so the human can preview live: self-host the parity bundles, drop in the
 // portable dev panel, and mount it (dev-only) in the layout. Idempotent + reversible (uninit).
 export async function init(projectDir, { vibe, count, fetch = true, log } = {}) {
@@ -187,12 +205,26 @@ export function uninit(projectDir) {
   const dir = path.resolve(projectDir);
   const appDir = resolveAppDir(dir);
   const layout = path.join(appDir, "layout.tsx");
-  const backupLayout = path.join(dir, ".font-lab", "init-backup", "layout.tsx");
-  if (existsSync(backupLayout)) copyFileSync(backupLayout, layout);
+  // Surgically strip the panel scaffolding — do NOT restore layout.tsx from the init backup,
+  // which predates any `apply` and would silently wipe the shipped font change.
+  let unmounted = false;
+  if (existsSync(layout)) {
+    const before = readFileSync(layout, "utf8");
+    const after = unmountPanel(before);
+    if (after !== before) {
+      writeFileSync(layout, after);
+      unmounted = true;
+    }
+  }
   rmSync(path.join(appDir, "_fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, ".font-lab", "init-backup"), { recursive: true, force: true });
-  return { restored: path.relative(dir, layout), removed: ["app/_fontlab", "public/fontlab"] };
+  return {
+    layout: path.relative(dir, layout),
+    unmountedPanel: unmounted,
+    removed: ["app/_fontlab", "public/fontlab"],
+    note: "Removed only the dev-panel scaffolding; any applied font change is left intact.",
+  };
 }
 
 export function undo(projectDir) {
@@ -263,17 +295,91 @@ export function liveInstructions(projectDir) {
   };
 }
 
+// Find any already-installed Chromium on the machine, across Playwright's version-specific
+// download layouts (old `chrome-linux/chrome` + headless_shell, new `chrome-linux64/...`), so we
+// can screenshot with whatever browser exists instead of demanding Playwright's exact bundled
+// revision. Returns the newest binary found, or null.
+function discoverChromium() {
+  const roots = [];
+  const pbp = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (pbp && pbp !== "0") roots.push(pbp);
+  const home = os.homedir();
+  roots.push(path.join(home, ".cache", "ms-playwright")); // linux default
+  roots.push(path.join(home, "Library", "Caches", "ms-playwright")); // macOS default
+  roots.push(path.join(home, "AppData", "Local", "ms-playwright")); // windows default
+  const BINS = [
+    "chrome-linux/chrome",
+    "chrome-linux64/chrome",
+    "chrome-linux/headless_shell",
+    "chrome-headless-shell-linux64/chrome-headless-shell",
+    "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+    "chrome-win/chrome.exe",
+  ];
+  const found = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let entries;
+    try {
+      entries = readdirSync(root);
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (!/^chromium/i.test(e)) continue;
+      const rev = Number((e.match(/(\d+)/) || [])[1] || 0);
+      for (const b of BINS) {
+        const p = path.join(root, e, b);
+        if (existsSync(p)) {
+          found.push({ rev, p });
+          break;
+        }
+      }
+    }
+  }
+  found.sort((a, b) => b.rev - a.rev);
+  return found[0]?.p || null;
+}
+
+// Launch Chromium from whatever the machine actually has — an explicit path, a pre-installed
+// build (cloud envs), the user's system Chrome/Edge, or Playwright's own bundle — first one that
+// launches wins. This sidesteps Playwright's hard pin to its exact bundled revision.
+async function launchBrowser(chromium, { executablePath } = {}) {
+  const explicit = executablePath || process.env.FONT_LAB_CHROMIUM || process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+  const discovered = discoverChromium();
+  const attempts = [
+    explicit && { label: `executablePath ${explicit}`, opts: { executablePath: explicit } },
+    { label: "playwright bundled", opts: {} },
+    discovered && { label: `pre-installed ${discovered}`, opts: { executablePath: discovered } },
+    { label: "system chrome", opts: { channel: "chrome" } },
+    { label: "system edge", opts: { channel: "msedge" } },
+  ].filter(Boolean);
+  const tried = [];
+  for (const a of attempts) {
+    try {
+      return { browser: await chromium.launch(a.opts), via: a.label };
+    } catch (e) {
+      tried.push(`${a.label}: ${String(e.message).split("\n")[0]}`);
+    }
+  }
+  throw new Error(
+    "couldn't launch a Chromium for screenshots. Tried:\n  - " +
+      tried.join("\n  - ") +
+      "\nFixes: `npx playwright install chromium`, set FONT_LAB_CHROMIUM=/path/to/chrome, or use the live editor (see liveInstructions).",
+  );
+}
+
 // Headless capture: drive the REAL live panel through each direction and screenshot the site, so
 // the images are faithful to what ships. Requires init() done and a dev server running at baseUrl.
 // Makes no project edits — it only reads the running site. Returns a manifest the agent shows.
-export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true } = {}) {
+export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath } = {}) {
   if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
   let chromium;
   try {
     ({ chromium } = await import("playwright"));
   } catch {
     throw new Error(
-      "Playwright/Chromium isn't available for screenshots. Install it (`npm i -D playwright && npx playwright install chromium`), or use the live editor instead — see liveInstructions().",
+      "Playwright isn't installed for screenshots (`npm i -D playwright`), or use the live editor instead — see liveInstructions(). The browser itself can be any system Chrome/Chromium; it doesn't need Playwright's exact bundled build.",
     );
   }
   const dir = path.resolve(projectDir);
@@ -284,7 +390,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   const base = baseUrl.replace(/\/+$/, "");
   const route = routes[0] || "/";
 
-  const browser = await chromium.launch();
+  const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
     const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
     await page.goto(base + route, { waitUntil: "networkidle" });
@@ -336,7 +442,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
         screenshot: file,
       });
     }
-    return { baseUrl: base, route, outDir: out, shots, live: liveInstructions(dir) };
+    return { baseUrl: base, route, outDir: out, browser: via, shots, live: liveInstructions(dir) };
   } finally {
     await browser.close();
   }
