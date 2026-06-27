@@ -30,6 +30,10 @@ const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const constName = (role) => "fontLab" + cap(role);
 const importName = (family) => family.replace(/[^A-Za-z0-9]+/g, "_");
+// A distinct, family-named CSS variable for a new role, matching the common project convention
+// (`--font-bricolage`, `--font-jetbrains-mono`). Keeping it distinct from the role token avoids the
+// self-referential `--font-mono: var(--font-mono)` and the collision with a project's own token.
+const fontVar = (family) => "--font-" + family.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 
 function resolveTargets(projectDir) {
@@ -180,7 +184,7 @@ function setFencedConsts(text, roles) {
     "// font-lab:start",
     "// generated — re-run `font-lab apply` to update, `font-lab undo` to revert",
     ...rv.map(
-      (r) => `const ${r.constName} = ${r.importName}({ subsets: ["latin"], display: "swap", variable: "${r.varName}" });`,
+      (r) => `const ${r.constName} = ${r.importName}({ subsets: ["latin"], display: "swap", variable: "${r.fontVar}" });`,
     ),
     "// font-lab:end",
   ];
@@ -217,21 +221,58 @@ function verifyLayout(sf, roles, classTarget) {
 
 function editCss(cssPath, roles) {
   const rv = roles.filter((r) => r.mode === "rolevar");
-  let css = readFileSync(cssPath, "utf8");
-  const re = /\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//;
-  if (!rv.length) {
-    if (re.test(css)) writeFileSync(cssPath, css.replace(/\n*\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\/\n*/, "\n"));
-    return;
-  }
-  const block = `/* font-lab:start */
-@theme inline {
-${rv.map((r) => `  ${r.varName}: var(${r.varName});`).join("\n")}
+  const css = readFileSync(cssPath, "utf8");
+  const next = composeCss(css, rv);
+  if (next !== css) writeFileSync(cssPath, next);
 }
-/* font-lab:end */`;
-  if (re.test(css)) css = css.replace(re, block);
-  else if (/@import\s+["']tailwindcss["'];/.test(css)) css = css.replace(/(@import\s+["']tailwindcss["'];\n?)/, `$1\n${block}\n`);
-  else css = `${block}\n${css}`;
-  writeFileSync(cssPath, css);
+
+const FONTLAB_BLOCK = /\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//;
+
+// Pure CSS transform (exported for testing). Inserts/updates the fenced `@theme inline` block that
+// maps each role token to a DISTINCT, family-named next/font variable. Two things make it correct on
+// real projects (not just the single-import fixture):
+//   • placement is after the last leading @import (so every @import stays valid — an @theme wedged
+//     between two imports invalidates the later one), AND after the project's own @theme blocks, so
+//     our role tokens win Tailwind v4's last-declaration-wins merge (else the new font loads but the
+//     utility keeps the project's old value — "downloaded but unused");
+//   • each map entry is `--role-token: var(--font-family)`, never `--font-mono: var(--font-mono)`.
+export function composeCss(css, rv) {
+  if (!rv.length) {
+    return FONTLAB_BLOCK.test(css) ? css.replace(/\n*\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\/\n*/, "\n") : css;
+  }
+  const block = [
+    "/* font-lab:start */",
+    "@theme inline {",
+    ...rv.map((r) => `  ${r.varName}: var(${r.fontVar});`),
+    "}",
+    "/* font-lab:end */",
+  ].join("\n");
+  if (FONTLAB_BLOCK.test(css)) return css.replace(FONTLAB_BLOCK, block); // idempotent: update in place
+  const at = cssInsertIndex(css);
+  const head = css.slice(0, at).replace(/\s*$/, "");
+  const tail = css.slice(at).replace(/^\s*/, "");
+  return [head, block, tail].filter(Boolean).join("\n\n") + "\n";
+}
+
+function matchBrace(s, open) {
+  let depth = 0;
+  for (let i = open; i < s.length; i++) {
+    if (s[i] === "{") depth++;
+    else if (s[i] === "}" && --depth === 0) return i;
+  }
+  return s.length - 1;
+}
+
+// Byte offset to insert our block: after the last leading @import AND after the last existing
+// @theme block, whichever is later (0 = top of file when there are neither).
+function cssInsertIndex(css) {
+  let idx = 0;
+  let m;
+  const importRe = /@import\b[^;]*;/g;
+  while ((m = importRe.exec(css))) idx = Math.max(idx, m.index + m[0].length);
+  const themeRe = /@theme\b[^{]*\{/g;
+  while ((m = themeRe.exec(css))) idx = Math.max(idx, matchBrace(css, themeRe.lastIndex - 1) + 1);
+  return idx;
 }
 
 // ---- backups / apply / undo ------------------------------------------------
@@ -283,7 +324,8 @@ function planRoles(selection, analysis) {
           importName: importName(family),
           mode: "rolevar",
           constName: constName(role),
-          varName: ROLE_VARS[role],
+          varName: ROLE_VARS[role], // the Tailwind role token (left side of the @theme map)
+          fontVar: fontVar(family), // the distinct next/font variable (what the const sets, right side)
         };
   });
 }
