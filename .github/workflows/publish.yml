@@ -1,0 +1,48 @@
+name: Publish to npm (with provenance)
+
+# Publishes the cli/ package to npm whenever you cut a GitHub Release (or run this manually).
+# Auth is npm Trusted Publishing (OIDC) — NO token/secret. npm is configured to trust this exact
+# workflow (Package settings -> Trusted Publisher -> GitHub Actions: jmg698/Font-Lab, publish.yml),
+# and the short-lived id-token below proves the build's identity. CI publish also attaches a signed
+# provenance attestation — the verified badge that cryptographically ties font-lab to THIS repo +
+# commit, so it can't be mistaken for a typosquat.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "npm dist-tag to publish under"
+        default: latest
+
+permissions:
+  contents: read
+  id-token: write # REQUIRED for npm provenance (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing (OIDC) needs a recent npm; node 22's bundled npm may predate it.
+      - run: npm install -g npm@latest
+
+      # Install prod deps and run the gates so we never publish a broken build.
+      - run: npm install --omit=dev --no-audit --no-fund
+      - run: node codegen-css-test.mjs
+      - run: bash run-m5.sh
+
+      # No token: npm authenticates via the OIDC id-token (Trusted Publishing) and attaches
+      # provenance automatically. The package page then shows it was built + signed on GitHub
+      # Actions from jmg698/Font-Lab at the exact commit.
+      - run: npm publish --provenance --access public --tag "${{ github.event.inputs.dist_tag || 'latest' }}"
