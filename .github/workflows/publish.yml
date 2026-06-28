@@ -1,0 +1,44 @@
+name: Publish to npm (with provenance)
+
+# Publishes the cli/ package to npm whenever you cut a GitHub Release (or run this manually).
+# Publishing from CI lets npm attach a signed provenance attestation — the verified badge that
+# cryptographically ties font-lab on npm to THIS repo + commit, so it can't be mistaken for a
+# typosquat. Local `npm publish` still works as a fallback, but only CI gets the badge.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "npm dist-tag to publish under"
+        default: latest
+
+permissions:
+  contents: read
+  id-token: write # REQUIRED for npm provenance (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      # Install prod deps and run the gates so we never publish a broken build.
+      - run: npm install --omit=dev --no-audit --no-fund
+      - run: node codegen-css-test.mjs
+      - run: bash run-m5.sh
+
+      # --provenance signs the build; the package page then shows "Provenance: published from
+      # jmg698/Font-Lab via GitHub Actions" with the exact commit.
+      - run: npm publish --provenance --access public --tag "${{ github.event.inputs.dist_tag || 'latest' }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
