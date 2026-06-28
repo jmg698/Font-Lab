@@ -1,8 +1,22 @@
-# cli — the Font Lab loop (M1 walking skeleton)
+# Font Lab
 
-The first real (non-throwaway) slice: the whole loop runs end to end. The human flips
-between curated directions on their own running site and picks one; the pick is written to
-`.font-lab/selection.json` — the seam the agent reads to ship the real code (M4).
+[![npm version](https://img.shields.io/npm/v/font-lab.svg)](https://www.npmjs.com/package/font-lab)
+[![npm provenance](https://img.shields.io/badge/npm-provenance-blue.svg)](https://docs.npmjs.com/generating-provenance-statements)
+[![license: MIT](https://img.shields.io/npm/l/font-lab.svg)](https://github.com/jmg698/Font-Lab/blob/main/LICENSE)
+
+**A decision surface for typography in Next.js + Tailwind apps.** AI removed the labor of
+implementing fonts but deleted the *moment of choice* — and taste only happens at the moment of
+choice. Font Lab puts it back: it curates a small set of tasteful font directions, renders them
+**live on your own running site** (or as screenshots), lets a **human pick**, then ships the exact
+`next/font` + Tailwind code — reversibly. The human keeps the taste decision; the agent does the
+typing.
+
+It installs as a Claude Code **skill + MCP server** (`npx font-lab install`), so you can just say
+*"pick better fonts for this site"* and the agent drives the whole loop. Works headless (screenshots
+in chat, on web or phone) or live (a flip/mix/compare panel on your real site).
+
+> Published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) —
+> every release is cryptographically traceable to this repo and commit.
 
 ## Install (one command)
 
