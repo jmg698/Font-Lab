@@ -1,6 +1,6 @@
 {
   "name": "font-lab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Font Lab — a decision surface for typography in Next.js + Tailwind apps. Curate tasteful font directions on your real running site, let a human pick, and ship the exact next/font + Tailwind code. Installs as an agent skill + MCP server.",
   "keywords": [
