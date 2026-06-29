@@ -297,7 +297,22 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   new `font_lab_start` front-door tool (`engine.start()` + `mcp.mjs`) and the rewritten
   intake-first protocol in `SKILL.md`. `composeDirections` now soft-warns on overexposed
   families (the hard set-level gate is B1). Covered by `cli/design-brain-test.mjs` (14 checks,
-  runs without deps). **Next: A2 — the dynamic shippability gate.**
+  runs without deps).
+- **A2 — the dynamic shippability gate** — *shipped (gate logic verified; network/build path
+  needs a deps+network run).* `cli/admit.mjs`: `admit(family)` → `guaranteed` | `best-effort` |
+  `unavailable`, with pure verdict/parity/license logic and injectable Google + Fontshare +
+  `@capsizecss/unpack` resolvers (the catalog is the seed cache; the soft-degrade never
+  hard-blocks a shippable font). Engine: `admit`, `admitDirections`, a project-scoped verified
+  cache (`.font-lab/admitted.json`), and `composeDirections` now **consults the gate instead of
+  a catalog whitelist** — non-catalog Google/foundry fonts are admitted and best-effort fonts
+  are allowed with a fidelity warning. `generateCatalog` self-hosts admitted fonts (unpack
+  metrics; the catalog path stays byte-identical). New `font_lab_check_fonts` MCP tool lets the
+  agent reach beyond the catalog and get an honest verdict; `SKILL.md` rule is now
+  "shippable-only, not catalog-only." Added dep `@capsizecss/unpack@^4.0.1`. Covered by
+  `cli/admit-test.mjs` (20 checks, runs without deps via injected fakes).
+  **Next: B1 — hard set-level anti-generic gate on compose; verify the A2 network/build path on
+  a machine with deps; then the foundry adapters (Fontshare/Velvetyne) and catalog-as-cache
+  seeding (E1).**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

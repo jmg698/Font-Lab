@@ -71,6 +71,7 @@
   },
   "dependencies": {
     "@capsizecss/metrics": "^3.4.0",
+    "@capsizecss/unpack": "^4.0.1",
     "ts-morph": "^28.0.0"
   },
   "devDependencies": {

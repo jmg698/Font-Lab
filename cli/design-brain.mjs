@@ -113,7 +113,7 @@ export function designBrief() {
       families: EXCLUSIONS,
     },
     references: {
-      note: "Inspiration, not a pick-list. Reach for these KINDS of choices and vary them per project. Until the dynamic gate lands, map each to a shippable family (a catalog member — browse with list_catalog).",
+      note: "Inspiration, not a pick-list. Reach for these KINDS of choices and vary them per project. Confirm any family with font_lab_check_fonts — the gate admits any shippable Google or open-foundry font; when one can't ship, pick the nearest shippable family of the same character.",
       groups: REFERENCES,
     },
     rationale: RATIONALE_REQUIREMENT,

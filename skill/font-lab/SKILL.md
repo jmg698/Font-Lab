@@ -31,10 +31,13 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    CSS-variable wiring — tell the user what's missing instead of pushing ahead.)
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
    assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
-   Reach past the overexposed defaults; give each direction a one-line rationale tied to what
-   they asked for. Every family must be shippable — today that means a catalog member, so
-   browse with `font_lab_list_catalog({ role, tag })`. `font_lab_curate({ projectDir, vibe? })`
-   is the **fallback** when you have no brief — a deterministic default menu, not the goal.
+   Reach past the overexposed defaults and give each direction a one-line rationale tied to what
+   they asked for. You are **not limited to the catalog**: any Google font or supported open
+   foundry works. Check uncertain faces with `font_lab_check_fonts({ families: [...] })` — it
+   says whether each ships **guaranteed** (byte-for-byte) or **best-effort** (shippable, but show
+   the human the fidelity warning). `compose_directions` admits them and rejects only genuinely
+   unshippable fonts. Browse the verified floor with `font_lab_list_catalog({ role, tag })`.
+   `font_lab_curate({ projectDir, vibe? })` is the **fallback** when you have no brief.
 3. **Set up the preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
    fonts, installs the dev panel, and mounts it (dev-only). If `analyze` flagged a dead role and
    the user wants it to change, also call `font_lab_rewire_dead_roles({ projectDir })`.
@@ -72,8 +75,12 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   DM Sans, Manrope, Sora, Figtree, JetBrains/Roboto/Geist Mono, …) unless the brief specifically
   calls for maximum neutrality — and say why if you do. Default to distinctive, characterful
   faces tailored to the project; `font_lab_start` lists what to avoid and what to reach for.
-- **Catalog-only.** Compose freely, but only from catalog fonts — preview fidelity and the
-  CLS-safe ship both depend on it. `compose_directions` enforces this and suggests alternates.
+- **Shippable-only, not catalog-only.** Reach beyond the catalog to any distinctive Google or
+  open-foundry font — the shippability gate admits it. Prefer **guaranteed** (full WYSIWYG)
+  faces; when only a **best-effort** ship is possible, present it with the honest "may render
+  slightly differently once applied" note and let the human decide. `font_lab_check_fonts` gives
+  the verdict; `compose_directions` rejects only genuinely unshippable fonts and suggests
+  alternates.
 - **Be honest about coverage.** If `analyze` flags a dead role (a font declared but not actually
   rendered, common with Tailwind v4 `@theme inline` + raw `var(--font-*)`), tell the user a
   swap there won't be visible until it's rewired — don't pretend it worked. Offer
