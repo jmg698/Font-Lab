@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
+import { designBrief, isOverexposed } from "./design-brain.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
@@ -28,6 +29,25 @@ const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$
 
 export function analyze(projectDir) {
   return analyzeProject(path.resolve(projectDir));
+}
+
+// ── the front door: analyze + the portable design brain ───────────────────────
+// Returns the project analysis PLUS Font Lab's design brief as DATA the agent applies: the
+// intake questions to ask the human first, the strategy scaffold, the overexposed defaults to
+// avoid, the distinctive references to reach for, and the rationale rule. This is how the
+// "ask what they're going for, then reach past the defaults" experience reaches every agent —
+// including ones that never read the skill. The HUMAN still makes the final pick.
+export function start(projectDir) {
+  const analysis = analyzeProject(path.resolve(projectDir));
+  return {
+    analysis,
+    brief: designBrief(),
+    nextStep:
+      "Ask the human the intake questions in `brief.intake` and wait for the answers, then " +
+      "compose tailored directions for their brief (reach past `brief.avoid`; draw on " +
+      "`brief.references`), preview them, and let the HUMAN pick. `curate` is the fallback " +
+      "when there's no brief.",
+  };
 }
 
 // Browse the catalog so the agent can compose its own directions. Filter by role/tag.
@@ -58,6 +78,9 @@ export function composeDirections(specs) {
         throw new Error(`direction[${i}].${role}: "${fam}" is not in the Font Lab catalog${near ? ` — did you mean ${near}?` : ""}`);
       }
       if (!catalogGet(fam).roles.includes(role)) warnings.push(`"${fam}" isn't a typical ${role} font (allowed, but check it reads well)`);
+      // Soft anti-generic nudge (A1). The hard set-level gate is B1; for now we surface the
+      // overexposed default so it can't slip through silently the way Space Grotesk did.
+      if (isOverexposed(fam)) warnings.push(`"${fam}" is an overexposed default — prefer a more distinctive face unless the brief specifically calls for maximum neutrality`);
     }
     const name = s.name || `${s.display} / ${s.body}`;
     return {

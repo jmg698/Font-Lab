@@ -12,16 +12,23 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.7.0" };
+const SERVER = { name: "font-lab", version: "0.8.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
 
 const TOOLS = [
   {
+    name: "font_lab_start",
+    description:
+      "START HERE when a user wants to choose, change, or improve fonts. Returns the project analysis PLUS Font Lab's design brief: the framing questions to ASK THE HUMAN FIRST (what feeling? how bold a departure? any brand to evoke or avoid?), a strategy scaffold (reason about the brief before naming fonts), the overexposed defaults to AVOID (Inter, Geist, Space Grotesk, …), distinctive references to reach for, and the rule that every direction needs a brief-tied rationale. Ask the intake questions and WAIT for the answers before proposing any fonts — that's what makes the result tailored instead of generic. The HUMAN always makes the final pick.",
+    inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
+    handler: (a) => engine.start(a.projectDir),
+  },
+  {
     name: "font_lab_analyze",
     description:
-      "Audit a Next.js + Tailwind project's CURRENT typography before changing it: framework, App/Pages router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). ALWAYS run this first when a user wants to pick, change, or improve fonts.",
+      "Audit a Next.js + Tailwind project's CURRENT typography before changing it: framework, App/Pages router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). Prefer font_lab_start as the front door — it runs this AND returns the design brief (intake questions + what to avoid/reach for). Use this directly only when you just need the raw audit.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.analyze(a.projectDir),
   },
@@ -38,7 +45,7 @@ const TOOLS = [
   {
     name: "font_lab_curate",
     description:
-      "Get ~5 tasteful, ready-to-preview font directions for a project (display+body+mono pairings with a name, vibe, and rationale). Deterministic, no LLM — a strong DEFAULT menu that moves off the project's current fonts. Pass an optional 'vibe' to steer it. You can also ignore this and compose your own with list_catalog + compose_directions.",
+      "FALLBACK menu — ~5 deterministic font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Use this when you have NO brief from the user. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
     inputSchema: {
       type: "object",
       properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },
@@ -49,7 +56,7 @@ const TOOLS = [
   {
     name: "font_lab_compose_directions",
     description:
-      "Assemble your OWN font directions from catalog fonts when you want to tailor the options to the user's request (this is how the agent takes the wheel on the menu). Each direction needs display, body, and mono families. Every family MUST be a catalog member (run list_catalog) — that's what guarantees the preview matches what ships. Returns validated, preview-ready directions (and warnings for unusual role choices).",
+      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families; every family MUST be a catalog member (run list_catalog) so preview matches what ships. Returns validated, preview-ready directions plus warnings (including a flag when a family is an overexposed default).",
     inputSchema: {
       type: "object",
       properties: {

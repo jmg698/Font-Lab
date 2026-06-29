@@ -289,13 +289,17 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   start fallback only**.
 - **Final-pick gating:** gate the menu + agent-compose hard; on the human's pick (incl. mixed
   picks), **warn but never block** (§3.5).
+- **Intake enforcement outside Claude:** **best-effort** via AGENTS.md + a `font_lab_start`
+  payload; handler-level gating held in reserve, not built now (§5, risk #4).
+- **First build target:** **A1 — the portable design brain** — *shipped.*
+  `cli/design-brain.mjs` (dependency-free: intake questions, anti-generic exclusions +
+  `isOverexposed()`, strategy scaffold, distinctive references, rationale rule), surfaced via a
+  new `font_lab_start` front-door tool (`engine.start()` + `mcp.mjs`) and the rewritten
+  intake-first protocol in `SKILL.md`. `composeDirections` now soft-warns on overexposed
+  families (the hard set-level gate is B1). Covered by `cli/design-brain-test.mjs` (14 checks,
+  runs without deps). **Next: A2 — the dynamic shippability gate.**
 
 **Open / recommended — confirm before building:**
-- **Intake enforcement outside Claude:** recommend *best-effort via AGENTS.md + `font_lab_start`
-  payload*, with handler-level gating held in reserve (§5, risk #4).
-- **First build target:** recommend starting at **A1 (design brain / exclusions)** — cheap,
-  highest taste-leverage, ships value immediately — in parallel with scoping **A2 (the gate)**,
-  the central engineering lift.
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.
 
 ---
