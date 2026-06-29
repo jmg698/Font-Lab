@@ -156,8 +156,7 @@ Geist/Inter.
 Gate the **menu** and the **agent-compose** path hard against generics. But on the **human's
 final pick** — including mixed picks (display from one direction, body from another) — **warn
 at most, never block.** Hard-blocking the human's own choice contradicts the product thesis
-("the human keeps the taste decision"). *(Recommended; see Decisions Log — confirm before
-build.)*
+("the human keeps the taste decision"). *(Decided.)*
 
 ---
 
@@ -288,10 +287,10 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
 - Catalog = **shippability gate + verified cache**, not a menu.
 - Compose-for-this-project = **primary path** (gated + rubric'd); fixed directions = **cold-
   start fallback only**.
+- **Final-pick gating:** gate the menu + agent-compose hard; on the human's pick (incl. mixed
+  picks), **warn but never block** (§3.5).
 
 **Open / recommended — confirm before building:**
-- **Final-pick gating:** recommend *gate the menu + agent-compose hard; on the human's pick,
-  warn-but-never-block* (§3.5).
 - **Intake enforcement outside Claude:** recommend *best-effort via AGENTS.md + `font_lab_start`
   payload*, with handler-level gating held in reserve (§5, risk #4).
 - **First build target:** recommend starting at **A1 (design brain / exclusions)** — cheap,
