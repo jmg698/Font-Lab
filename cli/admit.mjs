@@ -133,13 +133,21 @@ export async function admit(family, deps = {}) {
         verdict = unavailable(f.family || family, `license doesn't permit self-hosting (${f.license || "unknown"})`);
       } else {
         const dm = await safe(() => deriveMetrics({ source: "foundry", cssUrl: f.cssUrl, woff2Url: f.woff2Url }));
-        const { parity, warnings } = classifyParity({ variable: !!f.variable, hasMetrics: !!dm?.metrics });
-        verdict = {
-          family: f.family || family, shippable: true, parity, source: "foundry",
-          css2: null, woff2Url: dm?.woff2Url || f.woff2Url || null, capsize: null,
-          category: mapCategory(dm?.metrics?.category || f.category), variable: !!f.variable,
-          license: f.license || null, warnings, reason: null, roles: f.roles || null,
-        };
+        const woff2 = dm?.woff2Url || f.woff2Url || null;
+        if (!woff2) {
+          // No self-hostable file (the foundry CSS-API fetch/parse failed) → not shippable. This
+          // also means we DON'T cache a poison "best-effort but unbuildable" verdict that would
+          // crash the preview build on every later run.
+          verdict = unavailable(f.family || family, "couldn't resolve a self-hostable woff2 from the foundry CSS API");
+        } else {
+          const { parity, warnings } = classifyParity({ variable: !!f.variable, hasMetrics: !!dm?.metrics });
+          verdict = {
+            family: f.family || family, shippable: true, parity, source: "foundry",
+            css2: null, woff2Url: woff2, capsize: null,
+            category: mapCategory(dm?.metrics?.category || f.category), variable: !!f.variable,
+            license: f.license || null, warnings, reason: null, roles: f.roles || null,
+          };
+        }
       }
     }
   }

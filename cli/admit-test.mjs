@@ -83,6 +83,15 @@ const fsBad = await admit("Locked Font", {
 ok(fsBad.parity === "unavailable" && !fsBad.shippable && /license/i.test(fsBad.reason),
   "foundry font with a non-self-hostable license is refused");
 
+// foundry found but no woff2 resolves (CSS-API parse failed) → unavailable, NOT a cacheable
+// best-effort (otherwise a stale null verdict poisons the cache and crashes the preview build)
+const fsNoFile = await admit("Cabinet Grotesk", {
+  resolveGoogle: async () => ({ found: false }),
+  resolveFoundry: async () => ({ found: true, family: "Cabinet Grotesk", cssUrl: "https://api.fontshare.com/x", variable: false, license: "Free for commercial use" }),
+  deriveMetrics: async () => ({ metrics: null, woff2Url: null }),
+});
+ok(fsNoFile.parity === "unavailable" && !fsNoFile.shippable, "foundry with no resolvable woff2 → unavailable (won't poison the cache)");
+
 // nowhere → unavailable, and the gate NEVER throws
 const gone = await admit("Totally Made Up Face", noNet);
 ok(gone.parity === "unavailable" && !gone.shippable && gone.reason, "unknown font → unavailable (no throw)");
