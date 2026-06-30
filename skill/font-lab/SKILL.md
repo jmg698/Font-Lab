@@ -3,10 +3,10 @@ name: font-lab
 description: >-
   Use when a user wants to choose, change, compare, or improve the FONTS / typography of
   their Next.js + Tailwind app ("pick a font", "these fonts look generic/AI-generated",
-  "make the headings nicer", "what typeface should I use", "change the font"). Font Lab shows
-  the user tasteful, ready-to-ship font directions rendered live on their OWN running site,
-  lets the human pick, then ships the exact next/font + Tailwind code — reversibly. The human
-  keeps the taste decision; you do the typing.
+  "make the headings nicer", "what typeface should I use", "change the font"). Font Lab asks
+  what they're going for, then shows tasteful, ready-to-ship font directions tailored to it and
+  rendered live on their OWN running site, lets the human pick, and ships the exact next/font +
+  Tailwind code — reversibly. The human keeps the taste decision; you do the typing.
 ---
 
 # Font Lab
@@ -21,16 +21,23 @@ ship the order.
 
 Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 
-1. **Analyze** — `font_lab_analyze({ projectDir })`. Learn the current fonts, wiring, and any
-   coverage warnings. Do this first. If it reports the project is out-of-branch (not App
-   Router + Tailwind v4 + CSS-variable wiring), tell the user what's missing instead of
-   pushing ahead.
-2. **Decide the menu** — two ways, your call:
-   - **Default (free):** `font_lab_curate({ projectDir, vibe? })` → ~5 tasteful directions.
-   - **Take the wheel:** when the user asked for something specific, `font_lab_list_catalog({ role, tag })`
-     to browse, then `font_lab_compose_directions({ directions: [...] })` to build your own.
-     Every family must be a catalog member — that's what keeps preview == ship.
-   Mix freely: start from `curate`, swap a direction or two with composed ones.
+1. **Start & intake** — `font_lab_start({ projectDir })`. This analyzes the project AND returns
+   Font Lab's *design brief*: the framing questions to **ask the human first** (what feeling?
+   how bold a departure? any brand to evoke or avoid?), a strategy scaffold, the overexposed
+   default fonts to avoid, and distinctive references to reach for. **Ask the intake questions
+   and wait for the answers before proposing any fonts** — this is what makes the result
+   tailored to *them* instead of a generic default. (`font_lab_start` runs the analysis for
+   you; if it reports the project is out-of-branch — not App Router + Tailwind v4 +
+   CSS-variable wiring — tell the user what's missing instead of pushing ahead.)
+2. **Compose the menu for their brief** — using the intake answers and the brief's references,
+   assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
+   Reach past the overexposed defaults and give each direction a one-line rationale tied to what
+   they asked for. You are **not limited to the catalog**: any Google font or supported open
+   foundry works. Check uncertain faces with `font_lab_check_fonts({ families: [...] })` — it
+   says whether each ships **guaranteed** (byte-for-byte) or **best-effort** (shippable, but show
+   the human the fidelity warning). `compose_directions` admits them and rejects only genuinely
+   unshippable fonts. Browse the verified floor with `font_lab_list_catalog({ role, tag })`.
+   `font_lab_curate({ projectDir, vibe? })` is the **fallback** when you have no brief.
 3. **Set up the preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
    fonts, installs the dev panel, and mounts it (dev-only). If `analyze` flagged a dead role and
    the user wants it to change, also call `font_lab_rewire_dead_roles({ projectDir })`.
@@ -61,8 +68,24 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 ## Rules
 
 - **The human picks.** Never choose the final font yourself. Prepare options; let them decide.
-- **Catalog-only.** Compose freely, but only from catalog fonts — preview fidelity and the
-  CLS-safe ship both depend on it. `compose_directions` enforces this and suggests alternates.
+- **Ask first.** Always gather the brief (`font_lab_start`'s intake questions) before proposing
+  fonts. Tailored options are the whole point; a menu picked without a brief is a generic menu.
+- **Reach past the defaults.** The point is to escape the generic AI look. Do **not** propose
+  the overexposed defaults (Inter, Geist, Space Grotesk, Roboto, Open Sans, Montserrat, Poppins,
+  DM Sans, Manrope, Sora, Figtree, JetBrains/Roboto/Geist Mono, …) unless the brief specifically
+  calls for maximum neutrality — and say why if you do. Default to distinctive, characterful
+  faces tailored to the project; `font_lab_start` lists what to avoid and what to reach for.
+  `compose_directions` **rejects** an all-generic menu (any direction overexposed in both display
+  and body, or a set whose every display is a default) — fix it with distinctive faces, or pass
+  `force:true` only when the user explicitly wants the default look. The human's own final pick is
+  **never blocked**: if it reads generic, relay the heads-up `font_lab_select` returns and let
+  them decide.
+- **Shippable-only, not catalog-only.** Reach beyond the catalog to any distinctive Google or
+  open-foundry font — the shippability gate admits it. Prefer **guaranteed** (full WYSIWYG)
+  faces; when only a **best-effort** ship is possible, present it with the honest "may render
+  slightly differently once applied" note and let the human decide. `font_lab_check_fonts` gives
+  the verdict; `compose_directions` rejects only genuinely unshippable fonts and suggests
+  alternates.
 - **Be honest about coverage.** If `analyze` flags a dead role (a font declared but not actually
   rendered, common with Tailwind v4 `@theme inline` + raw `var(--font-*)`), tell the user a
   swap there won't be visible until it's rewired — don't pretend it worked. Offer

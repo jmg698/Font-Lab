@@ -12,16 +12,23 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.7.0" };
+const SERVER = { name: "font-lab", version: "0.10.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
 
 const TOOLS = [
   {
+    name: "font_lab_start",
+    description:
+      "START HERE when a user wants to choose, change, or improve fonts. Returns the project analysis PLUS Font Lab's design brief: the framing questions to ASK THE HUMAN FIRST (what feeling? how bold a departure? any brand to evoke or avoid?), a strategy scaffold (reason about the brief before naming fonts), the overexposed defaults to AVOID (Inter, Geist, Space Grotesk, …), distinctive references to reach for, and the rule that every direction needs a brief-tied rationale. Ask the intake questions and WAIT for the answers before proposing any fonts — that's what makes the result tailored instead of generic. The HUMAN always makes the final pick.",
+    inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
+    handler: (a) => engine.start(a.projectDir),
+  },
+  {
     name: "font_lab_analyze",
     description:
-      "Audit a Next.js + Tailwind project's CURRENT typography before changing it: framework, App/Pages router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). ALWAYS run this first when a user wants to pick, change, or improve fonts.",
+      "Audit a Next.js + Tailwind project's CURRENT typography before changing it: framework, App/Pages router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). Prefer font_lab_start as the front door — it runs this AND returns the design brief (intake questions + what to avoid/reach for). Use this directly only when you just need the raw audit.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.analyze(a.projectDir),
   },
@@ -36,9 +43,24 @@ const TOOLS = [
     handler: (a) => engine.listCatalog({ role: a.role, tag: a.tag }),
   },
   {
+    name: "font_lab_check_fonts",
+    description:
+      "Check whether specific fonts can ship with Font Lab's preview==ship guarantee — use this to REACH BEYOND the built-in catalog. Pass family names (any Google font, or a supported open-foundry font like 'Hedvig Letters Serif' or 'Cabinet Grotesk'). Each returns a verdict: 'guaranteed' (full WYSIWYG), 'best-effort' (shippable, but the preview may not be byte-for-byte — show the human the warnings and let them decide), or 'unavailable' (can't ship, with the reason). The catalog is a floor, not a ceiling: reach for distinctive faces that fit the brief and confirm them here before composing.",
+    inputSchema: {
+      type: "object",
+      properties: { projectDir: proj, families: { type: "array", items: { type: "string" }, description: "Font family names to check." } },
+      required: ["families"],
+    },
+    handler: async (a) => {
+      const out = {};
+      for (const f of a.families || []) out[f] = await engine.admit(f, { projectDir: a.projectDir });
+      return out;
+    },
+  },
+  {
     name: "font_lab_curate",
     description:
-      "Get ~5 tasteful, ready-to-preview font directions for a project (display+body+mono pairings with a name, vibe, and rationale). Deterministic, no LLM — a strong DEFAULT menu that moves off the project's current fonts. Pass an optional 'vibe' to steer it. You can also ignore this and compose your own with list_catalog + compose_directions.",
+      "FALLBACK menu — ~5 deterministic font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Use this when you have NO brief from the user. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
     inputSchema: {
       type: "object",
       properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },
@@ -49,10 +71,12 @@ const TOOLS = [
   {
     name: "font_lab_compose_directions",
     description:
-      "Assemble your OWN font directions from catalog fonts when you want to tailor the options to the user's request (this is how the agent takes the wheel on the menu). Each direction needs display, body, and mono families. Every family MUST be a catalog member (run list_catalog) — that's what guarantees the preview matches what ships. Returns validated, preview-ready directions (and warnings for unusual role choices).",
+      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, any Google font, or a supported foundry) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte).",
     inputSchema: {
       type: "object",
       properties: {
+        projectDir: { ...proj, description: "Optional: the project root, so admitted fonts are cached for the preview build." },
+        force: { type: "boolean", description: "Override the anti-generic gate (use only when the user explicitly wants overexposed default fonts)." },
         directions: {
           type: "array",
           items: {
@@ -71,7 +95,7 @@ const TOOLS = [
       },
       required: ["directions"],
     },
-    handler: (a) => engine.composeDirections(a.directions),
+    handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir, force: a.force }),
   },
   {
     name: "font_lab_init",

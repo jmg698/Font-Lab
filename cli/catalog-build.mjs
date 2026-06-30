@@ -19,6 +19,21 @@ const generic = (cat) => (cat === "serif" ? "serif" : cat === "monospace" ? "mon
 
 const metricsFor = async (s) => (await import("@capsizecss/metrics/" + s)).default;
 
+// For an admitted (non-catalog) font there's no precomputed capsize key — derive metrics from the
+// actual woff2 via @capsizecss/unpack. If that fails, fall back to the generic's own metrics so the
+// build still succeeds (exact CLS-safe parity not guaranteed; the gate already warned the human).
+async function metricsFromUrl(url, spec) {
+  if (url) {
+    try {
+      const { fromUrl } = await import("@capsizecss/unpack");
+      return await fromUrl(url);
+    } catch {}
+  }
+  const cat = spec?.category || "sans-serif";
+  const fb = await metricsFor(cat === "serif" ? "timesNewRoman" : "arial");
+  return { ...fb, category: cat === "serif" ? "serif" : cat === "monospace" ? "monospace" : "sans-serif" };
+}
+
 // next/font's adjusted-fallback descriptors for `main` measured against `fallback`.
 function overrides(main, fallback) {
   const sizeAdjust = main.xWidthAvg / main.unitsPerEm / (fallback.xWidthAvg / fallback.unitsPerEm);
@@ -51,17 +66,26 @@ export async function generateCatalog(projectDir, directions, meta = {}, opts = 
   const stacks = {};
   const families = fontsForDirections(directions);
 
+  const specFor = opts.specFor || catalogGet;
   for (const family of families) {
-    const spec = catalogGet(family); // throws if not a verified catalog member
+    const spec = specFor(family); // catalog member (proven path) OR an admitted non-catalog spec
 
+    let srcUrl = null;
     if (opts.fetch !== false) {
-      const css = execFileSync("curl", ["-sSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });
-      const m = css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/);
-      if (!m) throw new Error(`Could not find latin woff2 for "${family}"`);
-      execFileSync("curl", ["-sSL", "-A", UA, "-o", PUBLIC + slug(family) + ".woff2", m[1]]);
+      if (spec.css2) {
+        const css = execFileSync("curl", ["-sSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });
+        const m = css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/) || css.match(/url\((https:[^)]+\.woff2)\)/);
+        if (!m) throw new Error(`Could not find latin woff2 for "${family}"`);
+        srcUrl = m[1];
+      } else if (spec.woff2Url) {
+        srcUrl = spec.woff2Url; // admitted foundry font — self-host its woff2 directly
+      } else {
+        throw new Error(`No font source (css2 or woff2Url) for "${family}"`);
+      }
+      execFileSync("curl", ["-sSL", "-A", UA, "-o", PUBLIC + slug(family) + ".woff2", srcUrl]);
     }
 
-    const main = await metricsFor(spec.capsize);
+    const main = spec.capsize ? await metricsFor(spec.capsize) : await metricsFromUrl(srcUrl, spec);
     const isSerif = main.category === "serif";
     const fb = isSerif ? timesNewRoman : arial;
     const fbName = isSerif ? "Times New Roman" : "Arial";

@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
+import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
+import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
@@ -28,6 +30,112 @@ const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$
 
 export function analyze(projectDir) {
   return analyzeProject(path.resolve(projectDir));
+}
+
+// ── the front door: analyze + the portable design brain ───────────────────────
+// Returns the project analysis PLUS Font Lab's design brief as DATA the agent applies: the
+// intake questions to ask the human first, the strategy scaffold, the overexposed defaults to
+// avoid, the distinctive references to reach for, and the rationale rule. This is how the
+// "ask what they're going for, then reach past the defaults" experience reaches every agent —
+// including ones that never read the skill. The HUMAN still makes the final pick.
+export function start(projectDir) {
+  const analysis = analyzeProject(path.resolve(projectDir));
+  return {
+    analysis,
+    brief: designBrief(),
+    nextStep:
+      "Ask the human the intake questions in `brief.intake` and wait for the answers, then " +
+      "compose tailored directions for their brief (reach past `brief.avoid`; draw on " +
+      "`brief.references`), preview them, and let the HUMAN pick. `curate` is the fallback " +
+      "when there's no brief.",
+  };
+}
+
+// ── the dynamic shippability gate (A2): reach beyond the catalog, honestly ────
+// The catalog is the verified cache (an instant "guaranteed"); anything else is admitted on
+// demand (Google / open foundry) and persisted to .font-lab/admitted.json so repeat picks are
+// fast and the preview build can self-host it. Strive for WYSIWYG; surface best-effort with a
+// warning rather than refusing — only a genuinely unshippable font is rejected.
+
+function admittedCache(projectDir) {
+  if (!projectDir) return undefined;
+  const p = path.join(path.resolve(projectDir), ".font-lab", "admitted.json");
+  const map = new Map();
+  if (existsSync(p)) {
+    try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(p, "utf8")))) map.set(k, v); } catch {}
+  }
+  return {
+    get: (k) => map.get(k),
+    set: (k, v) => {
+      map.set(k, v);
+      mkdirSync(path.dirname(p), { recursive: true });
+      writeFileSync(p, JSON.stringify(Object.fromEntries(map), null, 2) + "\n");
+    },
+  };
+}
+
+// Can this font ship with preview == ship? → verdict (guaranteed | best-effort | unavailable).
+export async function admit(family, { projectDir } = {}) {
+  return admitFont(family, { cache: admittedCache(projectDir) });
+}
+
+// Admit every family across a set of directions; annotate each direction with its (worst-case)
+// parity and return the per-family verdicts.
+export async function admitDirections(directions, { projectDir } = {}) {
+  const cache = admittedCache(projectDir);
+  const verdicts = new Map();
+  const verdictFor = async (fam) => {
+    const n = normFamily(fam);
+    if (verdicts.has(n)) return verdicts.get(n);
+    const v = await admitFont(fam, { cache });
+    verdicts.set(n, v);
+    return v;
+  };
+  const out = [];
+  for (const d of directions) {
+    const roles = {};
+    for (const role of ROLES) {
+      const fam = d.roles?.[role]?.family ?? d[role];
+      if (fam) roles[role] = await verdictFor(fam);
+    }
+    const ps = Object.values(roles).map((v) => v.parity);
+    const parity = ps.includes("unavailable") ? "unavailable" : ps.includes("best-effort") ? "best-effort" : "guaranteed";
+    out.push({ id: d.id ?? null, name: d.name ?? null, parity, roles });
+  }
+  return { directions: out, verdicts: Object.fromEntries(verdicts) };
+}
+
+// Turn an admitted verdict into a generateCatalog-compatible spec (so a non-catalog font is
+// self-hosted by the SAME build path the catalog uses).
+function specFromVerdict(v) {
+  if (!isShippable(v)) return null;
+  return { css2: v.css2 || null, capsize: v.capsize || null, woff2Url: v.woff2Url || null, category: v.category || null, roles: v.roles || ROLES };
+}
+
+// Spec resolver for generateCatalog: catalog members first (the proven path, byte-identical),
+// then the project's admitted cache. Throws only when a family was never admitted.
+function mergedSpecFor(projectDir) {
+  const cache = admittedCache(projectDir);
+  return (family) => {
+    if (inCatalog(family)) return catalogGet(family);
+    const spec = specFromVerdict(cache?.get(normFamily(family)));
+    if (!spec) throw new Error(`"${family}" hasn't been admitted yet — check it with admit()/check_fonts first (it isn't a catalog member)`);
+    return spec;
+  };
+}
+
+// Ensure every non-catalog family in `directions` is admitted + cached before a preview build.
+async function ensureAdmitted(projectDir, directions) {
+  const cache = admittedCache(projectDir);
+  for (const d of directions) {
+    for (const role of ROLES) {
+      const fam = d.roles?.[role]?.family ?? d[role];
+      if (fam && !inCatalog(fam)) {
+        const v = await admitFont(fam, { cache });
+        if (!isShippable(v)) throw new Error(`cannot preview "${fam}": ${v.reason}`);
+      }
+    }
+  }
 }
 
 // Browse the catalog so the agent can compose its own directions. Filter by role/tag.
@@ -46,32 +154,59 @@ export function curate(projectDir, opts = {}) {
 // ── option 3: the agent composes its own directions ──────────────────────────
 // specs: [{ name, vibe?, rationale?, display, body, mono, weights? }]
 // Parity guard: every family must be a catalog member; otherwise throw with suggestions.
-export function composeDirections(specs) {
+export async function composeDirections(specs, { projectDir, force = false } = {}) {
   if (!Array.isArray(specs) || !specs.length) throw new Error("composeDirections: provide a non-empty array of directions");
+  const cache = admittedCache(projectDir);
   const warnings = [];
-  const directions = specs.map((s, i) => {
+  const directions = [];
+  for (let i = 0; i < specs.length; i++) {
+    const s = specs[i];
     if (!s || !s.display || !s.body || !s.mono) throw new Error(`direction[${i}]: needs display, body, and mono families`);
+    const roleParity = {};
     for (const role of ROLES) {
       const fam = s[role];
-      if (!inCatalog(fam)) {
+      // The gate, not a catalog whitelist: reach for any Google/foundry font and ship what's
+      // shippable. Only a genuinely unshippable font is rejected; best-effort is allowed + warned.
+      const v = await admitFont(fam, { cache });
+      if (!isShippable(v)) {
         const near = suggest(fam, role);
-        throw new Error(`direction[${i}].${role}: "${fam}" is not in the Font Lab catalog${near ? ` — did you mean ${near}?` : ""}`);
+        throw new Error(`direction[${i}].${role}: "${fam}" can't be shipped (${v.reason})${near ? ` — try ${near}` : ""}`);
       }
-      if (!catalogGet(fam).roles.includes(role)) warnings.push(`"${fam}" isn't a typical ${role} font (allowed, but check it reads well)`);
+      if (v.source === "catalog" && !catalogGet(v.family).roles.includes(role))
+        warnings.push(`"${v.family}" isn't a typical ${role} font (allowed, but check it reads well)`);
+      if (isOverexposed(fam))
+        warnings.push(`"${fam}" is an overexposed default — prefer a more distinctive face unless the brief specifically calls for maximum neutrality`);
+      if (v.parity === "best-effort")
+        warnings.push(`"${fam}": ${v.warnings.join("; ")} — shippable, but the preview may not be byte-for-byte; tell the human before they pick`);
+      roleParity[role] = v.parity;
     }
     const name = s.name || `${s.display} / ${s.body}`;
-    return {
+    directions.push({
       id: s.id || slugId(name),
       name,
       vibe: s.vibe || "custom",
       rationale: s.rationale || `${s.display} headings over ${s.body}.`,
+      parity: Object.values(roleParity).includes("best-effort") ? "best-effort" : "guaranteed",
       roles: {
         display: { family: s.display, weights: s.weights?.display || [400, 700] },
         body: { family: s.body, weights: s.weights?.body || [400, 600] },
         mono: { family: s.mono, weights: s.weights?.mono || [400, 700] },
       },
-    };
-  });
+    });
+  }
+  // B1: the hard anti-generic gate on the agent-composed MENU. A shippable-but-generic menu
+  // recreates the exact AI-default look Font Lab exists to escape, so we refuse it — unless the
+  // caller deliberately overrides (e.g. the user explicitly asked for the default look). The
+  // human's own final pick is never blocked this way (see selectDirection).
+  if (!force) {
+    const violations = antiGenericViolations(directions);
+    if (violations.length)
+      throw new Error(
+        "compose rejected — this menu is too generic to escape the AI-default look:\n  - " +
+          violations.join("\n  - ") +
+          "\nReach for distinctive faces (use font_lab_check_fonts and the design brief's references), or pass force:true to override deliberately.",
+      );
+  }
   return { directions, warnings };
 }
 
@@ -89,8 +224,9 @@ export async function preparePreview(projectDir, { directions, vibe, count, fetc
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  await ensureAdmitted(dir, dirs); // admit any non-catalog (Google/foundry) families before building
   const meta = { target: toTarget(analysis), replaces: analysis.replaces };
-  const result = await generateCatalog(dir, dirs, meta, { fetch, log });
+  const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   return { analysis, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }
 
@@ -261,7 +397,9 @@ export function selectDirection(projectDir, { directionId, directions, vibe, cou
   const flDir = path.join(dir, ".font-lab");
   mkdirSync(flDir, { recursive: true });
   writeFileSync(path.join(flDir, "selection.json"), JSON.stringify(selection, null, 2) + "\n");
-  return selection;
+  // Never block the human's pick — but hand back an honest heads-up if it reads generic, so the
+  // agent can relay it. The selection.json contract on disk stays clean (warnings aren't shipped).
+  return { ...selection, warnings: pickWarnings(roles) };
 }
 
 // Ready-to-run commands to launch the FULL live editor (flip / mix / compare in a real browser),
