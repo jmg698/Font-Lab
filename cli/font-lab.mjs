@@ -34,7 +34,7 @@ if (SUB === "install" || SUB === "uninstall") {
   console.log(
     [
       "Font Lab",
-      "  font-lab install [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]",
+      "  font-lab install [--host <list|all>] [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]",
       "  font-lab uninstall [--project <dir>]",
       "  font-lab mcp                      run the MCP server (stdio)",
       "  font-lab serve [--project <dir>] [--port <n>] [--apply]   pick write-back endpoint",

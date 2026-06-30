@@ -317,9 +317,22 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   `selectDirection` returns a `pickWarnings()` heads-up for a generic/clashing pick but always
   ships it. The pure policies (`antiGenericViolations`, `pickWarnings`) live in
   `cli/design-brain.mjs` and are covered by `cli/design-brain-test.mjs` (now 22 checks).
-  **Next: verify the A2 network/build path on a machine with deps; then the foundry adapters
-  (Fontshare/Velvetyne) and catalog-as-cache seeding (E1); and the curator fallback rebalance
-  (drop the authored pure-generic directions so even the no-brief fallback is distinctive).**
+- **Released as `font-lab@0.4.0`** — A1+A2+B1 verified end-to-end live on jack-mcgovern.com
+  (Gantari, a non-catalog Google font, admitted → self-hosted → wired → flipped in the panel);
+  the CI publish gate (`run-m5.sh`) is green. Two fixes landed with it: `preparePreview` now
+  bakes in `wiring` (custom directions had rendered "not wired"), and `m5-test` was updated for
+  the async/gate contract.
+- **D — host-aware installer + AGENTS.md** — *shipped.* `cli/install.mjs` rewritten around a host
+  registry (Claude / Cursor / Codex / Windsurf / VS Code / Gemini): `--host <list|all>` or
+  auto-detect, writing each host's MCP config in the right path + format (the `mcpServers` JSON
+  family, VS Code's `servers` key, Codex TOML) and the right instruction surface (the Claude
+  skill, or an idempotent `AGENTS.md` protocol block for everyone else). All writers are
+  idempotent + reversible; `uninstall` cleans every host. Kills the install variance and makes
+  Font Lab one tested command on non-Claude agents. Covered by `cli/install-test.mjs` (18 checks,
+  runs without deps).
+  **Next: E1 — Fontshare/Velvetyne foundry adapters (make the "coming soon" copy real) +
+  catalog-as-cache seeding; the curator fallback rebalance (drop the authored pure-generic
+  directions); and B2 — project design-context analysis to deepen tailoring.**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

@@ -6,14 +6,27 @@
 
 **A decision surface for typography in Next.js + Tailwind apps.** AI removed the labor of
 implementing fonts but deleted the *moment of choice* — and taste only happens at the moment of
-choice. Font Lab puts it back: it curates a small set of tasteful font directions, renders them
-**live on your own running site** (or as screenshots), lets a **human pick**, then ships the exact
-`next/font` + Tailwind code — reversibly. The human keeps the taste decision; the agent does the
-typing.
+choice. Font Lab puts it back: it asks what you're going for, hands you a small set of **tailored,
+distinctive** font directions rendered **live on your own running site** (or as screenshots), lets
+a **human pick**, then ships the exact `next/font` + Tailwind code — reversibly. The human keeps
+the taste decision; the agent does the typing.
 
-It installs as a Claude Code **skill + MCP server** (`npx font-lab install`), so you can just say
+It installs as an agent **skill + MCP server** (`npx font-lab install`), so you can just say
 *"pick better fonts for this site"* and the agent drives the whole loop. Works headless (screenshots
 in chat, on web or phone) or live (a flip/mix/compare panel on your real site).
+
+**What makes the options good (v2):**
+
+- **It asks first.** `font_lab_start` returns a design brief — framing questions (what feeling?
+  how bold a departure? brand to evoke or avoid?) the agent asks *before* proposing fonts, so the
+  result is tailored to *you*, not a generic default.
+- **It reaches past the defaults.** A built-in anti-generic rubric steers off the overexposed
+  AI-default faces (Inter, Geist, Space Grotesk, …) toward distinctive, designed type — and the
+  menu is *rejected* if it's all generic.
+- **It's not limited to a 41-font catalog.** A **dynamic shippability gate** admits any of ~1,500
+  Google fonts on demand (open-foundry support coming), verifying each can ship with
+  **preview == ship** — or flagging an honest "may render slightly differently" when it can't.
+  The catalog is a floor, not a ceiling.
 
 > Published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) —
 > every release is cryptographically traceable to this repo and commit.
@@ -39,9 +52,45 @@ pattern):
 npx font-lab uninstall      # remove the skill + the .mcp.json entry
 ```
 
-Useful flags: `--project <dir>` (target a project other than the cwd), `--no-mcp` /
-`--no-skill` (do only one half), `--local` (register the MCP server as `node <checkout>/mcp.mjs`
-for testing an unpublished clone), `--dry-run` (print the plan, write nothing).
+**Works across agents, not just Claude Code.** With no `--host`, install **auto-detects** which
+agents you have and wires them all — writing each one's MCP config in the right place and format,
+plus a skill (Claude) or an `AGENTS.md` protocol block (everyone else):
+
+| Host | MCP config | Instructions |
+|---|---|---|
+| Claude Code | project `.mcp.json` | `~/.claude/skills/font-lab` |
+| Cursor | `~/.cursor/mcp.json` | `AGENTS.md` |
+| Codex | `~/.codex/config.toml` | `AGENTS.md` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `AGENTS.md` |
+| VS Code | `.vscode/mcp.json` (`servers`) | `AGENTS.md` |
+| Gemini CLI | `~/.gemini/settings.json` | `AGENTS.md` |
+
+```bash
+npx font-lab install --host cursor,codex   # or --host all, or just let it auto-detect
+```
+
+Useful flags: `--host <list|all>` (default: auto-detect), `--project <dir>` (target a project
+other than the cwd), `--no-mcp` / `--no-skill` (do only one half), `--local` (register the MCP
+server as `node <checkout>/mcp.mjs` for testing an unpublished clone), `--dry-run` (print the
+plan, write nothing). `uninstall` cleans every host.
+
+## How the agent picks fonts (the loop)
+
+Once installed, just ask *"use Font Lab to pick fonts."* The agent runs a consistent loop:
+
+1. **Start & intake** — `font_lab_start({ projectDir })` analyzes the project and returns the
+   design brief; the agent asks you the framing questions first.
+2. **Compose for your brief** — it composes tailored directions (display + body + mono, each with
+   a rationale), reaching past the overexposed defaults. Any of ~1,500 Google fonts is fair game;
+   `font_lab_check_fonts` confirms a face ships before it's offered. `font_lab_curate` is the
+   no-brief fallback.
+3. **Choose** — headless (`font_lab_screenshot_directions` → pick from images, works anywhere) or
+   live (the flip/mix/compare panel on your real site). **You always make the pick.**
+4. **Ship** — `font_lab_apply` writes the exact `next/font` + Tailwind code, reversibly
+   (`font_lab_undo`).
+
+Every direction is gated for **preview == ship**: *guaranteed* (byte-for-byte), or *best-effort*
+with an honest "may render slightly differently once applied" note so you decide with eyes open.
 
 ## The choosing moment: Headless vs Live
 
@@ -244,12 +293,13 @@ root (loads automatically when you open this repo), or copy the entry into anoth
 { "mcpServers": { "font-lab": { "command": "node", "args": ["/abs/path/to/cli/mcp.mjs"] } } }
 ```
 
-The 11 tools (`analyze`, `list_catalog`, `curate`, `compose_directions`, `init`, `uninit`,
-`prepare_preview`, `read_pick`, `apply`, `rewire_dead_roles`, `undo` — all `font_lab_*`) and the
-loop are described in [`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md). The agent gets
-the curated default for free and can compose its own directions from the catalog — but the
-**human always makes the pick**, and composed fonts must be catalog members so preview still
-equals ship. Proven end to end over MCP on the real jack-mcgovern.com.
+The 13 tools (`start`, `analyze`, `list_catalog`, `check_fonts`, `curate`, `compose_directions`,
+`init`, `uninit`, `prepare_preview`, `read_pick`, `apply`, `rewire_dead_roles`, `undo` — all
+`font_lab_*`) and the loop are described in [`../skill/font-lab/SKILL.md`](../skill/font-lab/SKILL.md).
+The agent starts from a brief and composes its own tailored directions — reaching past the
+overexposed defaults to any shippable font the gate admits — but the **human always makes the
+pick**, and every face must clear the **preview == ship** gate. Proven end to end over MCP on the
+real jack-mcgovern.com.
 
 ### Ship the pick (M2)
 
