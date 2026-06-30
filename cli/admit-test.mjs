@@ -31,13 +31,13 @@ ok(!licenseOk("Preview only — all rights reserved", "fontshare") && !licenseOk
   "restrictive/unknown foundry licenses are refused");
 
 // ── the gate, with injected fakes ───────────────────────────────────────────
-const noNet = { resolveGoogle: async () => ({ found: false }), resolveFontshare: async () => ({ found: false }) };
+const noNet = { resolveGoogle: async () => ({ found: false }), resolveFoundry: async () => ({ found: false }) };
 
 // catalog member → instant guarantee, never touches the network
 let netCalls = 0;
 const counting = {
   resolveGoogle: async () => { netCalls++; return { found: false }; },
-  resolveFontshare: async () => { netCalls++; return { found: false }; },
+  resolveFoundry: async () => { netCalls++; return { found: false }; },
 };
 const cat = await admit("Inter", counting);
 ok(cat.parity === "guaranteed" && cat.source === "catalog" && netCalls === 0,
@@ -59,17 +59,17 @@ const gbe = await admit("Some Static Font", {
 ok(gbe.parity === "best-effort" && isShippable(gbe) && gbe.warnings.length >= 1,
   "Google static + no metrics → best-effort, shippable, warned");
 
-// Fontshare with a good license → shippable; with a bad license → unavailable
+// open foundry with a good license → shippable; with a bad license → unavailable
 const fs = await admit("Cabinet Grotesk", {
   resolveGoogle: async () => ({ found: false }),
-  resolveFontshare: async () => ({ found: true, family: "Cabinet Grotesk", woff2Url: "https://f/c.woff2", variable: true, license: "Free for commercial use", category: "Sans Serif" }),
+  resolveFoundry: async () => ({ found: true, family: "Cabinet Grotesk", cssUrl: "https://api.fontshare.com/x", variable: true, license: "Free for commercial use", category: "Sans Serif" }),
   deriveMetrics: async () => ({ metrics: { category: "sans-serif" }, woff2Url: "https://f/c.woff2" }),
 });
-ok(fs.parity === "guaranteed" && fs.source === "fontshare", "licensed foundry variable font → guaranteed");
+ok(fs.parity === "guaranteed" && fs.source === "foundry" && fs.woff2Url === "https://f/c.woff2", "licensed foundry variable font → guaranteed (woff2 resolved via the CSS API)");
 
 const fsBad = await admit("Locked Font", {
   resolveGoogle: async () => ({ found: false }),
-  resolveFontshare: async () => ({ found: true, family: "Locked Font", woff2Url: "https://f/l.woff2", variable: true, license: "Preview only" }),
+  resolveFoundry: async () => ({ found: true, family: "Locked Font", cssUrl: "https://api.fontshare.com/x", variable: true, license: "Preview only" }),
 });
 ok(fsBad.parity === "unavailable" && !fsBad.shippable && /license/i.test(fsBad.reason),
   "foundry font with a non-self-hostable license is refused");
@@ -79,7 +79,7 @@ const gone = await admit("Totally Made Up Face", noNet);
 ok(gone.parity === "unavailable" && !gone.shippable && gone.reason, "unknown font → unavailable (no throw)");
 
 // a resolver that throws is soft-degraded, not fatal
-const threw = await admit("Boom", { resolveGoogle: async () => { throw new Error("network down"); }, resolveFontshare: async () => ({ found: false }) });
+const threw = await admit("Boom", { resolveGoogle: async () => { throw new Error("network down"); }, resolveFoundry: async () => ({ found: false }) });
 ok(threw.parity === "unavailable", "a throwing resolver degrades to unavailable, never crashes");
 
 // allowBestEffort:false downgrades best-effort to a refusal

@@ -330,9 +330,21 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   idempotent + reversible; `uninstall` cleans every host. Kills the install variance and makes
   Font Lab one tested command on non-Claude agents. Covered by `cli/install-test.mjs` (18 checks,
   runs without deps).
-  **Next: E1 — Fontshare/Velvetyne foundry adapters (make the "coming soon" copy real) +
-  catalog-as-cache seeding; the curator fallback rebalance (drop the authored pure-generic
-  directions); and B2 — project design-context analysis to deepen tailoring.**
+- **E1 — open-foundry adapter** — *shipped (registry + gate wiring verified; live Fontshare fetch
+  needs a deps+network run).* `cli/foundry.mjs`: a curated bench of ~16 distinctive off-Google
+  faces (Cabinet Grotesk, General Sans, Clash Display, Sentient, …) under the ITF Free Font
+  License, with case-insensitive lookup and a Fontshare CSS-API URL builder. The gate's foundry
+  resolver is now registry-driven (no fragile live font-list API): `admit` admits a foundry face,
+  `deriveMetrics` resolves its woff2 via the Fontshare CSS API (same parse path as Google css2),
+  and `generateCatalog` self-hosts it. The "open-foundry coming soon" copy is now real across the
+  skill / README / tool descriptions / design brief. Covered by `cli/foundry-test.mjs` (10 checks)
+  + the updated `cli/admit-test.mjs` (foundry source) — all run without deps. **Verification note:
+  the Fontshare CSS-API fetch + variable-woff2 parity should be confirmed on a machine with deps,
+  same as the Google network edge; the soft-degrade keeps a non-variable result shippable as
+  best-effort.**
+  **Next: catalog-as-cache seeding (bake admitted foundry faces into the parity catalog); the
+  curator fallback rebalance (drop the authored pure-generic directions); and B2 — project
+  design-context analysis to deepen tailoring.**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

@@ -32,9 +32,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
    assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
    Reach past the overexposed defaults and give each direction a one-line rationale tied to what
-   they asked for. You are **not limited to the catalog**: any of ~1,500 Google fonts works
-   (open-foundry support like Fontshare is coming). Check uncertain faces with
-   `font_lab_check_fonts({ families: [...] })` — it
+   they asked for. You are **not limited to the catalog**: any of ~1,500 Google fonts works, plus
+   a curated bench of distinctive **open-foundry** faces (Cabinet Grotesk, General Sans, Clash
+   Display, Sentient, …). Check uncertain faces with `font_lab_check_fonts({ families: [...] })` — it
    says whether each ships **guaranteed** (byte-for-byte) or **best-effort** (shippable, but show
    the human the fidelity warning). `compose_directions` admits them and rejects only genuinely
    unshippable fonts. Browse the verified floor with `font_lab_list_catalog({ role, tag })`.
@@ -81,8 +81,8 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   `force:true` only when the user explicitly wants the default look. The human's own final pick is
   **never blocked**: if it reads generic, relay the heads-up `font_lab_select` returns and let
   them decide.
-- **Shippable-only, not catalog-only.** Reach beyond the catalog to any distinctive Google font
-  — the shippability gate admits it (open-foundry support is coming). Prefer **guaranteed** (full WYSIWYG)
+- **Shippable-only, not catalog-only.** Reach beyond the catalog to any distinctive Google font or
+  a curated open-foundry face — the shippability gate admits it. Prefer **guaranteed** (full WYSIWYG)
   faces; when only a **best-effort** ship is possible, present it with the honest "may render
   slightly differently once applied" note and let the human decide. `font_lab_check_fonts` gives
   the verdict; `compose_directions` rejects only genuinely unshippable fonts and suggests
