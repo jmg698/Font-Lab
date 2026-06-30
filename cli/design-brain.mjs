@@ -150,7 +150,7 @@ export function designBrief() {
       families: EXCLUSIONS,
     },
     references: {
-      note: "Inspiration, not a pick-list. Reach for these KINDS of choices and vary them per project. Confirm any family with font_lab_check_fonts — the gate admits any shippable Google or open-foundry font; when one can't ship, pick the nearest shippable family of the same character.",
+      note: "Inspiration, not a pick-list. Reach for these KINDS of choices and vary them per project. Confirm any family with font_lab_check_fonts — the gate admits any shippable Google font (open-foundry support is coming); when one can't ship (e.g. a Fontshare-only face), pick the nearest shippable family of the same character.",
       groups: REFERENCES,
     },
     rationale: RATIONALE_REQUIREMENT,
