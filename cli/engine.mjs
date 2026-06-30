@@ -159,7 +159,7 @@ export function curate(projectDir, opts = {}) {
 // ── option 3: the agent composes its own directions ──────────────────────────
 // specs: [{ name, vibe?, rationale?, display, body, mono, weights? }]
 // Parity guard: every family must be a catalog member; otherwise throw with suggestions.
-export async function composeDirections(specs, { projectDir, force = false } = {}) {
+export async function composeDirections(specs, { projectDir, force = false, brief } = {}) {
   if (!Array.isArray(specs) || !specs.length) throw new Error("composeDirections: provide a non-empty array of directions");
   const cache = admittedCache(projectDir);
   const warnings = [];
@@ -212,6 +212,10 @@ export async function composeDirections(specs, { projectDir, force = false } = {
           "\nReach for distinctive faces (use font_lab_check_fonts and the design brief's references), or pass force:true to override deliberately.",
       );
   }
+  // Nudge toward the intake conversation: if no brief was gathered, the menu is inferred rather
+  // than tailored to what the user actually asked for. Not a block (autonomous use is valid).
+  if (!brief || !String(brief).trim())
+    warnings.push("No `brief` was provided — if the user is present, ask them the intake questions (font_lab_start) and pass their answers as `brief`, so the options are tailored to what they actually want rather than inferred.");
   return { directions, warnings };
 }
 
@@ -584,7 +588,11 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
     const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
-    await page.goto(base + route, { waitUntil: "networkidle" });
+    // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. Impeccable's
+    // live mode, HMR sockets) keeps the network busy so `networkidle` never fires and capture times
+    // out. We gate readiness on the panel mounting + fonts being ready instead, which is what we
+    // actually need for a faithful shot.
+    await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
     await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 });
     await page.evaluate(async () => {
       await document.fonts.ready;

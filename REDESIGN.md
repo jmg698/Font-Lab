@@ -371,9 +371,18 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   Covered by `cli/flow-test.mjs` (10 checks). **Note: this is the routing layer; #1 (the curator
   rebalance — dropping the authored pure-generic directions so even the `allowFallback` path is
   distinctive) was deliberately deferred and is still open.**
+  The full agent journey was then verified live on a real npm-style install (intake gate refused,
+  composed distinctive menu, more_directions appended, live swap + pick + apply all worked).
+  Shipped in `0.8.0`.
+- **Robustness pass (0.8.1)** — three fixes the live test surfaced: (a) headless `captureDirections`
+  now waits for `load` (not `networkidle`) so a persistent third-party live script (Impeccable's
+  live mode, HMR) can't block screenshots; (b) the MCP server now **enforces `required` args** with
+  a clear in-band error instead of letting a missing `projectDir` crash the handler; (c)
+  `composeDirections` takes a `brief` and **warns when it's missing** ("ask the user the intake
+  questions first") — a soft nudge toward the conversation, since tool-gating can force a tailored
+  *menu* but not a *conversation*. Covered by the existing pure suites + a new m5 required-arg check.
   **Next: #1 curator rebalance; catalog-as-cache seeding; true variable-weight parity for foundry
-  faces. Verify the full agent journey (start → compose → init(directions) → pick) live before
-  the 0.8.0 release.**
+  faces.**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

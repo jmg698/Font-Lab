@@ -131,6 +131,9 @@ try {
 
     const unknown = await rpc("tools/call", { name: "font_lab_nope", arguments: {} });
     assert("MCP rejects unknown tool", !!unknown.error);
+
+    const noArg = await rpc("tools/call", { name: "font_lab_analyze", arguments: {} });
+    assert("MCP enforces required args with a clear in-band error", noArg.result?.isError === true && /missing required argument/i.test(noArg.result.content[0].text));
   } finally {
     server.kill();
   }
