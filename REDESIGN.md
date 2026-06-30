@@ -310,9 +310,16 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   agent reach beyond the catalog and get an honest verdict; `SKILL.md` rule is now
   "shippable-only, not catalog-only." Added dep `@capsizecss/unpack@^4.0.1`. Covered by
   `cli/admit-test.mjs` (20 checks, runs without deps via injected fakes).
-  **Next: B1 — hard set-level anti-generic gate on compose; verify the A2 network/build path on
-  a machine with deps; then the foundry adapters (Fontshare/Velvetyne) and catalog-as-cache
-  seeding (E1).**
+- **B1 — the hard anti-generic gate** — *shipped.* The agent-composed MENU must now clear a
+  distinctiveness bar: `composeDirections` **rejects** a set where any direction is overexposed
+  in both display and body, or where every direction leads with an overexposed display — with a
+  `force:true` deliberate override. The human's own final pick is **never blocked**:
+  `selectDirection` returns a `pickWarnings()` heads-up for a generic/clashing pick but always
+  ships it. The pure policies (`antiGenericViolations`, `pickWarnings`) live in
+  `cli/design-brain.mjs` and are covered by `cli/design-brain-test.mjs` (now 22 checks).
+  **Next: verify the A2 network/build path on a machine with deps; then the foundry adapters
+  (Fontshare/Velvetyne) and catalog-as-cache seeding (E1); and the curator fallback rebalance
+  (drop the authored pure-generic directions so even the no-brief fallback is distinctive).**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

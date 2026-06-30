@@ -97,6 +97,43 @@ export const PRINCIPLES = [
   "Be honest about fidelity: prefer faces we can ship with preview == ship; if one might render slightly differently when applied, say so and let the human decide.",
 ];
 
+// ── B1: the hard anti-generic gate (for the agent-composed MENU) ──────────────
+// Decision (REDESIGN §3.5): gate the menu + agent-compose HARD against generics; the human's
+// final pick is only ever WARNED, never blocked. These are the pure policies that enforce it.
+
+const roleFamily = (d, role) => d?.roles?.[role]?.family ?? d?.[role];
+
+// Reasons a COMPOSED menu is too generic to ship (empty array = it clears the bar). Two rules:
+//   1. no single direction may be an overexposed default in BOTH display and body, and
+//   2. the set must lead with at least one distinctive (non-overexposed) display.
+export function antiGenericViolations(directions) {
+  const v = [];
+  (directions || []).forEach((d, i) => {
+    const disp = roleFamily(d, "display");
+    const body = roleFamily(d, "body");
+    if (disp && body && isOverexposed(disp) && isOverexposed(body))
+      v.push(`direction[${i}]${d?.name ? ` "${d.name}"` : ""}: display "${disp}" and body "${body}" are both overexposed defaults — make at least one role a distinctive face`);
+  });
+  const displays = (directions || []).map((d) => roleFamily(d, "display")).filter(Boolean);
+  if (displays.length && displays.every(isOverexposed))
+    v.push(`every direction leads with an overexposed display (${displays.join(", ")}) — the menu needs at least one distinctive display face`);
+  return v;
+}
+
+// The human's PICK is never blocked — but we hand back an honest heads-up if it reads generic.
+export function pickWarnings(roles) {
+  const warnings = [];
+  const disp = roles?.display?.family;
+  const body = roles?.body?.family;
+  if (disp && body && isOverexposed(disp) && isOverexposed(body)) {
+    warnings.push(`Heads up: both the display (${disp}) and body (${body}) are overexposed defaults — this may read as generic. Shipping it because it's your pick.`);
+  } else {
+    for (const [role, r] of Object.entries(roles || {}))
+      if (r?.family && isOverexposed(r.family)) warnings.push(`Heads up: the ${role} font (${r.family}) is an overexposed default.`);
+  }
+  return warnings;
+}
+
 // Assemble the full design brief the front door (engine.start / font_lab_start) hands the agent.
 export function designBrief() {
   return {

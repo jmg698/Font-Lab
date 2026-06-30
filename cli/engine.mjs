@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
-import { designBrief, isOverexposed } from "./design-brain.mjs";
+import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
 import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
@@ -154,7 +154,7 @@ export function curate(projectDir, opts = {}) {
 // ── option 3: the agent composes its own directions ──────────────────────────
 // specs: [{ name, vibe?, rationale?, display, body, mono, weights? }]
 // Parity guard: every family must be a catalog member; otherwise throw with suggestions.
-export async function composeDirections(specs, { projectDir } = {}) {
+export async function composeDirections(specs, { projectDir, force = false } = {}) {
   if (!Array.isArray(specs) || !specs.length) throw new Error("composeDirections: provide a non-empty array of directions");
   const cache = admittedCache(projectDir);
   const warnings = [];
@@ -193,6 +193,19 @@ export async function composeDirections(specs, { projectDir } = {}) {
         mono: { family: s.mono, weights: s.weights?.mono || [400, 700] },
       },
     });
+  }
+  // B1: the hard anti-generic gate on the agent-composed MENU. A shippable-but-generic menu
+  // recreates the exact AI-default look Font Lab exists to escape, so we refuse it — unless the
+  // caller deliberately overrides (e.g. the user explicitly asked for the default look). The
+  // human's own final pick is never blocked this way (see selectDirection).
+  if (!force) {
+    const violations = antiGenericViolations(directions);
+    if (violations.length)
+      throw new Error(
+        "compose rejected — this menu is too generic to escape the AI-default look:\n  - " +
+          violations.join("\n  - ") +
+          "\nReach for distinctive faces (use font_lab_check_fonts and the design brief's references), or pass force:true to override deliberately.",
+      );
   }
   return { directions, warnings };
 }
@@ -384,7 +397,9 @@ export function selectDirection(projectDir, { directionId, directions, vibe, cou
   const flDir = path.join(dir, ".font-lab");
   mkdirSync(flDir, { recursive: true });
   writeFileSync(path.join(flDir, "selection.json"), JSON.stringify(selection, null, 2) + "\n");
-  return selection;
+  // Never block the human's pick — but hand back an honest heads-up if it reads generic, so the
+  // agent can relay it. The selection.json contract on disk stays clean (warnings aren't shipped).
+  return { ...selection, warnings: pickWarnings(roles) };
 }
 
 // Ready-to-run commands to launch the FULL live editor (flip / mix / compare in a real browser),

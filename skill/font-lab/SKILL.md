@@ -75,6 +75,11 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
   DM Sans, Manrope, Sora, Figtree, JetBrains/Roboto/Geist Mono, …) unless the brief specifically
   calls for maximum neutrality — and say why if you do. Default to distinctive, characterful
   faces tailored to the project; `font_lab_start` lists what to avoid and what to reach for.
+  `compose_directions` **rejects** an all-generic menu (any direction overexposed in both display
+  and body, or a set whose every display is a default) — fix it with distinctive faces, or pass
+  `force:true` only when the user explicitly wants the default look. The human's own final pick is
+  **never blocked**: if it reads generic, relay the heads-up `font_lab_select` returns and let
+  them decide.
 - **Shippable-only, not catalog-only.** Reach beyond the catalog to any distinctive Google or
   open-foundry font — the shippability gate admits it. Prefer **guaranteed** (full WYSIWYG)
   faces; when only a **best-effort** ship is possible, present it with the honest "may render

@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.9.0" };
+const SERVER = { name: "font-lab", version: "0.10.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
@@ -71,11 +71,12 @@ const TOOLS = [
   {
     name: "font_lab_compose_directions",
     description:
-      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, any Google font, or a supported foundry) — the gate admits them; check uncertain ones first with font_lab_check_fonts. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte). Rejects only genuinely unshippable fonts.",
+      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, any Google font, or a supported foundry) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte).",
     inputSchema: {
       type: "object",
       properties: {
         projectDir: { ...proj, description: "Optional: the project root, so admitted fonts are cached for the preview build." },
+        force: { type: "boolean", description: "Override the anti-generic gate (use only when the user explicitly wants overexposed default fonts)." },
         directions: {
           type: "array",
           items: {
@@ -94,7 +95,7 @@ const TOOLS = [
       },
       required: ["directions"],
     },
-    handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir }),
+    handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir, force: a.force }),
   },
   {
     name: "font_lab_init",
