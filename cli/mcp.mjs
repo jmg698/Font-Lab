@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.7.0" };
+const SERVER = { name: "font-lab", version: "0.8.0" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
@@ -100,13 +100,30 @@ const TOOLS = [
   {
     name: "font_lab_init",
     description:
-      "SET UP Font Lab in the project so the human can preview live — self-hosts the parity bundles, installs the dev panel, and mounts it (dev-only) in the layout. This is the one-shot setup: run it after font_lab_analyze, then start the dev server and tell the human to flip fonts in the panel (bottom-right) and Pick. Idempotent and reversible (font_lab_uninit). Reports any dead roles (offer font_lab_rewire_dead_roles).",
+      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reports dead roles (offer font_lab_rewire_dead_roles).",
     inputSchema: {
       type: "object",
-      properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },
+      properties: {
+        projectDir: proj,
+        directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to show in the panel (from compose_directions)." },
+        allowFallback: { type: "boolean", description: "Mount the deterministic default menu without a brief — only if the user explicitly wants it." },
+        vibe: { type: "string" },
+        count: { type: "number" },
+      },
       required: ["projectDir"],
     },
-    handler: (a) => engine.init(a.projectDir, { vibe: a.vibe, count: a.count, log }),
+    handler: (a) => engine.init(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
+  },
+  {
+    name: "font_lab_more_directions",
+    description:
+      "Add MORE options to the live panel — when the human wants to keep exploring beyond the current set. Compose additional tailored directions first (font_lab_compose_directions), then pass them here; they're admitted and APPENDED to the panel (existing options are kept), and the panel updates live. Use this whenever the user asks 'what else?' / 'show me more' — the menu is never capped.",
+    inputSchema: {
+      type: "object",
+      properties: { projectDir: proj, directions: { type: "array", items: { type: "object" }, description: "The new directions to append (from compose_directions)." } },
+      required: ["projectDir", "directions"],
+    },
+    handler: (a) => engine.expandPreview(a.projectDir, { directions: a.directions, log }),
   },
   {
     name: "font_lab_uninit",
@@ -117,13 +134,19 @@ const TOOLS = [
   {
     name: "font_lab_prepare_preview",
     description:
-      "Build the LIVE preview bundle (self-hosted woff2 + exact next/font fallbacks) into the user's project so the HUMAN can flip through the directions on their real running site and pick one. Pass either curated/composed 'directions' or a 'vibe'. Font Lab keeps the taste decision with the human — this never auto-selects. (Fetches fonts from Google.)",
+      "Rebuild the LIVE preview bundle for the directions YOU composed for the user's brief (self-hosted woff2 + exact next/font fallbacks), so the HUMAN can flip through them and pick. Pass the `directions` from compose_directions. REFUSES without directions (don't rebuild the generic default menu without asking the user) — only pass allowFallback:true if they explicitly want the default. Use font_lab_init for first setup; use this to rebuild after changing the options. Never auto-selects. (Fetches fonts.)",
     inputSchema: {
       type: "object",
-      properties: { projectDir: proj, directions: { type: "array", items: { type: "object" } }, vibe: { type: "string" }, count: { type: "number" } },
+      properties: {
+        projectDir: proj,
+        directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to build (from compose_directions)." },
+        allowFallback: { type: "boolean", description: "Build the deterministic default menu without a brief — only if the user explicitly wants it." },
+        vibe: { type: "string" },
+        count: { type: "number" },
+      },
       required: ["projectDir"],
     },
-    handler: (a) => engine.preparePreview(a.projectDir, { directions: a.directions, vibe: a.vibe, count: a.count, log }),
+    handler: (a) => engine.preparePreview(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
   },
   {
     name: "font_lab_read_pick",
