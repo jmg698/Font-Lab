@@ -41,11 +41,16 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    the human the fidelity warning). `compose_directions` admits them and rejects only genuinely
    unshippable fonts. Browse the verified floor with `font_lab_list_catalog({ role, tag })`.
    `font_lab_curate({ projectDir, vibe? })` is the **fallback** when you have no brief.
-3. **Set up the preview** — `font_lab_init({ projectDir, vibe? })`. This self-hosts the
-   fonts, installs the dev panel, and mounts it (dev-only). If `analyze` flagged a dead role and
-   the user wants it to change, also call `font_lab_rewire_dead_roles({ projectDir })`.
-   (Already initialized and just changing the options? `font_lab_prepare_preview` rebuilds the
-   bundles without re-mounting.)
+3. **Set up the preview** — `font_lab_init({ projectDir, directions })`, passing the directions
+   you just composed. The panel shows **exactly those**. `init` **refuses without directions** —
+   so you can't mount the generic default menu without doing the brief first; only pass
+   `allowFallback: true` if the user explicitly wants the deterministic default. If `analyze`
+   flagged a dead role and the user wants it to change, also call `font_lab_rewire_dead_roles`.
+   (Already initialized and changing the set? `font_lab_prepare_preview({ projectDir, directions })`
+   rebuilds without re-mounting.)
+   - **Want more options?** The menu is never capped. When the user asks "what else?", compose
+     additional directions and call `font_lab_more_directions({ projectDir, directions })` — they're
+     appended to the live panel (existing options kept).
 4. **The choosing moment** — pick the path that fits where you're running. Start the dev server
    in the background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
 

@@ -17,6 +17,7 @@ import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
 import { gatherContext } from "./context.mjs";
+import { resolveDirectionsMode, mergeDirections } from "./flow.mjs";
 import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
@@ -222,18 +223,41 @@ function suggest(fam, role) {
   return someInRole.length ? someInRole.join(", ") : null;
 }
 
+// The live preview is built from the panel's direction set, persisted so "show me more" can grow it.
+function previewSetPath(dir) {
+  return path.join(path.resolve(dir), ".font-lab", "preview.json");
+}
+function writePreviewSet(dir, dirs) {
+  const p = previewSetPath(dir);
+  mkdirSync(path.dirname(p), { recursive: true });
+  writeFileSync(p, JSON.stringify(dirs, null, 2) + "\n");
+}
+function readPreviewSet(dir) {
+  const p = previewSetPath(dir);
+  if (!existsSync(p)) return [];
+  try {
+    return JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
 // ── prepare the live preview (build parity bundles into the project) ──────────
-// directions: optional agent-composed/curated directions; if omitted, curate for the project.
-export async function preparePreview(projectDir, { directions, vibe, count, fetch = true, log } = {}) {
+// Builds from the agent-composed `directions` (the tasteful, brief-driven path). With none, refuse
+// unless allowFallback — so the generic default menu isn't mounted without the agent asking first.
+// The MCP layer passes allowFallback:false (forcing intake); direct/CLI callers default to true.
+export async function preparePreview(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  const mode = resolveDirectionsMode({ directions, allowFallback });
+  const dirs = mode === "composed" ? directions : curateDirections(analysis, { vibe, count });
   await ensureAdmitted(dir, dirs); // admit any non-catalog (Google/foundry) families before building
   // Include `wiring` so the panel knows which leaf var to override per role — without it every
   // role renders "not wired" and the live swap is a no-op (must match init's meta).
   const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
   const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
-  return { analysis, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
+  writePreviewSet(dir, dirs);
+  return { analysis, mode, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }
 
 // ── the human's pick, and shipping it ────────────────────────────────────────
@@ -310,7 +334,7 @@ function unmountPanel(src) {
 
 // Set the project up so the human can preview live: self-host the parity bundles, drop in the
 // portable dev panel, and mount it (dev-only) in the layout. Idempotent + reversible (uninit).
-export async function init(projectDir, { vibe, count, fetch = true, log } = {}) {
+export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   if (!analysis.supported) throw new Error(`project not supported yet: ${analysis.reasons.join("; ")}`);
@@ -322,25 +346,48 @@ export async function init(projectDir, { vibe, count, fetch = true, log } = {}) 
   const backupLayout = path.join(backupDir, "layout.tsx");
   if (!existsSync(backupLayout)) copyFileSync(layout, backupLayout); // never clobber the original
 
-  const directions = curateDirections(analysis, { vibe, count });
+  // Build the panel from the agent's brief-driven directions (the tasteful path). Refuse to mount
+  // the generic default menu without a brief unless allowFallback is set (see flow.resolveDirectionsMode).
+  const mode = resolveDirectionsMode({ directions, allowFallback });
+  const dirs = mode === "composed" ? directions : curateDirections(analysis, { vibe, count });
+  await ensureAdmitted(dir, dirs); // self-host any non-catalog (Google/foundry) faces the agent composed
   const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
-  const built = await generateCatalog(dir, directions, meta, { fetch, log });
+  const built = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
 
   mkdirSync(path.join(appDir, "_fontlab"), { recursive: true });
   copyFileSync(PANEL_TEMPLATE, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"));
   const mounted = mountPanel(layout);
+  writePreviewSet(dir, dirs);
 
   return {
     analysis,
-    directions: directions.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
+    mode,
+    directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
     wiring: meta.wiring,
     deadRoles: analysis.coverage?.deadRoles || [],
     otherSubsystems: analysis.coverage?.otherSubsystems || [],
     prepared: built.fonts,
     mounted,
     layout: path.relative(dir, layout),
-    nextStep: "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. Then read_pick → apply.",
+    nextStep:
+      "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. " +
+      "Want more options? compose additional directions and call font_lab_more_directions. Then read_pick → apply.",
   };
+}
+
+// Grow the live panel (#4): admit + APPEND newly-composed directions to the current preview set and
+// rebuild, so the human can keep exploring without losing what's already there.
+export async function expandPreview(projectDir, { directions, fetch = true, log } = {}) {
+  if (!Array.isArray(directions) || !directions.length)
+    throw new Error("expandPreview: provide the new `directions` to add (compose them first with compose_directions)");
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  const merged = mergeDirections(readPreviewSet(dir), directions);
+  await ensureAdmitted(dir, directions);
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
+  const result = await generateCatalog(dir, merged, meta, { fetch, log, specFor: mergedSpecFor(dir) });
+  writePreviewSet(dir, merged);
+  return { added: directions.length, total: merged.length, directions: result.directions };
 }
 
 export function uninit(projectDir) {

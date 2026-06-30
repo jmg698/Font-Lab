@@ -352,10 +352,28 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   (visible page text) — and `font_lab_start` now returns them as a `context` block. The skill /
   tool description / design-brief strategy step all tell the agent to read it FIRST so options fit
   THIS project's visual language and voice, not a generic default. Best-effort + never throws.
-  Covered by `cli/context-test.mjs` (10 checks, runs without deps).
-  **Next: catalog-as-cache seeding (bake admitted foundry faces into the parity catalog); the
-  curator fallback rebalance (drop the authored pure-generic directions); and true variable-weight
-  parity for foundry faces. Bundle with the hardening as `0.7.0`.**
+  Covered by `cli/context-test.mjs` (10 checks, runs without deps). Shipped in `0.7.0`.
+- **The routing fix (#2/#3/#4)** — *shipped (0.8.0).* The gap a live install exposed: an agent
+  could call `font_lab_init` directly, which built the panel from the deterministic curated
+  fallback (Geist/Playfair/Space Grotesk) — bypassing intake, the brief, the anti-generic gate,
+  context, and the foundry faces entirely. Fixes:
+  - **#2 intake gate** (`cli/flow.mjs` `resolveDirectionsMode`): `init`/`preparePreview` now build
+    from the agent's brief-driven `directions`. With none they **refuse** with an actionable nudge
+    (call start → compose) — unless `allowFallback:true`. The MCP layer passes `allowFallback:false`
+    (forcing intake for agents); the engine/CLI default to `true` (manual use unaffected, tests
+    unaffected).
+  - **#3 init builds the composed menu**: `init` takes `directions`, runs `ensureAdmitted` +
+    `mergedSpecFor`, so the panel shows the tailored, gated, foundry-eligible set — not the generic
+    fallback.
+  - **#4 expandable menu**: `engine.expandPreview` + `font_lab_more_directions` append newly-composed
+    directions to the live panel (persisted in `.font-lab/preview.json`, de-duped by id) — the menu
+    is no longer capped at 5.
+  Covered by `cli/flow-test.mjs` (10 checks). **Note: this is the routing layer; #1 (the curator
+  rebalance — dropping the authored pure-generic directions so even the `allowFallback` path is
+  distinctive) was deliberately deferred and is still open.**
+  **Next: #1 curator rebalance; catalog-as-cache seeding; true variable-weight parity for foundry
+  faces. Verify the full agent journey (start → compose → init(directions) → pick) live before
+  the 0.8.0 release.**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.
