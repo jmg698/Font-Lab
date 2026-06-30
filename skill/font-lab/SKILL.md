@@ -22,13 +22,15 @@ ship the order.
 Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 
 1. **Start & intake** — `font_lab_start({ projectDir })`. This analyzes the project AND returns
-   Font Lab's *design brief*: the framing questions to **ask the human first** (what feeling?
-   how bold a departure? any brand to evoke or avoid?), a strategy scaffold, the overexposed
-   default fonts to avoid, and distinctive references to reach for. **Ask the intake questions
-   and wait for the answers before proposing any fonts** — this is what makes the result
-   tailored to *them* instead of a generic default. (`font_lab_start` runs the analysis for
-   you; if it reports the project is out-of-branch — not App Router + Tailwind v4 +
-   CSS-variable wiring — tell the user what's missing instead of pushing ahead.)
+   a `context` block (the project's existing **color palette**, any **brand/design docs**, and a
+   **sample of the real copy**) plus Font Lab's *design brief*: the framing questions to **ask
+   the human first** (what feeling? how bold a departure? any brand to evoke or avoid?), a
+   strategy scaffold, the overexposed default fonts to avoid, and distinctive references to reach
+   for. **Read the `context` so your options fit THIS project, then ask the intake questions and
+   wait for the answers before proposing any fonts** — this is what makes the result tailored to
+   *them* instead of a generic default. (`font_lab_start` runs the analysis for you; if it
+   reports the project is out-of-branch — not App Router + Tailwind v4 + CSS-variable wiring —
+   tell the user what's missing instead of pushing ahead.)
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
    assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
    Reach past the overexposed defaults and give each direction a one-line rationale tied to what

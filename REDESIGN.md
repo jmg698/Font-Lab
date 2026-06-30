@@ -342,9 +342,20 @@ Sequenced by dependency and leverage. Each item notes whether it survives a skil
   the Fontshare CSS-API fetch + variable-woff2 parity should be confirmed on a machine with deps,
   same as the Google network edge; the soft-degrade keeps a non-variable result shippable as
   best-effort.**
+  E1 was then verified live (Cabinet Grotesk self-hosted + rendered, best-effort single-weight),
+  with two follow-on fixes shipped: the Fontshare woff2 parser (quoted/protocol-relative URLs) and
+  cache-hardening (a no-woff2 verdict is `unavailable`, not a cacheable poison). Published in
+  `0.6.0` (+ hardening on `main` awaiting the next release).
+- **B2 — project design-context analysis** — *shipped.* `cli/context.mjs` (dependency-free) gathers
+  the project's own signals — the existing **color palette** (named CSS/Tailwind tokens), any
+  **brand/design docs** (DESIGN.md, BRAND.md, …) with excerpts, and a **sample of the real copy**
+  (visible page text) — and `font_lab_start` now returns them as a `context` block. The skill /
+  tool description / design-brief strategy step all tell the agent to read it FIRST so options fit
+  THIS project's visual language and voice, not a generic default. Best-effort + never throws.
+  Covered by `cli/context-test.mjs` (10 checks, runs without deps).
   **Next: catalog-as-cache seeding (bake admitted foundry faces into the parity catalog); the
-  curator fallback rebalance (drop the authored pure-generic directions); and B2 — project
-  design-context analysis to deepen tailoring.**
+  curator fallback rebalance (drop the authored pure-generic directions); and true variable-weight
+  parity for foundry faces. Bundle with the hardening as `0.7.0`.**
 
 **Open / recommended — confirm before building:**
 - **Commercial "preview-only, needs license" path:** deferred, out of scope for this arc.

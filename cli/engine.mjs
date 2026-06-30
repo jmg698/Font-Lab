@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSyn
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
+import { gatherContext } from "./context.mjs";
 import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog } from "./catalog-build.mjs";
@@ -39,15 +40,18 @@ export function analyze(projectDir) {
 // "ask what they're going for, then reach past the defaults" experience reaches every agent —
 // including ones that never read the skill. The HUMAN still makes the final pick.
 export function start(projectDir) {
-  const analysis = analyzeProject(path.resolve(projectDir));
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
   return {
     analysis,
+    context: gatherContext(dir), // the project's own palette, brand docs, and copy voice (B2)
     brief: designBrief(),
     nextStep:
-      "Ask the human the intake questions in `brief.intake` and wait for the answers, then " +
-      "compose tailored directions for their brief (reach past `brief.avoid`; draw on " +
-      "`brief.references`), preview them, and let the HUMAN pick. `curate` is the fallback " +
-      "when there's no brief.",
+      "Read `context` (the project's palette, brand docs, and copy) — your options must fit THIS " +
+      "project, not a generic default. Then ask the human the intake questions in `brief.intake` " +
+      "and wait for the answers, compose tailored directions for their brief (reach past " +
+      "`brief.avoid`; draw on `brief.references`), preview them, and let the HUMAN pick. `curate` " +
+      "is the fallback when there's no brief.",
   };
 }
 
