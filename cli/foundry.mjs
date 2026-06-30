@@ -47,10 +47,11 @@ export function foundryMatch(family) {
   return key ? { family: key, ...foundry[key] } : null;
 }
 
-// Fontshare's CSS API returns @font-face CSS whose woff2 src we parse (exactly like Google css2),
-// so the existing self-host + unpack path is reused. A broad weight set is requested; the variable
-// face (when the family has one) is what we self-host.
-export function fontshareCssUrl(slug, variable) {
-  const weights = variable ? "300,400,500,600,700" : "400,700";
-  return `https://api.fontshare.com/v2/css?f[]=${slug}@${weights}&display=swap`;
+// Fontshare's CSS API returns @font-face CSS whose woff2 src we parse (like Google css2), so the
+// existing self-host + unpack path is reused. NB: it serves STATIC per-weight instances (not a
+// single variable woff2), so we request a couple of weights and self-host the first (regular) — a
+// best-effort, single-weight ship (see admit.resolveFoundryDefault). The `variable` field on each
+// entry above documents the typeface's nature; it does NOT mean the CSS API hands us a variable file.
+export function fontshareCssUrl(slug) {
+  return `https://api.fontshare.com/v2/css?f[]=${slug}@400,700&display=swap`;
 }

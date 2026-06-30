@@ -27,9 +27,8 @@ ok(foundryMatch("cabinet grotesk")?.family === "Cabinet Grotesk" && foundryMatch
 ok(foundryMatch("Inter") === null && foundryMatch("") === null, "foundryMatch returns null for non-foundry / empty");
 
 // the CSS-API url + license
-const url = fontshareCssUrl("cabinet-grotesk", true);
-ok(/api\.fontshare\.com\/v2\/css\?f\[\]=cabinet-grotesk@/.test(url) && /display=swap/.test(url), "fontshareCssUrl builds a valid Fontshare CSS-API query");
-ok(fontshareCssUrl("hatton", false).includes("@400,700") && fontshareCssUrl("satoshi", true).includes("@300,400,500,600,700"), "variable vs static fonts request the right weight set");
+const url = fontshareCssUrl("cabinet-grotesk");
+ok(/api\.fontshare\.com\/v2\/css\?f\[\]=cabinet-grotesk@400,700/.test(url) && /display=swap/.test(url), "fontshareCssUrl builds a valid Fontshare CSS-API query");
 ok(licenseOk(FONTSHARE_LICENSE, "foundry") === true, "the foundry license clears the gate's permissive-license check");
 
 console.log(`\nfoundry: ${pass} checks passed`);
