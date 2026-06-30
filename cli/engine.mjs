@@ -225,7 +225,9 @@ export async function preparePreview(projectDir, { directions, vibe, count, fetc
   const analysis = analyzeProject(dir);
   const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
   await ensureAdmitted(dir, dirs); // admit any non-catalog (Google/foundry) families before building
-  const meta = { target: toTarget(analysis), replaces: analysis.replaces };
+  // Include `wiring` so the panel knows which leaf var to override per role — without it every
+  // role renders "not wired" and the live swap is a no-op (must match init's meta).
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
   const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   return { analysis, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }

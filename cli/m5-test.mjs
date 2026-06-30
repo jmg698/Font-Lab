@@ -1,11 +1,12 @@
 // M5 verification — the engine facade and the MCP server. The engine logic is offline; the
 // MCP server is exercised over real stdio (spawn → initialize → tools/list → tools/call).
-// Option 3 is the heart of it: the agent can compose its own directions, but only from the
-// catalog, and the human is always the one who picks (we only ever prepare a preview).
+// Option 3 is the heart of it: the agent can compose its own directions from any shippable font
+// (catalog or admitted), but the menu must clear the anti-generic gate, and the human is always
+// the one who picks (we only ever prepare a preview).
 
 import * as engine from "./engine.mjs";
 import { spawn } from "node:child_process";
-import { writeFileSync, mkdirSync, rmSync, cpSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, rmSync, cpSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -39,22 +40,24 @@ try {
   const { directions: curated } = engine.curate(CLEAN);
   assert("curate returns the default menu (~5)", curated.length === 5);
 
-  // option 3: agent composes its own directions from the catalog
-  const composed = engine.composeDirections([
-    { name: "My Pick", vibe: "editorial", display: "Playfair Display", body: "Inter", mono: "Geist Mono" },
+  // option 3: agent composes its own directions (async; distinctive faces clear the gate)
+  const composed = await engine.composeDirections([
+    { name: "My Pick", vibe: "editorial", display: "Fraunces", body: "Hanken Grotesk", mono: "Spline Sans Mono" },
   ]);
-  assert("composeDirections accepts catalog fonts", composed.directions.length === 1 && composed.directions[0].roles.display.family === "Playfair Display");
+  assert("composeDirections accepts distinctive catalog fonts", composed.directions.length === 1 && composed.directions[0].roles.display.family === "Fraunces");
   assert("composeDirections normalizes id + weights", !!composed.directions[0].id && Array.isArray(composed.directions[0].roles.body.weights));
 
-  // option 3 guard: a non-catalog font is refused with a helpful error
+  // option 3 guard (B1): an all-generic menu is refused; force:true overrides deliberately
   let refused = false, msg = "";
   try {
-    engine.composeDirections([{ display: "Comic Sans MS", body: "Inter", mono: "Geist Mono" }]);
+    await engine.composeDirections([{ display: "Geist", body: "Geist", mono: "Geist Mono" }]);
   } catch (e) {
     refused = true;
     msg = e.message;
   }
-  assert("composeDirections refuses non-catalog fonts", refused && /not in the Font Lab catalog/.test(msg), msg);
+  assert("composeDirections refuses an all-generic menu", refused && /too generic|overexposed/.test(msg), msg);
+  const forced = await engine.composeDirections([{ display: "Geist", body: "Geist", mono: "Geist Mono" }], { force: true });
+  assert("composeDirections force:true overrides the anti-generic gate", forced.directions.length === 1);
 
   // preparePreview without network (fetch:false) builds the generated module from composed dirs
   const proj = path.join(TMP, "clean");
@@ -62,7 +65,10 @@ try {
   for (const f of ["package.json", "app/layout.tsx", "app/globals.css"]) cpSync(path.join(CLEAN, f), path.join(proj, f));
   const prep = await engine.preparePreview(proj, { directions: composed.directions, fetch: false });
   assert("preparePreview writes catalog.generated.ts", existsSync(prep.outPath));
-  assert("preparePreview reports prepared fonts", prep.prepared.includes("Playfair Display"));
+  assert("preparePreview reports prepared fonts", prep.prepared.includes("Fraunces"));
+  // regression: preparePreview must bake in `wiring`, or the panel renders every role "not wired"
+  const genSrc = readFileSync(prep.outPath, "utf8");
+  assert("preparePreview bakes in wiring (panel can swap)", /export const wiring = /.test(genSrc) && !/export const wiring = null/.test(genSrc));
 
   // readSelection: null before a pick, the object after
   assert("readSelection is null before a pick", engine.readSelection(proj) === null);
@@ -120,8 +126,8 @@ try {
     const cu = await rpc("tools/call", { name: "font_lab_curate", arguments: { projectDir: CLEAN, count: 3 } });
     assert("MCP curate call returns 3 directions", JSON.parse(cu.result.content[0].text).length === 3);
 
-    const bad = await rpc("tools/call", { name: "font_lab_compose_directions", arguments: { directions: [{ display: "Nope", body: "Inter", mono: "Geist Mono" }] } });
-    assert("MCP surfaces tool errors in-band (isError)", bad.result.isError === true && /not in the Font Lab catalog/.test(bad.result.content[0].text));
+    const bad = await rpc("tools/call", { name: "font_lab_compose_directions", arguments: { directions: [{ display: "Geist", body: "Geist", mono: "Geist Mono" }] } });
+    assert("MCP surfaces tool errors in-band (isError)", bad.result.isError === true && /too generic|overexposed/.test(bad.result.content[0].text));
 
     const unknown = await rpc("tools/call", { name: "font_lab_nope", arguments: {} });
     assert("MCP rejects unknown tool", !!unknown.error);
