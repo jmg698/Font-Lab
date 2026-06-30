@@ -52,9 +52,27 @@ pattern):
 npx font-lab uninstall      # remove the skill + the .mcp.json entry
 ```
 
-Useful flags: `--project <dir>` (target a project other than the cwd), `--no-mcp` /
-`--no-skill` (do only one half), `--local` (register the MCP server as `node <checkout>/mcp.mjs`
-for testing an unpublished clone), `--dry-run` (print the plan, write nothing).
+**Works across agents, not just Claude Code.** With no `--host`, install **auto-detects** which
+agents you have and wires them all — writing each one's MCP config in the right place and format,
+plus a skill (Claude) or an `AGENTS.md` protocol block (everyone else):
+
+| Host | MCP config | Instructions |
+|---|---|---|
+| Claude Code | project `.mcp.json` | `~/.claude/skills/font-lab` |
+| Cursor | `~/.cursor/mcp.json` | `AGENTS.md` |
+| Codex | `~/.codex/config.toml` | `AGENTS.md` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `AGENTS.md` |
+| VS Code | `.vscode/mcp.json` (`servers`) | `AGENTS.md` |
+| Gemini CLI | `~/.gemini/settings.json` | `AGENTS.md` |
+
+```bash
+npx font-lab install --host cursor,codex   # or --host all, or just let it auto-detect
+```
+
+Useful flags: `--host <list|all>` (default: auto-detect), `--project <dir>` (target a project
+other than the cwd), `--no-mcp` / `--no-skill` (do only one half), `--local` (register the MCP
+server as `node <checkout>/mcp.mjs` for testing an unpublished clone), `--dry-run` (print the
+plan, write nothing). `uninstall` cleans every host.
 
 ## How the agent picks fonts (the loop)
 

@@ -1,24 +1,28 @@
 #!/usr/bin/env node
-// `font-lab install` — the one-command setup that makes Font Lab self-installing, the way
-// `npx impeccable install` works. Two wiring actions, mirroring impeccable's pattern:
+// `font-lab install` — the one-command, HOST-AWARE setup that wires Font Lab into whatever agent
+// you use. Two kinds of wiring, per host:
 //
-//   1. Copy the `font-lab` SKILL into the global skills dir (~/.claude/skills/font-lab) so the
-//      agent DISCOVERS it in every session — you just say "pick new fonts" and it reaches for it.
-//   2. Register the `font-lab` MCP server into the target project's `.mcp.json` so the agent has
-//      the font_lab_* tools to actually drive the loop.
+//   1. MCP server  → so the agent has the font_lab_* tools. Different hosts read different config
+//      files/formats; we write the right one for each (the `mcpServers` JSON family, VS Code's
+//      `servers` key, or Codex's TOML).
+//   2. Instructions → so the agent DISCOVERS Font Lab and follows the intake-first protocol.
+//      Claude reads a skill (~/.claude/skills/font-lab); everyone else reads an AGENTS.md block.
 //
-// Both steps are idempotent (re-running is a no-op) and reversible (`font-lab uninstall`).
+// With no --host, it AUTO-DETECTS which agents are present and wires them all. Everything is
+// idempotent (re-running is a no-op) and reversible (`font-lab uninstall` cleans every host).
 //
-//   npx font-lab install [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]
+//   npx font-lab install [--host <list|all>] [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]
 //   npx font-lab uninstall [--project <dir>]
 //
 // Flags:
-//   --project <dir>   project to wire the MCP server into (default: cwd)
-//   --no-mcp          skip the .mcp.json registration (skill only)
-//   --no-skill        skip the global skill copy (MCP only)
+//   --host <list>     comma-separated: claude,cursor,codex,windsurf,vscode,gemini (or `all`).
+//                     Omit to auto-detect installed agents (falls back to claude).
+//   --project <dir>   project to wire project-scoped config into (default: cwd)
+//   --no-mcp          skip the MCP registration (instructions only)
+//   --no-skill        skip the instructions (skill / AGENTS.md) — MCP only
 //   --local           register the MCP server as `node <this-checkout>/mcp.mjs` instead of the
 //                     published `npx` form — use this to test from a git clone before publishing
-//   --skills-dir <d>  override the skills dir (default: $CLAUDE_CONFIG_DIR/skills or ~/.claude/skills)
+//   --skills-dir <d>  override the Claude skills dir (default: $CLAUDE_CONFIG_DIR/skills or ~/.claude/skills)
 //   --dry-run         print what would change, write nothing
 
 import os from "node:os";
@@ -31,44 +35,80 @@ const SKILL_NAME = "font-lab";
 const MCP_KEY = "font-lab";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)); // the `cli/` dir
+const HOME = os.homedir();
 const arg = (flag, def) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
 };
 const has = (flag) => process.argv.includes(flag);
 const rel = (p) => path.relative(process.cwd(), p) || ".";
+const tildify = (p) => (p.startsWith(HOME) ? "~" + p.slice(HOME.length) : p);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// ---- shared resolution -----------------------------------------------------
+// ---- the host registry -----------------------------------------------------
+// Each host says WHERE its MCP config lives + its format, and which instruction surface it reads
+// ("skill" = Claude's skills dir; "agents" = an AGENTS.md block in the project). `detect` is a
+// cheap "does this agent appear installed?" check used by auto-detection.
 
-// The SKILL source: bundled inside the package (cli/skill/font-lab, created by `prepack`)
-// when installed via npm, or the repo's top-level skill/font-lab when run from a git checkout.
-function resolveSkillSource() {
-  const candidates = [
-    path.join(HERE, "skill", SKILL_NAME),
-    path.join(HERE, "..", "skill", SKILL_NAME),
-  ];
-  for (const c of candidates) {
-    if (existsSync(path.join(c, "SKILL.md"))) return c;
+const HOSTS = {
+  claude: {
+    label: "Claude Code",
+    mcp: (project) => ({ file: path.join(project, ".mcp.json"), format: "json", key: "mcpServers" }),
+    instructions: "skill",
+    detect: (project) => existsSync(path.join(HOME, ".claude")) || !!process.env.CLAUDE_CONFIG_DIR || existsSync(path.join(project, ".mcp.json")),
+  },
+  cursor: {
+    label: "Cursor",
+    mcp: () => ({ file: path.join(HOME, ".cursor", "mcp.json"), format: "json", key: "mcpServers" }),
+    instructions: "agents",
+    detect: () => existsSync(path.join(HOME, ".cursor")),
+  },
+  codex: {
+    label: "Codex",
+    mcp: () => ({ file: path.join(HOME, ".codex", "config.toml"), format: "toml" }),
+    instructions: "agents",
+    detect: () => existsSync(path.join(HOME, ".codex")),
+  },
+  windsurf: {
+    label: "Windsurf",
+    mcp: () => ({ file: path.join(HOME, ".codeium", "windsurf", "mcp_config.json"), format: "json", key: "mcpServers" }),
+    instructions: "agents",
+    detect: () => existsSync(path.join(HOME, ".codeium", "windsurf")),
+  },
+  vscode: {
+    label: "VS Code",
+    mcp: (project) => ({ file: path.join(project, ".vscode", "mcp.json"), format: "json", key: "servers" }),
+    instructions: "agents",
+    detect: (project) => existsSync(path.join(project, ".vscode")),
+  },
+  gemini: {
+    label: "Gemini CLI",
+    mcp: () => ({ file: path.join(HOME, ".gemini", "settings.json"), format: "json", key: "mcpServers" }),
+    instructions: "agents",
+    detect: () => existsSync(path.join(HOME, ".gemini")),
+  },
+};
+
+function selectHosts(project) {
+  const raw = arg("--host", null);
+  if (raw && raw.toLowerCase() !== "auto") {
+    const names = raw.toLowerCase() === "all" ? Object.keys(HOSTS) : raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const bad = names.filter((n) => !HOSTS[n]);
+    if (bad.length) {
+      console.error(`  ✗ unknown host(s): ${bad.join(", ")}. Known: ${Object.keys(HOSTS).join(", ")}`);
+      process.exit(1);
+    }
+    return [...new Set(names)];
   }
-  return null;
-}
-
-function skillsDir() {
-  const override = arg("--skills-dir", null);
-  if (override) return path.resolve(override);
-  const base = process.env.CLAUDE_CONFIG_DIR
-    ? path.resolve(process.env.CLAUDE_CONFIG_DIR)
-    : path.join(os.homedir(), ".claude");
-  return path.join(base, "skills");
+  const detected = Object.keys(HOSTS).filter((n) => HOSTS[n].detect(project));
+  return detected.length ? detected : ["claude"]; // back-compat default
 }
 
 // The command the agent's host will run to launch the MCP server.
 //   published (default):  npx -y font-lab mcp
 //   --local (dev/test):   node <abs>/cli/mcp.mjs
-function mcpServerEntry() {
-  if (has("--local")) {
-    return { command: "node", args: [path.join(HERE, "mcp.mjs")] };
-  }
+function mcpEntry() {
+  if (has("--local")) return { command: "node", args: [path.join(HERE, "mcp.mjs")] };
   return { command: "npx", args: ["-y", PKG_NAME, "mcp"] };
 }
 
@@ -80,65 +120,187 @@ function readJson(file) {
   }
 }
 
-// ---- install ---------------------------------------------------------------
+// ---- MCP config writers (one per format), idempotent + reversible ----------
+
+export function writeJsonMcp(file, key, entry, dry) {
+  const existing = existsSync(file) ? readJson(file) || {} : {};
+  const servers = existing[key] && typeof existing[key] === "object" ? existing[key] : {};
+  const changed = JSON.stringify(servers[MCP_KEY] || null) !== JSON.stringify(entry);
+  if (!dry && changed) {
+    const next = { ...existing, [key]: { ...servers, [MCP_KEY]: entry } };
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(next, null, 2) + "\n");
+  }
+  return changed;
+}
+
+export function removeJsonMcp(file, key, dry) {
+  if (!existsSync(file) || !statSync(file).isFile()) return false;
+  const json = readJson(file);
+  if (!json || !json[key] || !json[key][MCP_KEY]) return false;
+  if (!dry) {
+    delete json[key][MCP_KEY];
+    const otherKeys = Object.keys(json).filter((k) => k !== key);
+    const emptied = Object.keys(json[key]).length === 0 && otherKeys.length === 0;
+    if (emptied) rmSync(file, { force: true }); // we likely created the file; don't leave a bare shell
+    else writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+  }
+  return true;
+}
+
+function tomlBlock(entry) {
+  return `[mcp_servers.${MCP_KEY}]\ncommand = ${JSON.stringify(entry.command)}\nargs = ${JSON.stringify(entry.args)}\n`;
+}
+
+// Minimal TOML merge (line/section based, not a full parser): append our section if absent, strip
+// it on removal. We never rewrite the rest of the file, so other servers/settings are preserved.
+export function writeTomlMcp(file, entry, dry) {
+  const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (existing.includes(`[mcp_servers.${MCP_KEY}]`)) return false; // already present
+  if (!dry) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    const pad = existing ? (existing.endsWith("\n") ? "\n" : "\n\n") : "";
+    writeFileSync(file, existing + pad + tomlBlock(entry));
+  }
+  return true;
+}
+
+export function removeTomlMcp(file, dry) {
+  if (!existsSync(file)) return false;
+  const text = readFileSync(file, "utf8");
+  const re = new RegExp(`\\n*\\[mcp_servers\\.${escapeRe(MCP_KEY)}\\][\\s\\S]*?(?=\\n\\[|$)`);
+  if (!re.test(text)) return false;
+  if (!dry) {
+    const stripped = text.replace(re, "").replace(/^\n+/, "").replace(/\n{3,}/g, "\n\n");
+    if (stripped.trim() === "") rmSync(file, { force: true });
+    else writeFileSync(file, stripped);
+  }
+  return true;
+}
+
+// ---- instruction surfaces --------------------------------------------------
+
+// The SKILL source: bundled inside the package (cli/skill/font-lab, created by `prepack`) when
+// installed via npm, or the repo's top-level skill/font-lab when run from a git checkout.
+function resolveSkillSource() {
+  for (const c of [path.join(HERE, "skill", SKILL_NAME), path.join(HERE, "..", "skill", SKILL_NAME)]) {
+    if (existsSync(path.join(c, "SKILL.md"))) return c;
+  }
+  return null;
+}
+
+function skillsDir() {
+  const override = arg("--skills-dir", null);
+  if (override) return path.resolve(override);
+  const base = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(HOME, ".claude");
+  return path.join(base, "skills");
+}
+
+const AGENTS_START = "<!-- font-lab:start -->";
+const AGENTS_END = "<!-- font-lab:end -->";
+
+// The cross-agent analog of the skill: a concise, intake-first protocol block for hosts that read
+// AGENTS.md (Cursor, Codex, Windsurf, VS Code, Gemini, …). Kept short on purpose.
+export function agentsBlock() {
+  return [
+    AGENTS_START,
+    "## Font Lab — pick & ship fonts",
+    "",
+    "When the user wants to choose, change, compare, or improve the FONTS / typography of this Next.js + Tailwind app, drive the `font_lab_*` MCP tools in this order:",
+    "",
+    "1. **Start & intake** — `font_lab_start({ projectDir })` analyzes the project and returns a design brief. **Ask the human its framing questions first** (what feeling? how bold a departure? brand to evoke or avoid?) and wait for answers before proposing any fonts.",
+    "2. **Compose for their brief** — `font_lab_compose_directions(...)` with tailored directions (display + body + mono, each with a one-line rationale). Reach PAST the overexposed defaults (Inter, Geist, Space Grotesk, …). You're not limited to the catalog — any of ~1,500 Google fonts works; confirm uncertain faces with `font_lab_check_fonts`. (`font_lab_curate` is the no-brief fallback.)",
+    "3. **Let the human choose** — `font_lab_screenshot_directions` (works anywhere) or the live panel. **Never auto-pick** — the human always makes the taste decision.",
+    "4. **Ship** — `font_lab_apply` writes the exact next/font + Tailwind code, reversibly (`font_lab_undo`).",
+    "",
+    "Prefer `guaranteed` (WYSIWYG) faces; when only `best-effort` is possible, relay the fidelity warning honestly.",
+    AGENTS_END,
+  ].join("\n");
+}
+
+export function writeAgents(project, dry) {
+  const file = path.join(project, "AGENTS.md");
+  const block = agentsBlock();
+  const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const re = new RegExp(`${escapeRe(AGENTS_START)}[\\s\\S]*?${escapeRe(AGENTS_END)}`);
+  const next = re.test(existing) ? existing.replace(re, block) : (existing ? existing.replace(/\s*$/, "") + "\n\n" : "") + block + "\n";
+  const changed = next !== existing;
+  if (!dry && changed) writeFileSync(file, next);
+  return { file, changed };
+}
+
+export function removeAgents(project, dry) {
+  const file = path.join(project, "AGENTS.md");
+  if (!existsSync(file)) return false;
+  const existing = readFileSync(file, "utf8");
+  const re = new RegExp(`\\n*${escapeRe(AGENTS_START)}[\\s\\S]*?${escapeRe(AGENTS_END)}\\n*`, "g");
+  if (!re.test(existing)) return false;
+  if (!dry) {
+    const stripped = existing.replace(re, "\n").replace(/^\n+/, "").replace(/\n{3,}/g, "\n\n");
+    if (stripped.trim() === "") rmSync(file, { force: true });
+    else writeFileSync(file, stripped);
+  }
+  return true;
+}
+
+function writeMcpFor(host, project, entry, dry) {
+  const m = HOSTS[host].mcp(project);
+  const changed = m.format === "toml" ? writeTomlMcp(m.file, entry, dry) : writeJsonMcp(m.file, m.key, entry, dry);
+  return { file: m.file, changed };
+}
+
+// ---- install / uninstall ---------------------------------------------------
 
 export function runInstall() {
   const dry = has("--dry-run");
-  const doSkill = !has("--no-skill");
+  const doInstr = !has("--no-skill");
   const doMcp = !has("--no-mcp");
   const project = path.resolve(arg("--project", process.cwd()));
+  const hosts = selectHosts(project);
+  const entry = mcpEntry();
   const tag = dry ? " (dry-run, nothing written)" : "";
   const steps = [];
 
   console.log(`Font Lab — install${tag}`);
-
-  if (doSkill) {
-    const src = resolveSkillSource();
-    if (!src) {
-      console.error(
-        `  ✗ skill source not found (looked in cli/skill/${SKILL_NAME} and ../skill/${SKILL_NAME}).`,
-      );
-      console.error(`    If you're running from a git clone, run from the repo root; if from npm,`);
-      console.error(`    this is a packaging bug (the skill wasn't bundled).`);
-      process.exit(1);
-    }
-    const dest = path.join(skillsDir(), SKILL_NAME);
-    if (!dry) {
-      mkdirSync(path.dirname(dest), { recursive: true });
-      rmSync(dest, { recursive: true, force: true }); // clean copy so updates fully replace
-      cpSync(src, dest, { recursive: true });
-    }
-    steps.push(`skill   → ${dest}`);
-  }
+  console.log(`  hosts   ${hosts.map((h) => HOSTS[h].label).join(", ")}`);
 
   if (doMcp) {
-    const mcpFile = path.join(project, ".mcp.json");
-    const entry = mcpServerEntry();
-    const existing = existsSync(mcpFile) ? readJson(mcpFile) || {} : {};
-    const servers = existing.mcpServers && typeof existing.mcpServers === "object" ? existing.mcpServers : {};
-    const before = JSON.stringify(servers[MCP_KEY] || null);
-    const after = JSON.stringify(entry);
-    const changed = before !== after;
-    if (!dry && changed) {
-      const next = { ...existing, mcpServers: { ...servers, [MCP_KEY]: entry } };
-      writeFileSync(mcpFile, JSON.stringify(next, null, 2) + "\n");
+    for (const h of hosts) {
+      const { file, changed } = writeMcpFor(h, project, entry, dry);
+      steps.push(`mcp[${h}]  → ${tildify(file)}${changed ? "" : "  (already set)"}`);
     }
-    steps.push(
-      `mcp     → ${rel(mcpFile)}  ["${MCP_KEY}"] = ${entry.command} ${entry.args.join(" ")}` +
-        (changed ? "" : "  (already set)"),
-    );
+  }
+
+  if (doInstr) {
+    if (hosts.includes("claude")) {
+      const src = resolveSkillSource();
+      if (!src) {
+        console.error(`  ✗ skill source not found (looked in cli/skill/${SKILL_NAME} and ../skill/${SKILL_NAME}).`);
+        console.error(`    From a git clone, run from the repo root; from npm, this is a packaging bug.`);
+        process.exit(1);
+      }
+      const dest = path.join(skillsDir(), SKILL_NAME);
+      if (!dry) {
+        mkdirSync(path.dirname(dest), { recursive: true });
+        rmSync(dest, { recursive: true, force: true }); // clean copy so updates fully replace
+        cpSync(src, dest, { recursive: true });
+      }
+      steps.push(`skill   → ${tildify(dest)}`);
+    }
+    if (hosts.some((h) => HOSTS[h].instructions === "agents")) {
+      const { file, changed } = writeAgents(project, dry);
+      steps.push(`agents  → ${rel(file)}${changed ? "" : "  (already current)"}`);
+    }
   }
 
   for (const s of steps) console.log(`  ${s}`);
   console.log();
   if (doMcp) {
-    console.log(`  Note: a newly registered MCP server is picked up when the agent/session reloads`);
-    console.log(`        its config — restart the session (or reconnect MCP) if the tools aren't live yet.`);
+    console.log(`  Note: a newly registered MCP server is picked up when the agent/session reloads its`);
+    console.log(`        config — restart the session (or reconnect MCP) if the tools aren't live yet.`);
   }
   console.log(`  Then just ask: "use Font Lab to pick new fonts". Undo with \`font-lab uninstall\`.`);
 }
-
-// ---- uninstall -------------------------------------------------------------
 
 export function runUninstall() {
   const dry = has("--dry-run");
@@ -146,42 +308,36 @@ export function runUninstall() {
   const tag = dry ? " (dry-run, nothing written)" : "";
   console.log(`Font Lab — uninstall${tag}`);
 
-  // 1. remove the global skill
+  // MCP from every known host (so you don't have to remember which you installed)
+  let any = false;
+  for (const [h, def] of Object.entries(HOSTS)) {
+    const m = def.mcp(project);
+    const removed = m.format === "toml" ? removeTomlMcp(m.file, dry) : removeJsonMcp(m.file, m.key, dry);
+    if (removed) {
+      console.log(`  removed mcp[${h}]  ${tildify(m.file)}`);
+      any = true;
+    }
+  }
+
+  // the Claude skill
   const dest = path.join(skillsDir(), SKILL_NAME);
   if (existsSync(dest)) {
     if (!dry) rmSync(dest, { recursive: true, force: true });
-    console.log(`  removed skill   ${dest}`);
-  } else {
-    console.log(`  skill           not installed (${dest})`);
+    console.log(`  removed skill   ${tildify(dest)}`);
+    any = true;
   }
 
-  // 2. drop the MCP server entry (leave any others untouched)
-  const mcpFile = path.join(project, ".mcp.json");
-  if (existsSync(mcpFile) && statSync(mcpFile).isFile()) {
-    const json = readJson(mcpFile);
-    if (json && json.mcpServers && json.mcpServers[MCP_KEY]) {
-      if (!dry) {
-        delete json.mcpServers[MCP_KEY];
-        // If we left the file empty (no other servers and no other top-level keys), remove
-        // it — install likely created it, so a bare `{"mcpServers":{}}` shouldn't linger.
-        const otherKeys = Object.keys(json).filter((k) => k !== "mcpServers");
-        const emptied = Object.keys(json.mcpServers).length === 0 && otherKeys.length === 0;
-        if (emptied) rmSync(mcpFile, { force: true });
-        else writeFileSync(mcpFile, JSON.stringify(json, null, 2) + "\n");
-        console.log(`  removed mcp     ${rel(mcpFile)} ["${MCP_KEY}"]${emptied ? " (removed empty .mcp.json)" : ""}`);
-      } else {
-        console.log(`  removed mcp     ${rel(mcpFile)} ["${MCP_KEY}"]`);
-      }
-    } else {
-      console.log(`  mcp             entry not present in ${rel(mcpFile)}`);
-    }
-  } else {
-    console.log(`  mcp             no .mcp.json in ${rel(project)}`);
+  // the AGENTS.md block
+  if (removeAgents(project, dry)) {
+    console.log(`  removed agents  ${rel(path.join(project, "AGENTS.md"))}`);
+    any = true;
   }
+
+  if (!any) console.log(`  nothing to remove (Font Lab wasn't installed for any host here).`);
 }
 
-// Allow running directly as a bin (`font-lab-install`) in addition to the
-// `font-lab install` subcommand dispatched from font-lab.mjs.
+// Allow running directly as a bin (`font-lab-install`) in addition to the `font-lab install`
+// subcommand dispatched from font-lab.mjs.
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] || "")) {
   if (process.argv.includes("uninstall")) runUninstall();
   else runInstall();
