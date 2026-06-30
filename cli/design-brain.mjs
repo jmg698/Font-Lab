@@ -65,7 +65,7 @@ export const INTAKE_QUESTIONS = [
 // ── strategy scaffold: reason like a designer, names LAST ─────────────────────
 // A real designer doesn't start at "Inter" — they start at a strategy and arrive at names.
 export const STRATEGY_STEPS = [
-  "Read the project first: content type (marketing / editorial / product / portfolio / docs), the tone of the actual copy, and the existing colors and spacing. The type has to fit what's already there.",
+  "Read the project first — `font_lab_start` returns a `context` block with the existing color palette, any brand/design docs, and a sample of the real copy. Infer the content type (marketing / editorial / product / portfolio / docs) and voice from it. The type has to fit THAT — match or complement the palette, honor the brand, and suit the tone — not a generic default.",
   "Decide a typographic strategy BEFORE any font names: how many voices, contrast vs. harmony, and what the display face should DO (set the tone) versus the body (disappear into comfortable reading).",
   "Pick a pairing logic that serves the brief — e.g. a high-contrast serif display over a humanist sans body, or a characterful grotesque display over a warm neutral body. The logic justifies the choice.",
   "Only NOW choose families that fulfill the strategy — reaching past the overexposed defaults and drawing from the distinctive references and the wider universe.",
