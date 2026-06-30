@@ -17,6 +17,7 @@
 // network or node_modules. The catalog is the seed cache: a member is an instant "guaranteed".
 
 import { catalog } from "./catalog.mjs";
+import { foundryMatch, fontshareCssUrl, FONTSHARE_LICENSE } from "./foundry.mjs";
 
 const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
@@ -96,7 +97,7 @@ const safe = async (fn) => {
 export async function admit(family, deps = {}) {
   const {
     resolveGoogle = resolveGoogleDefault,
-    resolveFontshare = resolveFontshareDefault,
+    resolveFoundry = resolveFoundryDefault,
     deriveMetrics = deriveMetricsDefault,
     cache,
     allowBestEffort = true,
@@ -126,16 +127,16 @@ export async function admit(family, deps = {}) {
       license: "OFL/Apache (Google)", warnings, reason: null, roles: g.roles || null,
     };
   } else {
-    const f = await safe(() => resolveFontshare(family));
+    const f = await safe(() => resolveFoundry(family));
     if (f?.found) {
-      if (!licenseOk(f.license, "fontshare")) {
+      if (!licenseOk(f.license, "foundry")) {
         verdict = unavailable(f.family || family, `license doesn't permit self-hosting (${f.license || "unknown"})`);
       } else {
-        const dm = await safe(() => deriveMetrics({ source: "fontshare", woff2Url: f.woff2Url }));
+        const dm = await safe(() => deriveMetrics({ source: "foundry", cssUrl: f.cssUrl, woff2Url: f.woff2Url }));
         const { parity, warnings } = classifyParity({ variable: !!f.variable, hasMetrics: !!dm?.metrics });
         verdict = {
-          family: f.family || family, shippable: true, parity, source: "fontshare",
-          css2: null, woff2Url: f.woff2Url, capsize: null,
+          family: f.family || family, shippable: true, parity, source: "foundry",
+          css2: null, woff2Url: dm?.woff2Url || f.woff2Url || null, capsize: null,
           category: mapCategory(dm?.metrics?.category || f.category), variable: !!f.variable,
           license: f.license || null, warnings, reason: null, roles: f.roles || null,
         };
@@ -158,8 +159,8 @@ export const isShippable = (verdict) => !!verdict && verdict.parity !== "unavail
 
 // ── default resolvers (the impure network/metrics edge) ─────────────────────
 // Isolated so the gate logic above is testable without them. Verified by the deps+network
-// harness, not here. Endpoints: Google's keyless metadata catalog and css2; Fontshare's v2 API;
-// capsize metric extraction via @capsizecss/unpack.
+// harness, not here. Endpoints: Google's keyless metadata catalog + css2; Fontshare's CSS API
+// (driven by the curated foundry registry); capsize metric extraction via @capsizecss/unpack.
 
 let _googleList = null;
 async function googleMetadata() {
@@ -183,8 +184,9 @@ export async function resolveGoogleDefault(family) {
   return { found: true, family: hit.family, css2, variable, category: hit.category || null };
 }
 
-async function googleWoff2Url(css2) {
-  const res = await fetch(`https://fonts.googleapis.com/css2?family=${css2}&display=swap`, { headers: { "User-Agent": UA } });
+// Fetch a CSS-API stylesheet (Google css2 or Fontshare) and parse the first latin woff2 src.
+async function woff2FromCss(url) {
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
   const css = await res.text();
   const m =
     css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/) ||
@@ -192,8 +194,10 @@ async function googleWoff2Url(css2) {
   return m ? m[1] : null;
 }
 
-export async function deriveMetricsDefault({ source, css2, woff2Url }) {
-  let url = woff2Url || (css2 ? await googleWoff2Url(css2) : null);
+export async function deriveMetricsDefault({ source, css2, cssUrl, woff2Url }) {
+  let url = woff2Url;
+  if (!url && css2) url = await woff2FromCss(`https://fonts.googleapis.com/css2?family=${css2}&display=swap`);
+  if (!url && cssUrl) url = await woff2FromCss(cssUrl); // foundry (Fontshare CSS API)
   if (!url) return { metrics: null, woff2Url: null };
   try {
     const { fromUrl } = await import("@capsizecss/unpack");
@@ -204,31 +208,14 @@ export async function deriveMetricsDefault({ source, css2, woff2Url }) {
   }
 }
 
-let _fontshareList = null;
-async function fontshareList() {
-  if (_fontshareList) return _fontshareList;
-  const res = await fetch("https://api.fontshare.com/v2/fonts?limit=200");
-  const json = await res.json();
-  _fontshareList = json.fonts || (Array.isArray(json) ? json : []);
-  return _fontshareList;
-}
-
-function pickWoff2(styles = []) {
-  const variable = styles.find((s) => /variable/i.test(s.name || "") && (s.url || s.file?.url));
-  const any = styles.find((s) => s.url || s.file?.url);
-  const chosen = variable || any;
-  return chosen ? { url: chosen.url || chosen.file?.url, variable: !!variable } : null;
-}
-
-export async function resolveFontshareDefault(family) {
-  const list = await fontshareList();
-  const hit = list.find((f) => normalize(f.name || f.family) === normalize(family));
+// Open-foundry resolver — looks up our curated Fontshare registry (no fragile live font-list API)
+// and hands back the CSS-API URL the metrics step resolves into a self-hostable woff2.
+export async function resolveFoundryDefault(family) {
+  const hit = foundryMatch(family);
   if (!hit) return { found: false };
-  const file = pickWoff2(hit.styles || hit.fonts || []);
-  if (!file) return { found: false };
   return {
-    found: true, family: hit.name || hit.family, woff2Url: file.url,
-    variable: !!hit.is_variable || file.variable, category: hit.category || null,
-    license: hit.license || "Free for commercial use (Fontshare)",
+    found: true, family: hit.family, slug: hit.slug, variable: !!hit.variable,
+    category: hit.category, roles: hit.roles, license: FONTSHARE_LICENSE,
+    cssUrl: fontshareCssUrl(hit.slug, hit.variable),
   };
 }

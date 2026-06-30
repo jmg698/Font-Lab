@@ -24,9 +24,10 @@ in chat, on web or phone) or live (a flip/mix/compare panel on your real site).
   AI-default faces (Inter, Geist, Space Grotesk, …) toward distinctive, designed type — and the
   menu is *rejected* if it's all generic.
 - **It's not limited to a 41-font catalog.** A **dynamic shippability gate** admits any of ~1,500
-  Google fonts on demand (open-foundry support coming), verifying each can ship with
-  **preview == ship** — or flagging an honest "may render slightly differently" when it can't.
-  The catalog is a floor, not a ceiling.
+  Google fonts on demand — plus a curated bench of distinctive **open-foundry** faces (Cabinet
+  Grotesk, General Sans, Clash Display, …) — verifying each can ship with **preview == ship**, or
+  flagging an honest "may render slightly differently" when it can't. The catalog is a floor, not
+  a ceiling.
 
 > Published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) —
 > every release is cryptographically traceable to this repo and commit.
