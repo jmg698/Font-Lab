@@ -3,7 +3,7 @@
 //   node cli/admit-test.mjs
 import assert from "node:assert";
 import {
-  admit, classifyParity, licenseOk, catalogMatch, mapCategory, normalize, isShippable,
+  admit, classifyParity, licenseOk, catalogMatch, mapCategory, normalize, isShippable, parseWoff2Url,
 } from "./admit.mjs";
 
 let pass = 0;
@@ -29,6 +29,15 @@ ok(licenseOk("SIL Open Font License 1.1", "fontshare") && licenseOk("Free for co
   "permissive foundry licenses pass");
 ok(!licenseOk("Preview only — all rights reserved", "fontshare") && !licenseOk("", "fontshare"),
   "restrictive/unknown foundry licenses are refused");
+
+// ── the woff2-src parser across providers (the bug the mocks hid) ───────────
+ok(parseWoff2Url("/* latin */\n@font-face {font-family:'X';src:url(https://fonts.gstatic.com/s/x/v1/abc.woff2) format('woff2');}") === "https://fonts.gstatic.com/s/x/v1/abc.woff2",
+  "parses Google's unquoted https woff2 (latin subset)");
+ok(parseWoff2Url("/* Cabinet Grotesk */\n@font-face {\n  font-family: 'Cabinet Grotesk';\n  src: url('//cdn.fontshare.com/wf/7GWN.woff2') format('woff2');\n  font-weight: 400;\n}") === "https://cdn.fontshare.com/wf/7GWN.woff2",
+  "parses Fontshare's single-quoted, protocol-relative woff2 → normalized to https");
+ok(parseWoff2Url("@font-face { src: url(\"//cdn.fontshare.com/wf/AB.woff2\"); }") === "https://cdn.fontshare.com/wf/AB.woff2",
+  "handles double-quoted protocol-relative too");
+ok(parseWoff2Url("@font-face { src: local('x'); }") === null, "returns null when there's no woff2");
 
 // ── the gate, with injected fakes ───────────────────────────────────────────
 const noNet = { resolveGoogle: async () => ({ found: false }), resolveFoundry: async () => ({ found: false }) };

@@ -184,14 +184,21 @@ export async function resolveGoogleDefault(family) {
   return { found: true, family: hit.family, css2, variable, category: hit.category || null };
 }
 
-// Fetch a CSS-API stylesheet (Google css2 or Fontshare) and parse the first latin woff2 src.
+// Parse a woff2 src out of @font-face CSS. Providers differ: Google serves UNQUOTED https URLs;
+// Fontshare serves SINGLE-QUOTED, PROTOCOL-RELATIVE ones (url('//cdn.fontshare.com/...woff2')).
+// Match both, prefer the latin subset (Google), then normalize protocol-relative → https. Pure +
+// exported so the exact provider-format handling is unit-tested (admit-test) without a network.
+export function parseWoff2Url(css) {
+  const m =
+    css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\(\s*['"]?((?:https?:)?\/\/[^'")\s]+\.woff2)['"]?\s*\)/) ||
+    css.match(/url\(\s*['"]?((?:https?:)?\/\/[^'")\s]+\.woff2)['"]?\s*\)/);
+  if (!m) return null;
+  return m[1].startsWith("//") ? "https:" + m[1] : m[1];
+}
+
 async function woff2FromCss(url) {
   const res = await fetch(url, { headers: { "User-Agent": UA } });
-  const css = await res.text();
-  const m =
-    css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/) ||
-    css.match(/url\((https:[^)]+\.woff2)\)/);
-  return m ? m[1] : null;
+  return parseWoff2Url(await res.text());
 }
 
 export async function deriveMetricsDefault({ source, css2, cssUrl, woff2Url }) {
@@ -213,9 +220,13 @@ export async function deriveMetricsDefault({ source, css2, cssUrl, woff2Url }) {
 export async function resolveFoundryDefault(family) {
   const hit = foundryMatch(family);
   if (!hit) return { found: false };
+  // Fontshare's CSS API serves STATIC per-weight instances, not a single variable woff2 — so what
+  // we self-host is one weight, which classifies as best-effort (honest: other weights may render
+  // slightly differently). Reporting variable:false here is what makes that verdict truthful.
+  // (Upgrading to the true variable woff2 is a follow-up.)
   return {
-    found: true, family: hit.family, slug: hit.slug, variable: !!hit.variable,
+    found: true, family: hit.family, slug: hit.slug, variable: false,
     category: hit.category, roles: hit.roles, license: FONTSHARE_LICENSE,
-    cssUrl: fontshareCssUrl(hit.slug, hit.variable),
+    cssUrl: fontshareCssUrl(hit.slug),
   };
 }
