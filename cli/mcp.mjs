@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.8.0" };
+const SERVER = { name: "font-lab", version: "0.8.1" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
@@ -71,11 +71,12 @@ const TOOLS = [
   {
     name: "font_lab_compose_directions",
     description:
-      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, ~1,500 Google fonts, or a curated open-foundry face) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte).",
+      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Pass the user's stated direction as `brief` — if you omit it, the result is INFERRED rather than tailored, and you'll get a warning telling you to ask first. Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, ~1,500 Google fonts, or a curated open-foundry face) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte).",
     inputSchema: {
       type: "object",
       properties: {
         projectDir: { ...proj, description: "Optional: the project root, so admitted fonts are cached for the preview build." },
+        brief: { type: "string", description: "The user's stated direction from intake (what feeling / how bold / brand). Omitting it warns you to ask first." },
         force: { type: "boolean", description: "Override the anti-generic gate (use only when the user explicitly wants overexposed default fonts)." },
         directions: {
           type: "array",
@@ -95,7 +96,7 @@ const TOOLS = [
       },
       required: ["directions"],
     },
-    handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir, force: a.force }),
+    handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir, force: a.force, brief: a.brief }),
   },
   {
     name: "font_lab_init",
@@ -239,8 +240,15 @@ async function handle(msg) {
     if (method === "tools/call") {
       const tool = TOOLS.find((t) => t.name === params?.name);
       if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
+      const args = params.arguments || {};
+      // Enforce the schema's required args with a clear in-band message — otherwise a missing
+      // projectDir reaches the handler as `undefined` and crashes with a cryptic path error.
+      const missing = (tool.inputSchema?.required || []).filter((k) => args[k] === undefined || args[k] === null);
+      if (missing.length) {
+        return reply(id, { content: [{ type: "text", text: `Error: missing required argument(s) for ${tool.name}: ${missing.join(", ")}` }], isError: true });
+      }
       try {
-        const out = await tool.handler(params.arguments || {});
+        const out = await tool.handler(args);
         return reply(id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
       } catch (e) {
         // tool-level errors are reported in-band so the agent can react
