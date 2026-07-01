@@ -67,7 +67,8 @@
     "m3": "bash run-m3.sh",
     "m4": "bash run-m4.sh",
     "m5": "bash run-m5.sh",
-    "m6": "bash run-m6.sh"
+    "m6": "bash run-m6.sh",
+    "m7": "bash run-m7.sh"
   },
   "dependencies": {
     "@capsizecss/metrics": "^3.4.0",

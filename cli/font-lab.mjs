@@ -19,18 +19,33 @@ import path from "node:path";
 import { writeFileSync, appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 
 // ---- subcommand dispatch ---------------------------------------------------
-// Bare `font-lab` (no args) prints help — it must NOT silently boot a long-running server, which
-// an agent exploring the CLI would hang on. A leading flag (`--project …`) still means `serve`
-// for back-compat; an explicit word selects that subcommand.
+// CRITICAL: a metadata probe must NEVER boot the long-running server. Agents routinely run
+// `font-lab --version` / `-v` to sanity-check an install; the old dispatch treated ANY leading
+// flag as `serve`, so `--version` silently started the pick endpoint on :7777 and hung (or got
+// pkill'd). Only KNOWN serve flags mean serve; every other flag/unknown word prints help.
 const first = process.argv[2];
-const SUB = !first ? "help" : first.startsWith("-") ? "serve" : first;
+const isServeFlag = (a) => ["--project", "--port", "--apply", "-p"].includes(a);
+let SUB;
+if (!first || ["help", "--help", "-h"].includes(first)) SUB = "help";
+else if (["--version", "-v", "version"].includes(first)) SUB = "version";
+else if (["install", "uninstall", "mcp", "serve"].includes(first)) SUB = first;
+else if (isServeFlag(first)) SUB = "serve";
+else SUB = "help"; // unknown word or flag -> help; never surprise-boot the server
+
 if (SUB === "install" || SUB === "uninstall") {
   const { runInstall, runUninstall } = await import("./install.mjs");
   if (SUB === "install") runInstall();
   else runUninstall();
 } else if (SUB === "mcp") {
   await import("./mcp.mjs"); // self-runs the stdio server on import
-} else if (SUB === "help" || SUB === "--help" || SUB === "-h") {
+} else if (SUB === "version") {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+    console.log(pkg.version);
+  } catch {
+    console.log("unknown");
+  }
+} else if (SUB === "help") {
   console.log(
     [
       "Font Lab",
@@ -38,6 +53,7 @@ if (SUB === "install" || SUB === "uninstall") {
       "  font-lab uninstall [--project <dir>]",
       "  font-lab mcp                      run the MCP server (stdio)",
       "  font-lab serve [--project <dir>] [--port <n>] [--apply]   pick write-back endpoint",
+      "  font-lab --version                print the version and exit (never starts a server)",
     ].join("\n"),
   );
 } else {
@@ -69,7 +85,7 @@ function printPick(sel) {
   console.log(`\n  ✓ picked "${sel.direction?.name ?? "?"}" (${sel.direction?.vibe ?? "?"})`);
   console.log(`      display ${fam(r.display)}   body ${fam(r.body)}   mono ${fam(r.mono)}`);
   console.log(`      wrote ${path.relative(process.cwd(), SELECTION)}`);
-  console.log(`      → next milestone (M4) turns this into next/font + Tailwind edits.\n`);
+  console.log(`      → run \`npx font-lab-apply\` to ship it (next/font on Next; self-hosted @font-face elsewhere).\n`);
 }
 
 const server = http.createServer((req, res) => {
@@ -102,8 +118,8 @@ const server = http.createServer((req, res) => {
         printPick(sel);
         if (AUTO_APPLY) {
           import("./codegen.mjs")
-            .then(({ applySelection }) => {
-              const r = applySelection(PROJECT);
+            .then(async ({ applySelection }) => {
+              const r = await applySelection(PROJECT);
               console.log(`  → applied to project: ${r.edited.join(", ")} (\`font-lab undo\` to revert)\n`);
             })
             .catch((e) => console.error(`  apply failed: ${e.message}\n`));

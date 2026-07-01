@@ -49,16 +49,17 @@ try {
   // ---- Phase 1: apply + structural correctness --------------------------------
   reset();
   writeSelection();
-  applySelection(APP);
+  await applySelection(APP);
   const layout = read(FILES.layout);
   const css = read(FILES.css);
 
   assert("imports Fraunces", /import\s*\{[^}]*\bFraunces\b/.test(layout));
   assert("imports Libre_Franklin", /\bLibre_Franklin\b/.test(layout));
   assert("imports JetBrains_Mono", /\bJetBrains_Mono\b/.test(layout));
-  assert("declares fontLabDisplay on --font-display", /const fontLabDisplay = Fraunces\([^)]*--font-display/.test(layout));
-  assert("declares fontLabBody on --font-sans", /const fontLabBody = Libre_Franklin\([^)]*--font-sans/.test(layout));
-  assert("declares fontLabMono on --font-mono", /const fontLabMono = JetBrains_Mono\([^)]*--font-mono/.test(layout));
+  // Consts carry a DISTINCT family-named var; the role token maps to it in @theme (line below).
+  assert("declares fontLabDisplay on --font-fraunces", /const fontLabDisplay = Fraunces\([^)]*--font-fraunces/.test(layout));
+  assert("declares fontLabBody on --font-libre-franklin", /const fontLabBody = Libre_Franklin\([^)]*--font-libre-franklin/.test(layout));
+  assert("declares fontLabMono on --font-jetbrains-mono", /const fontLabMono = JetBrains_Mono\([^)]*--font-jetbrains-mono/.test(layout));
   assert("removed the replaced Inter import", !/\bInter\b/.test(layout), "Inter still present");
   assert("removed the old `const inter`", !/const inter =/.test(layout));
   assert("html className has all 3 role variables", ["fontLabDisplay", "fontLabBody", "fontLabMono"].every((c) => layout.includes(`${c}.variable`)));
@@ -66,7 +67,7 @@ try {
   assert("css has fenced @theme block", /\/\* font-lab:start \*\/[\s\S]*--font-display[\s\S]*\/\* font-lab:end \*\//.test(css));
 
   // ---- Phase 2: idempotency ---------------------------------------------------
-  applySelection(APP);
+  await applySelection(APP);
   assert("layout.tsx unchanged on re-apply (idempotent)", read(FILES.layout) === layout);
   assert("globals.css unchanged on re-apply (idempotent)", read(FILES.css) === css);
 
@@ -113,7 +114,7 @@ try {
   // ---- Phase 4: reversibility (single apply -> undo == original) --------------
   reset();
   writeSelection();
-  applySelection(APP);
+  await applySelection(APP);
   undo(APP);
   assert("undo restores layout.tsx byte-identical", read(FILES.layout) === originals.layout);
   assert("undo restores globals.css byte-identical", read(FILES.css) === originals.css);

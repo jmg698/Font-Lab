@@ -46,27 +46,29 @@ function overrides(main, fallback) {
 }
 
 /**
- * Build the parity catalog for `directions` into `projectDir`.
- * @param projectDir  absolute path to the Next.js project (panel lives at app/_fontlab/)
- * @param directions  the directions to render (each role family MUST be a catalog member)
- * @param meta        { target, replaces } baked into the generated module (from the analyzer)
- * @param opts        { log?: (msg)=>void, fetch?: boolean }  fetch:false skips network (test)
- * @returns { fonts, directions, outPath }
+ * Self-host each family's variable woff2 + compute next/font's exact adjusted fallback, and
+ * return the ready-to-inject CSS. This is the FRAMEWORK-AGNOSTIC core — plain `@font-face` +
+ * font-family stacks keyed on nothing next/font-specific. Both the Next panel (via
+ * generateCatalog) and the css-entry ship path (codegen) build on it.
+ *
+ * @param projectDir absolute path; woff2 are written under `<staticDir>/fontlab/`
+ * @param families   family names (each a catalog member or an admitted spec via opts.specFor)
+ * @param opts       { log?, fetch?, specFor?, staticDir? }  fetch:false skips network (tests);
+ *                   staticDir defaults to "public" (SvelteKit passes "static")
+ * @returns { faceCss: string[], stacks: Record<family,string>, fonts: string[] }
  */
-export async function generateCatalog(projectDir, directions, meta = {}, opts = {}) {
+export async function buildParityBundles(projectDir, families, opts = {}) {
   const log = opts.log || (() => {});
-  const APP = projectDir.replace(/\/?$/, "/");
-  const PUBLIC = APP + "public/fontlab/";
+  const staticDir = opts.staticDir || "public";
+  const PUBLIC = path.join(projectDir, staticDir, "fontlab") + path.sep;
   mkdirSync(PUBLIC, { recursive: true });
 
   const arial = await metricsFor("arial");
   const timesNewRoman = await metricsFor("timesNewRoman");
+  const specFor = opts.specFor || catalogGet;
 
   const faceCss = [];
   const stacks = {};
-  const families = fontsForDirections(directions);
-
-  const specFor = opts.specFor || catalogGet;
   for (const family of families) {
     const spec = specFor(family); // catalog member (proven path) OR an admitted non-catalog spec
 
@@ -98,6 +100,21 @@ export async function generateCatalog(projectDir, directions, meta = {}, opts = 
     stacks[family] = `'FL ${family}', 'FL ${family} Fallback', ${generic(main.category)}`;
     log(`  ${family.padEnd(20)} -> ${slug(family)}.woff2  (fallback ${fbName}, size-adjust ${o.sizeAdjust})`);
   }
+  return { faceCss, stacks, fonts: families };
+}
+
+/**
+ * Build the parity catalog for `directions` into `projectDir` (the Next dev-panel module).
+ * @param projectDir  absolute path to the Next.js project (panel lives at app/_fontlab/)
+ * @param directions  the directions to render (each role family MUST be a catalog member)
+ * @param meta        { target, replaces } baked into the generated module (from the analyzer)
+ * @param opts        { log?: (msg)=>void, fetch?: boolean }  fetch:false skips network (test)
+ * @returns { fonts, directions, outPath }
+ */
+export async function generateCatalog(projectDir, directions, meta = {}, opts = {}) {
+  const APP = projectDir.replace(/\/?$/, "/");
+  const families = fontsForDirections(directions);
+  const { faceCss, stacks } = await buildParityBundles(projectDir, families, opts);
 
   const outDirections = directions.map((d) => ({
     id: d.id,

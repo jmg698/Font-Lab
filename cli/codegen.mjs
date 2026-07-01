@@ -24,6 +24,9 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { analyzeProject } from "./analyzer.mjs";
+import { inCatalog, get as catalogGet } from "./catalog.mjs";
+import { normalize as normFamily } from "./admit.mjs";
+import { buildParityBundles } from "./catalog-build.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
 const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
@@ -308,7 +311,16 @@ function planRoles(selection, analysis) {
   return ["display", "body", "mono"].map((role) => {
     const family = selection.roles[role].family;
     const existing = analysis.roles[role];
-    const adopt = existing && existing.nextFontVar && !ROLE_VAR_SET.has(existing.nextFontVar);
+    // Adopt the project's OWN variable-named const — but never our own generated one. On a
+    // re-apply the analyzer re-reads Font Lab's `fontLab*` const (which sits on a family-named
+    // var like `--font-fraunces`); treating that as "the project's wiring" would flip the role
+    // to adopt and make setFencedConsts strip its own block. The `fontLab` guard keeps re-apply
+    // byte-idempotent.
+    const adopt =
+      existing &&
+      existing.nextFontVar &&
+      !ROLE_VAR_SET.has(existing.nextFontVar) &&
+      !existing.constName?.startsWith("fontLab");
     return adopt
       ? {
           role,
@@ -330,17 +342,137 @@ function planRoles(selection, analysis) {
   });
 }
 
-export function applySelection(projectDir) {
+// ---- CSS-entry apply branch (framework-agnostic, no next/font) --------------
+// For ANY framework on Tailwind v4 whose fonts are CSS-wired. We self-host the parity woff2 +
+// adjusted-fallback @font-face (the SAME engine the Next panel uses), then write a fenced block
+// into the CSS entry that (a) declares the @font-face, (b) maps the Tailwind role tokens via
+// @theme, and (c) repoints the project's own leaf vars (`--fd`, …) so existing elements swap
+// too. Old Google `@import`s are dropped. Reversible via backup; idempotent via the fence.
+
+// Resolve a family to a generateCatalog spec using catalog members + the project's admitted
+// cache — mirrors engine.mergedSpecFor so a picked non-catalog (but admitted) font still ships.
+function specForProject(projectDir) {
+  let admitted = {};
+  try {
+    admitted = JSON.parse(readFileSync(path.join(projectDir, ".font-lab", "admitted.json"), "utf8"));
+  } catch {}
+  return (family) => {
+    if (inCatalog(family)) return catalogGet(family);
+    const v = admitted[normFamily(family)];
+    if (v && (v.css2 || v.woff2Url)) return { css2: v.css2 || null, capsize: v.capsize || null, woff2Url: v.woff2Url || null, category: v.category || null };
+    throw new Error(`"${family}" isn't a catalog member and hasn't been admitted — run check_fonts/compose first`);
+  };
+}
+
+// Pure CSS transform (exported for testing). Drops Google Font @imports and inserts/updates the
+// fenced block: @font-face bundles + an @theme role map + a :root repoint of detected leaf vars.
+export function composeCssEntry(css, { faceCss, roleStacks, leafVars }) {
+  const themeLines = Object.entries(roleStacks).filter(([, s]) => s).map(([tok, s]) => `  ${tok}: ${s};`);
+  const rootLines = Object.entries(leafVars).map(([v, s]) => `  ${v}: ${s};`);
+  const parts = ["/* font-lab:start */", ...faceCss];
+  if (themeLines.length) parts.push("@theme {", ...themeLines, "}");
+  if (rootLines.length) parts.push(":root {", ...rootLines, "}");
+  parts.push("/* font-lab:end */");
+  const block = parts.join("\n");
+  // Our self-hosted faces replace any Google Fonts @import (byte parity + zero runtime network).
+  const base = css.replace(/^[ \t]*@import\s+(?:url\(\s*)?["']?https?:\/\/fonts\.(?:googleapis|gstatic)\.com[^\n]*\n?/gim, "");
+  if (FONTLAB_BLOCK.test(base)) return base.replace(FONTLAB_BLOCK, block); // idempotent update-in-place
+  const at = cssInsertIndex(base);
+  const head = base.slice(0, at).replace(/\s*$/, "");
+  const tail = base.slice(at).replace(/^\s*/, "");
+  return [head, block, tail].filter(Boolean).join("\n\n") + "\n";
+}
+
+async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}) {
+  const roleFamily = {};
+  for (const role of ["display", "body", "mono"]) {
+    const fam = selection.roles?.[role]?.family;
+    if (!fam) throw new Error(`css-entry apply: selection is missing the ${role} family`);
+    roleFamily[role] = fam;
+  }
+  const families = [...new Set(Object.values(roleFamily))];
+
+  const { dir: backupDir, runId } = backup(projectDir, [cssPath]);
+  try {
+    const { faceCss, stacks } = await buildParityBundles(projectDir, families, {
+      fetch: opts.fetch,
+      staticDir: analysis.staticDir,
+      specFor: specForProject(projectDir),
+      log: opts.log,
+    });
+
+    const roleStacks = {};
+    const leafVars = {};
+    const repointed = [];
+    for (const role of ["display", "body", "mono"]) {
+      const stack = stacks[roleFamily[role]];
+      roleStacks[ROLE_VARS[role]] = stack; // Tailwind utility path (font-display/sans/mono)
+      const leaf = analysis.roles?.[role]?.leafVar;
+      if (leaf && !ROLE_VAR_SET.has(leaf) && !(leaf in leafVars)) {
+        leafVars[leaf] = stack; // repoint the project's own var so existing elements swap too
+        repointed.push(leaf);
+      }
+    }
+
+    const before = readFileSync(cssPath, "utf8");
+    const after = composeCssEntry(before, { faceCss, roleStacks, leafVars });
+    if (after !== before) writeFileSync(cssPath, after);
+
+    const out = readFileSync(cssPath, "utf8");
+    if (!FONTLAB_BLOCK.test(out)) throw new Error("verify: fenced font-lab block not present after write");
+
+    const manifestPath = path.join(backupDir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    for (const f of manifest.files) f.appliedSha256 = sha(readFileSync(path.join(projectDir, f.path)));
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+    return {
+      runId,
+      mode: "css-entry",
+      direction: selection.direction,
+      roles: ["display", "body", "mono"].map((r) => ({ role: r, family: roleFamily[r], mode: "css-entry" })),
+      edited: [path.relative(projectDir, cssPath)],
+      selfHosted: { dir: `${analysis.staticDir}/fontlab`, fonts: families },
+      repointed,
+      backupDir: path.relative(projectDir, backupDir),
+      parity: opts.fetch === false ? "structural (fetch skipped)" : "guaranteed (self-hosted woff2 + capsize fallback)",
+    };
+  } catch (e) {
+    restore(projectDir, backupDir);
+    throw new Error(`css-entry apply aborted (${e.message}); restored from backup`);
+  }
+}
+
+export async function applySelection(projectDir, opts = {}) {
   const selPath = path.join(projectDir, ".font-lab", "selection.json");
   if (!existsSync(selPath)) throw new Error(`no selection at ${selPath} — pick one first`);
   const selection = JSON.parse(readFileSync(selPath, "utf8"));
 
-  // M3: the analyzer picks the branch; codegen refuses anything it can't ship cleanly.
+  // The analyzer picks the branch; codegen never re-guesses.
   const analysis = analyzeProject(projectDir);
-  if (!analysis.supported)
+
+  // Framework-agnostic CSS-entry branch (TanStack/Vite/Astro/… on Tailwind v4, no next/font).
+  if (analysis.applyMode === "css-entry") {
+    const cssPath = analysis.cssFile ? path.join(projectDir, analysis.cssFile) : null;
+    if (!cssPath || !existsSync(cssPath)) throw new Error("css-entry apply: no CSS entry resolved");
+    return applyCssEntry(projectDir, selection, analysis, cssPath, opts);
+  }
+
+  if (analysis.applyMode !== "next-font")
     throw new Error(`project not supported by codegen yet: ${analysis.reasons.join("; ")}`);
 
-  const { layout, css } = resolveTargets(projectDir);
+  // next/font branch — Next App Router. Use the exact files the analyzer resolved (route-group
+  // root layouts and non-standard CSS entry names live outside resolveTargets' conventional list).
+  const layout = analysis.declarationFile ? path.join(projectDir, analysis.declarationFile) : null;
+  const css = analysis.cssFile ? path.join(projectDir, analysis.cssFile) : null;
+  if (!layout || !css || !existsSync(layout) || !existsSync(css)) {
+    const t = resolveTargets(projectDir);
+    return applyResolved(projectDir, selection, analysis, t.layout, t.css);
+  }
+  return applyResolved(projectDir, selection, analysis, layout, css);
+}
+
+function applyResolved(projectDir, selection, analysis, layout, css) {
   const classTarget = analysis.classNameTarget || "html";
   const roles = planRoles(selection, analysis);
 
