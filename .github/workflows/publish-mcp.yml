@@ -1,0 +1,41 @@
+name: Publish to MCP Registry
+
+# Publishes cli/server.json to the official MCP Registry (registry.modelcontextprotocol.io).
+# This is SEPARATE from npm: the registry is a catalog that points at the npm package, so the
+# npm package (font-lab, with `mcpName` in its package.json) must already be published at the
+# version in server.json before this runs.
+#
+# Auth is GitHub OIDC — NO secret. The short-lived id-token proves this workflow runs in
+# jmg698/Font-Lab, which grants the `io.github.jmg698/*` namespace the server name lives under.
+#
+# Trigger it two ways:
+#   • Actions tab -> "Publish to MCP Registry" -> Run workflow  (publishes the current server.json)
+#   • Automatically whenever a GitHub Release is published (after npm publish runs)
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write # REQUIRED for MCP Registry OIDC auth
+  contents: read
+
+jobs:
+  publish-mcp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli # server.json lives here
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
