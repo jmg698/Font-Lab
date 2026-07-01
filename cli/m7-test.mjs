@@ -160,27 +160,68 @@ try {
   assert("fresh: adds @font-face + @theme role map", /@font-face\{font-family:'FL Archivo';/.test(fout) && /--font-display: 'FL Archivo'/.test(fout));
 
   // =================================================================== //
-  //  5 — Degraded (honest): Vite + PLAIN CSS (no Tailwind)               //
-  //      → still names current fonts; refuses auto-apply with a manifest //
+  //  5a — Tier A: Vite + PLAIN CSS (no Tailwind) but VAR-WIRED → SHIPS   //
+  //       via self-hosted @font-face + repointing the project's own vars //
   // =================================================================== //
-  const plain = scaffold("plain", {
+  const varwired = scaffold("varwired", {
     "package.json": PKG({ vite: "^6", react: "^19" }),
-    "src/styles.css": `@import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');\n:root { --font-display: 'Poppins', sans-serif; }`,
+    "src/styles.css": `@import url('https://fonts.googleapis.com/css2?family=Poppins&family=JetBrains+Mono&display=swap');
+:root {
+  --font-display: 'Poppins', sans-serif;
+  --font-body: 'Poppins', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+body { font-family: var(--font-body); }
+h1, h2 { font-family: var(--font-display); }
+code { font-family: var(--font-mono); }`,
   });
-  const ap = analyzeProject(plain);
-  assert("plain: detects framework vite", ap.framework === "vite", ap.framework);
-  assert("plain: still names the current font (Poppins) for the brief", ap.currentFamilies.includes("Poppins"), JSON.stringify(ap.currentFamilies));
-  assert("plain: applyMode null (no Tailwind v4)", ap.applyMode === null, String(ap.applyMode));
-  assert("plain: capability manifest flags manualApply", ap.capabilities.manualApply === true && ap.capabilities.composeDirections === true);
-  assert("plain: applyTarget still points at the CSS entry", ap.capabilities.applyTarget === "src/styles.css", String(ap.capabilities.applyTarget));
-  pick(plain);
+  const aw = analyzeProject(varwired);
+  assert("varwired: framework vite, no Tailwind", aw.framework === "vite" && aw.tailwindVersion === null, `${aw.framework}/${aw.tailwindVersion}`);
+  assert("varwired: names current fonts via CSS vars (Poppins)", aw.replaces.display === "Poppins" && aw.replaces.body === "Poppins", `${aw.replaces.display}/${aw.replaces.body}`);
+  assert("varwired: applyMode css-entry via css-var (Tier A)", aw.applyMode === "css-entry" && aw.cssEntryVia === "css-var", `${aw.applyMode}/${aw.cssEntryVia}`);
+  assert("varwired: shipNote mentions repointing font vars (no Tailwind)", /repointing the project's own font var/.test(aw.shipNote), aw.shipNote);
+  pick(varwired);
+  const rw = await applySelection(varwired, { fetch: false });
+  const wout = readFileSync(varwired + "/src/styles.css", "utf8");
+  assert("varwired: apply via css-var", rw.via === "css-var", rw.via);
+  assert("varwired: self-hosts @font-face", /@font-face\{font-family:'FL Archivo';/.test(wout));
+  assert("varwired: repoints all three project vars", ["--font-display", "--font-body", "--font-mono"].every((v) => rw.repointed.includes(v)), JSON.stringify(rw.repointed));
+  assert("varwired: sets --font-body to the FL stack", /--font-body: 'FL Hanken Grotesk'/.test(wout));
+  assert("varwired: writes NO @theme block (non-Tailwind)", !/@theme/.test(wout));
+  assert("varwired: drops the Google @import", !/fonts\.googleapis\.com/.test(wout));
+  await applySelection(varwired, { fetch: false });
+  assert("varwired: idempotent re-apply", wout === readFileSync(varwired + "/src/styles.css", "utf8"));
+
+  // reversibility on a fresh copy
+  const VW_SRC = `:root { --font-body: 'Poppins', sans-serif; }\nbody { font-family: var(--font-body); }`;
+  const varRev2 = scaffold("varwired-rev2", { "package.json": PKG({ vite: "^6" }), "src/styles.css": VW_SRC });
+  const vbefore = readFileSync(varRev2 + "/src/styles.css", "utf8");
+  pick(varRev2);
+  await applySelection(varRev2, { fetch: false });
+  undo(varRev2);
+  assert("varwired: undo restores byte-identical", readFileSync(varRev2 + "/src/styles.css", "utf8") === vbefore);
+
+  // =================================================================== //
+  //  5b — Degraded (honest): HARDCODED font-family, no var → refuses     //
+  //       (Tier B territory) — still names current fonts for the brief   //
+  // =================================================================== //
+  const hard = scaffold("hardcoded-plain", {
+    "package.json": PKG({ vite: "^6", react: "^19" }),
+    "src/styles.css": `@import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');\nbody { font-family: 'Poppins', sans-serif; }\nh1 { font-family: 'Poppins', sans-serif; }`,
+  });
+  const ah = analyzeProject(hard);
+  assert("hardcoded: framework vite", ah.framework === "vite", ah.framework);
+  assert("hardcoded: still names the current font (Poppins) for the brief", ah.currentFamilies.includes("Poppins"), JSON.stringify(ah.currentFamilies));
+  assert("hardcoded: applyMode null (no var seam, no Tailwind)", ah.applyMode === null, String(ah.applyMode));
+  assert("hardcoded: capability manifest flags manualApply + a target", ah.capabilities.manualApply === true && ah.capabilities.applyTarget === "src/styles.css");
+  pick(hard);
   let refusedMsg = "";
   try {
-    await applySelection(plain, { fetch: false });
+    await applySelection(hard, { fetch: false });
   } catch (e) {
     refusedMsg = e.message;
   }
-  assert("plain: apply refuses cleanly (degraded → hand-apply)", /not supported/i.test(refusedMsg), refusedMsg);
+  assert("hardcoded: apply refuses cleanly (degraded → hand-apply)", /not supported/i.test(refusedMsg), refusedMsg);
 
   // =================================================================== //
   //  6 — CLI hardening: `--version` must NOT boot the server            //

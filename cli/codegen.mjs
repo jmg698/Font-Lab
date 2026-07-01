@@ -377,10 +377,10 @@ export function composeCssEntry(css, { faceCss, roleStacks, leafVars }) {
   // Our self-hosted faces replace any Google Fonts @import (byte parity + zero runtime network).
   const base = css.replace(/^[ \t]*@import\s+(?:url\(\s*)?["']?https?:\/\/fonts\.(?:googleapis|gstatic)\.com[^\n]*\n?/gim, "");
   if (FONTLAB_BLOCK.test(base)) return base.replace(FONTLAB_BLOCK, block); // idempotent update-in-place
-  const at = cssInsertIndex(base);
-  const head = base.slice(0, at).replace(/\s*$/, "");
-  const tail = base.slice(at).replace(/^\s*/, "");
-  return [head, block, tail].filter(Boolean).join("\n\n") + "\n";
+  // Append at the END: our @theme must win Tailwind v4's last-declaration merge, and our :root
+  // repoint must override the project's own `--font-*: '…'` earlier in the file (same specificity,
+  // source order wins). @import rules stay at the top (we only added @font-face/@theme/:root).
+  return base.replace(/\s*$/, "") + "\n\n" + block + "\n";
 }
 
 async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}) {
@@ -401,16 +401,32 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
       log: opts.log,
     });
 
+    // Tailwind v4 routes fonts through @theme utilities; a non-Tailwind (but var-wired) project
+    // routes them through its own CSS var — so we pick the seam the project actually uses.
+    const useTheme = analysis.cssEntryVia === "tailwind";
     const roleStacks = {};
     const leafVars = {};
     const repointed = [];
+    const unrouted = [];
     for (const role of ["display", "body", "mono"]) {
       const stack = stacks[roleFamily[role]];
-      roleStacks[ROLE_VARS[role]] = stack; // Tailwind utility path (font-display/sans/mono)
       const leaf = analysis.roles?.[role]?.leafVar;
-      if (leaf && !ROLE_VAR_SET.has(leaf) && !(leaf in leafVars)) {
-        leafVars[leaf] = stack; // repoint the project's own var so existing elements swap too
-        repointed.push(leaf);
+      if (useTheme) {
+        roleStacks[ROLE_VARS[role]] = stack; // Tailwind font-display/sans/mono utility path
+        // Also repoint a NON-standard project var (e.g. --fd) so var-referencing elements swap too.
+        if (leaf && !ROLE_VAR_SET.has(leaf) && !(leaf in leafVars)) {
+          leafVars[leaf] = stack;
+          repointed.push(leaf);
+        }
+      } else {
+        // No Tailwind: the project's own var IS the only seam — repoint whatever it reads, even a
+        // role-token-named one (there's no @theme here to cover it).
+        if (leaf && !(leaf in leafVars)) {
+          leafVars[leaf] = stack;
+          repointed.push(leaf);
+        } else if (!leaf) {
+          unrouted.push(role); // no var found for this role on a non-Tailwind project — can't route it
+        }
       }
     }
 
@@ -429,11 +445,13 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
     return {
       runId,
       mode: "css-entry",
+      via: useTheme ? "tailwind-theme" : "css-var",
       direction: selection.direction,
       roles: ["display", "body", "mono"].map((r) => ({ role: r, family: roleFamily[r], mode: "css-entry" })),
       edited: [path.relative(projectDir, cssPath)],
       selfHosted: { dir: `${analysis.staticDir}/fontlab`, fonts: families },
       repointed,
+      unrouted,
       backupDir: path.relative(projectDir, backupDir),
       parity: opts.fetch === false ? "structural (fetch skipped)" : "guaranteed (self-hosted woff2 + capsize fallback)",
     };
