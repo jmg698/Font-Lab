@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+:root {
+  --fd: 'Archivo Black', sans-serif;
+  --fb: 'Space Grotesk', system-ui, sans-serif;
+  --fm: 'JetBrains Mono', monospace;
+}
+@theme inline {
+  --font-display: var(--fd);
+  --font-sans: var(--fb);
+  --font-mono: var(--fm);
+}
+
+/* font-lab:start */
+@font-face{font-family:'FL Archivo';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/archivo.woff2') format('woff2');}
+@font-face{font-family:'FL Archivo Fallback';src:local('Arial');size-adjust:98.70%;ascent-override:88.96%;descent-override:21.28%;line-gap-override:0.00%;}
+@font-face{font-family:'FL Hanken Grotesk';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/hanken-grotesk.woff2') format('woff2');}
+@font-face{font-family:'FL Hanken Grotesk Fallback';src:local('Arial');size-adjust:100.94%;ascent-override:99.07%;descent-override:30.02%;line-gap-override:0.00%;}
+@font-face{font-family:'FL Spline Sans Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/spline-sans-mono.woff2') format('woff2');}
+@font-face{font-family:'FL Spline Sans Mono Fallback';src:local('Arial');size-adjust:134.59%;ascent-override:71.59%;descent-override:17.57%;line-gap-override:0.00%;}
+@theme {
+  --font-display: 'FL Archivo', 'FL Archivo Fallback', sans-serif;
+  --font-sans: 'FL Hanken Grotesk', 'FL Hanken Grotesk Fallback', sans-serif;
+  --font-mono: 'FL Spline Sans Mono', 'FL Spline Sans Mono Fallback', monospace;
+}
+:root {
+  --fd: 'FL Archivo', 'FL Archivo Fallback', sans-serif;
+  --fb: 'FL Hanken Grotesk', 'FL Hanken Grotesk Fallback', sans-serif;
+  --fm: 'FL Spline Sans Mono', 'FL Spline Sans Mono Fallback', monospace;
+}
+/* font-lab:end */

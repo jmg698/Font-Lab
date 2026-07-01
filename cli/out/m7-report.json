@@ -1,0 +1,180 @@
+{
+  "results": [
+    {
+      "name": "happ: detects framework tanstack-start",
+      "pass": true
+    },
+    {
+      "name": "happ: fontLoading import-url",
+      "pass": true
+    },
+    {
+      "name": "happ: names current display (Archivo Black)",
+      "pass": true
+    },
+    {
+      "name": "happ: names current body (Space Grotesk)",
+      "pass": true
+    },
+    {
+      "name": "happ: names current mono (JetBrains Mono)",
+      "pass": true
+    },
+    {
+      "name": "happ: currentFamilies has all three",
+      "pass": true
+    },
+    {
+      "name": "happ: traces role token to project leaf var --fd",
+      "pass": true
+    },
+    {
+      "name": "happ: NOT supported by the next-font gate",
+      "pass": true
+    },
+    {
+      "name": "happ: applyMode css-entry / shippable",
+      "pass": true
+    },
+    {
+      "name": "happ: capabilities autoApply, no livePanel",
+      "pass": true
+    },
+    {
+      "name": "happ: applyTarget is the CSS entry",
+      "pass": true
+    },
+    {
+      "name": "happ: apply reports mode css-entry",
+      "pass": true
+    },
+    {
+      "name": "happ: fenced block written",
+      "pass": true
+    },
+    {
+      "name": "happ: self-hosts @font-face for picked display (FL Archivo)",
+      "pass": true
+    },
+    {
+      "name": "happ: self-hosts the adjusted-fallback face",
+      "pass": true
+    },
+    {
+      "name": "happ: @theme maps --font-display to the FL stack",
+      "pass": true
+    },
+    {
+      "name": "happ: repoints the project's own --fd",
+      "pass": true
+    },
+    {
+      "name": "happ: reports repointed --fd/--fb/--fm",
+      "pass": true
+    },
+    {
+      "name": "happ: drops the Google Fonts @import",
+      "pass": true
+    },
+    {
+      "name": "happ: keeps the tailwindcss @import",
+      "pass": true
+    },
+    {
+      "name": "happ: self-hosts to public/fontlab",
+      "pass": true
+    },
+    {
+      "name": "happ: idempotent re-apply (zero diff)",
+      "pass": true
+    },
+    {
+      "name": "happ: undo restores styles.css byte-identical",
+      "pass": true
+    },
+    {
+      "name": "vite: detects framework vite",
+      "pass": true
+    },
+    {
+      "name": "vite: finds non-standard CSS entry src/index.css",
+      "pass": true
+    },
+    {
+      "name": "vite: names current display Inter (standard token)",
+      "pass": true
+    },
+    {
+      "name": "vite: applyMode css-entry",
+      "pass": true
+    },
+    {
+      "name": "vite: @theme role tokens set to FL stacks",
+      "pass": true
+    },
+    {
+      "name": "vite: no leaf repoint needed (standard tokens)",
+      "pass": true
+    },
+    {
+      "name": "astro: detects framework astro",
+      "pass": true
+    },
+    {
+      "name": "astro: applyMode css-entry",
+      "pass": true
+    },
+    {
+      "name": "astro: detected from astro.config.mjs (no dep)",
+      "pass": true
+    },
+    {
+      "name": "fresh: no current fonts named",
+      "pass": true
+    },
+    {
+      "name": "fresh: applyMode css-entry (can add fonts)",
+      "pass": true
+    },
+    {
+      "name": "fresh: adds @font-face + @theme role map",
+      "pass": true
+    },
+    {
+      "name": "plain: detects framework vite",
+      "pass": true
+    },
+    {
+      "name": "plain: still names the current font (Poppins) for the brief",
+      "pass": true
+    },
+    {
+      "name": "plain: applyMode null (no Tailwind v4)",
+      "pass": true
+    },
+    {
+      "name": "plain: capability manifest flags manualApply",
+      "pass": true
+    },
+    {
+      "name": "plain: applyTarget still points at the CSS entry",
+      "pass": true
+    },
+    {
+      "name": "plain: apply refuses cleanly (degraded → hand-apply)",
+      "pass": true
+    },
+    {
+      "name": "cli: `--version` prints a semver and exits (no server hang)",
+      "pass": true
+    },
+    {
+      "name": "cli: `-v` also exits cleanly",
+      "pass": true
+    },
+    {
+      "name": "cli: unknown flag shows help, never boots the server",
+      "pass": true
+    }
+  ]
+}
