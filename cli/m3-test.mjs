@@ -122,7 +122,7 @@ try {
     const origLayout = readFileSync(path.join(dir, "app/layout.tsx"), "utf8");
     const origCss = readFileSync(path.join(dir, "app/globals.css"), "utf8");
     writeSelection(dir, aClean.replaces, cleanTarget);
-    const r = applySelection(dir);
+    const r = await applySelection(dir);
     const layout = readFileSync(path.join(dir, "app/layout.tsx"), "utf8");
     const css = readFileSync(path.join(dir, "app/globals.css"), "utf8");
 
@@ -137,14 +137,15 @@ try {
     assert("clean: html has all 3 role vars", ["fontLabDisplay", "fontLabBody", "fontLabMono"].every((c) => layout.includes(`${c}.variable`)));
     assert("clean: css fenced @theme has 3 role vars", /\/\* font-lab:start \*\/[\s\S]*--font-display[\s\S]*--font-sans[\s\S]*--font-mono[\s\S]*\/\* font-lab:end \*\//.test(css));
 
-    const layout2 = (applySelection(dir), readFileSync(path.join(dir, "app/layout.tsx"), "utf8"));
+    await applySelection(dir);
+    const layout2 = readFileSync(path.join(dir, "app/layout.tsx"), "utf8");
     assert("clean: idempotent re-apply", layout === layout2);
     assert("clean: replaced reported (inter)", r.replaced.some((x) => /Inter/.test(x.font)));
 
     // Reversibility on a fresh copy (single apply, like M2).
     const rev = stage(CLEAN, "clean-rev");
     writeSelection(rev, aClean.replaces, cleanTarget);
-    applySelection(rev);
+    await applySelection(rev);
     undo(rev);
     assert("clean: undo restores layout byte-identical", readFileSync(path.join(rev, "app/layout.tsx"), "utf8") === origLayout);
     assert("clean: undo restores globals byte-identical", readFileSync(path.join(rev, "app/globals.css"), "utf8") === origCss);
@@ -161,7 +162,7 @@ try {
     const origCss = readFileSync(path.join(dir, "app/globals.css"), "utf8");
     writeSelection(dir, aJack.replaces, jackTarget);
 
-    const r = applySelection(dir);
+    const r = await applySelection(dir);
     const layout = readFileSync(path.join(dir, "app/layout.tsx"), "utf8");
     const css = readFileSync(path.join(dir, "app/globals.css"), "utf8");
     writeFileSync(OUT + "jack-applied.layout.tsx", layout);
@@ -182,13 +183,14 @@ try {
     assert("jack: replaces reports Bricolage Grotesque", r.replaced.some((x) => /Bricolage_Grotesque/.test(x.font)));
     assert("jack: class target reported as body", r.classTarget === "body");
 
-    const layout2 = (applySelection(dir), readFileSync(path.join(dir, "app/layout.tsx"), "utf8"));
+    await applySelection(dir);
+    const layout2 = readFileSync(path.join(dir, "app/layout.tsx"), "utf8");
     assert("jack: idempotent re-apply", layout === layout2);
 
     // Reversibility on a fresh copy (single apply, like M2).
     const rev = stage(JACK, "jack-rev");
     writeSelection(rev, aJack.replaces, jackTarget);
-    applySelection(rev);
+    await applySelection(rev);
     undo(rev);
     assert("jack: undo restores layout byte-identical", readFileSync(path.join(rev, "app/layout.tsx"), "utf8") === origLayout);
     assert("jack: undo restores globals byte-identical", readFileSync(path.join(rev, "app/globals.css"), "utf8") === origCss);
@@ -208,10 +210,10 @@ try {
     writeFileSync(path.join(dir, "app/globals.css"), css);
     return dir;
   }
-  const refuses = (dir, needle) => {
+  const refuses = async (dir, needle) => {
     writeSelection(dir, { display: null, body: null, mono: null }, {});
     try {
-      applySelection(dir);
+      await applySelection(dir);
       return false;
     } catch (e) {
       return new RegExp(needle, "i").test(e.message);
@@ -236,7 +238,7 @@ try {
     2,
   );
   const SHIP = { framework: "next", router: "app", styling: "tailwind", tailwindVersion: 4, fontWiring: "css-variables" };
-  const ship = (dir, a) => (writeSelection(dir, a.replaces, SHIP), applySelection(dir));
+  const ship = async (dir, a) => (writeSelection(dir, a.replaces, SHIP), applySelection(dir));
 
   const v3 = synth("v3", {
     pkg: { dependencies: { next: "^15", react: "^19" }, devDependencies: { tailwindcss: "^3.4.0" } },
@@ -245,7 +247,7 @@ try {
     css: `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n@theme inline { --font-sans: var(--font-sans); }`,
   });
   assert("v3: analyzer reports Tailwind v3", analyzeProject(v3).tailwindVersion === 3, String(analyzeProject(v3).tailwindVersion));
-  assert("v3: codegen refuses (need v4)", refuses(v3, "tailwind v3"));
+  assert("v3: codegen refuses (need v4)", await refuses(v3, "tailwind v3"));
 
   const pages = synth("pages", {
     pkg: { dependencies: { next: "^15", react: "^19", tailwindcss: "^4.2.0" }, devDependencies: { "@tailwindcss/postcss": "^4" } },
@@ -254,7 +256,7 @@ try {
     css: `@import "tailwindcss";\n@theme inline { --font-sans: var(--font-sans); }`,
   });
   assert("pages: analyzer reports Pages Router", analyzeProject(pages).router === "pages", String(analyzeProject(pages).router));
-  assert("pages: codegen refuses (need app)", refuses(pages, "router is pages"));
+  assert("pages: codegen refuses (need app)", await refuses(pages, "router is pages"));
 
   const hard = synth("hardcoded", {
     pkg: { dependencies: { next: "^15", react: "^19", tailwindcss: "^4.2.0" }, devDependencies: { "@tailwindcss/postcss": "^4" } },
@@ -263,7 +265,7 @@ try {
     css: `@import "tailwindcss";\nbody { font-family: "Times New Roman", serif; }`,
   });
   assert("hardcoded: analyzer reports hardcoded wiring", analyzeProject(hard).fontWiring === "hardcoded", analyzeProject(hard).fontWiring);
-  assert("hardcoded: codegen refuses (need css-variables)", refuses(hard, "hardcoded"));
+  assert("hardcoded: codegen refuses (need css-variables)", await refuses(hard, "hardcoded"));
 
   // ===================================================================== //
   //  Part 5 — "beyond jack": shapes a real Next+TW4 site has that the      //
@@ -285,7 +287,7 @@ try {
     assert("routegroup: finds root layout in (marketing)", a.declarationFile === "app/(marketing)/layout.tsx", String(a.declarationFile));
     assert("routegroup: body font Inter", a.replaces.body === "Inter", String(a.replaces.body));
     assert("routegroup: supported", a.supported === true, a.reasons.join("; "));
-    ship(dir, a);
+    await ship(dir, a);
     const laid = readFileSync(path.join(dir, "app/(marketing)/layout.tsx"), "utf8");
     assert("routegroup: codegen edits the route-group layout", /fontLabBody = Libre_Franklin/.test(laid), laid.slice(0, 80));
   }
@@ -301,7 +303,7 @@ try {
     assert("altcss: finds non-standard CSS entry", a.cssFile === "src/styles/main.css", String(a.cssFile));
     assert("altcss: Tailwind v4", a.tailwindVersion === 4, String(a.tailwindVersion));
     assert("altcss: supported", a.supported === true, a.reasons.join("; "));
-    ship(dir, a);
+    await ship(dir, a);
     const cssOut = readFileSync(path.join(dir, "src/styles/main.css"), "utf8");
     assert("altcss: codegen writes @theme into the found CSS", /font-lab:start[\s\S]*--font-sans:\s*var\(--font-libre-franklin\)/.test(cssOut));
   }
@@ -320,7 +322,7 @@ try {
     assert("modrel: records the source module on the role", a.roles.body?.fromModule === "app/fonts.ts", String(a.roles.body?.fromModule));
     assert("modrel: does NOT flag the primary module as an 'other subsystem'", !a.coverage.otherSubsystems.some((s) => s.file === "app/fonts.ts"));
     assert("modrel: refused with a module-specific reason", a.supported === false && /separate module/i.test(a.reasons.join("; ")), a.reasons.join("; "));
-    assert("modrel: codegen refuses (module)", refuses(dir, "module"));
+    assert("modrel: codegen refuses (module)", await refuses(dir, "module"));
   }
 
   // --- Fix 1b: fonts in a shared module via `@/` alias (DETECTED, refused) ---
@@ -349,7 +351,7 @@ try {
     assert("wrapper: no html/body class target", a.classNameTarget === null, String(a.classNameTarget));
     assert("wrapper: detects the real carrier tag (<div>)", a.classNameTargetTag === "div", String(a.classNameTargetTag));
     assert("wrapper: refused, not silently treated as <html>", a.supported === false && /<div>/.test(a.reasons.join("; ")), a.reasons.join("; "));
-    assert("wrapper: codegen refuses (wrapper)", refuses(dir, "div"));
+    assert("wrapper: codegen refuses (wrapper)", await refuses(dir, "div"));
   }
 } finally {
   rmSync(TMP, { recursive: true, force: true });

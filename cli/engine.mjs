@@ -43,16 +43,26 @@ export function analyze(projectDir) {
 export function start(projectDir) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
+  const cap = analysis.capabilities;
+  // The intake + taste steps are identical on every stack; only HOW the human previews and how
+  // the pick ships differ. Hand the agent the right path for THIS project instead of assuming Next.
+  const previewShip = cap.livePanel
+    ? "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
+    : cap.autoApply
+      ? `the live in-app panel is Next-only, so screenshot the directions for the human (\`capture_directions\`), record their pick (\`select_direction\`), then \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
+      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}); screenshot the directions, record the pick, then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
   return {
     analysis,
+    capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
+    shipNote: analysis.shipNote,
     context: gatherContext(dir), // the project's own palette, brand docs, and copy voice (B2)
     brief: designBrief(),
     nextStep:
       "Read `context` (the project's palette, brand docs, and copy) — your options must fit THIS " +
       "project, not a generic default. Then ask the human the intake questions in `brief.intake` " +
       "and wait for the answers, compose tailored directions for their brief (reach past " +
-      "`brief.avoid`; draw on `brief.references`), preview them, and let the HUMAN pick. `curate` " +
-      "is the fallback when there's no brief.",
+      "`brief.avoid`; draw on `brief.references`), and let the HUMAN pick. `curate` is the " +
+      "fallback when there's no brief. To preview + ship: " + previewShip,
   };
 }
 
@@ -272,8 +282,8 @@ export function readSelection(projectDir) {
   }
 }
 
-export function apply(projectDir) {
-  return applySelection(path.resolve(projectDir));
+export async function apply(projectDir, opts = {}) {
+  return applySelection(path.resolve(projectDir), opts);
 }
 
 // Fix a role the analyzer flags as dead (declared but not actually rendered). Reversible.
@@ -337,7 +347,12 @@ function unmountPanel(src) {
 export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  if (!analysis.supported) throw new Error(`project not supported yet: ${analysis.reasons.join("; ")}`);
+  if (!analysis.supported)
+    throw new Error(
+      analysis.applyMode === "css-entry"
+        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still ships: compose → capture_directions (screenshot preview) → select_direction → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
+        : `project not supported yet: ${analysis.reasons.join("; ")}`,
+    );
   const appDir = resolveAppDir(dir);
   const layout = path.join(appDir, "layout.tsx");
 

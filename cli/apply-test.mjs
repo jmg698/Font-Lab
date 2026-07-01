@@ -49,7 +49,7 @@ try {
   // ---- Phase 1: apply + structural correctness --------------------------------
   reset();
   writeSelection();
-  applySelection(APP);
+  await applySelection(APP);
   const layout = read(FILES.layout);
   const css = read(FILES.css);
 
@@ -67,7 +67,7 @@ try {
   assert("css has fenced @theme block", /\/\* font-lab:start \*\/[\s\S]*--font-display[\s\S]*\/\* font-lab:end \*\//.test(css));
 
   // ---- Phase 2: idempotency ---------------------------------------------------
-  applySelection(APP);
+  await applySelection(APP);
   assert("layout.tsx unchanged on re-apply (idempotent)", read(FILES.layout) === layout);
   assert("globals.css unchanged on re-apply (idempotent)", read(FILES.css) === css);
 
@@ -114,7 +114,7 @@ try {
   // ---- Phase 4: reversibility (single apply -> undo == original) --------------
   reset();
   writeSelection();
-  applySelection(APP);
+  await applySelection(APP);
   undo(APP);
   assert("undo restores layout.tsx byte-identical", read(FILES.layout) === originals.layout);
   assert("undo restores globals.css byte-identical", read(FILES.css) === originals.css);

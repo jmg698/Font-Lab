@@ -118,8 +118,17 @@ function findCssEntry(projectDir) {
     const hit = findFiles(root, (n) => n.endsWith(".css")).find((p) => TW_DIRECTIVE.test(readSafe(p)));
     if (hit) return hit;
   }
-  // Nothing carries the directive — fall back to a conventional path if present, so version
-  // detection via deps still has a file to read.
+  // No Tailwind directive anywhere — but on a non-Tailwind project we still want the CSS file that
+  // owns the fonts, so degraded mode can name the current families (for the brief) and point a
+  // hand-apply at the right file. Look for font signals.
+  const FONT_SIGNAL = /fonts\.googleapis|@font-face|font-family\s*:|--f[dbm]\b|--font/i;
+  for (const base of ["app", "src", "styles"]) {
+    const root = path.join(projectDir, base);
+    if (!existsSync(root)) continue;
+    const hit = findFiles(root, (n) => n.endsWith(".css")).find((p) => FONT_SIGNAL.test(readSafe(p)));
+    if (hit) return hit;
+  }
+  // Last resort: a conventional path if present, so version detection via deps has a file to read.
   return ["app/globals.css", "src/app/globals.css", "styles/globals.css"].map((c) => path.join(projectDir, c)).find(existsSync) || null;
 }
 
@@ -425,6 +434,98 @@ function otherFontSubsystems(projectDir, declarationFile, exclude = []) {
   return out;
 }
 
+// ---- framework + font-loading detection (beyond Next / next/font) -----------
+
+// Which framework are we in? This decides the *declaration site* and *static dir*, not whether
+// we can ship — the parity engine (self-hosted @font-face) is framework-agnostic.
+function detectFramework(deps, projectDir) {
+  const has = (n) => Object.prototype.hasOwnProperty.call(deps, n);
+  if (has("next")) return "next";
+  if (has("@tanstack/react-start") || has("@tanstack/start") || has("@tanstack/solid-start")) return "tanstack-start";
+  if (has("@remix-run/react") || has("@react-router/dev")) return "remix";
+  if (has("@sveltejs/kit")) return "sveltekit";
+  if (has("astro")) return "astro";
+  if (has("@angular/core")) return "angular";
+  if (has("vite") || has("@vitejs/plugin-react") || has("@vitejs/plugin-vue")) return "vite";
+  const cfg = (...f) => f.some((x) => existsSync(path.join(projectDir, x)));
+  if (cfg("astro.config.mjs", "astro.config.ts", "astro.config.js")) return "astro";
+  if (cfg("vite.config.ts", "vite.config.js", "vite.config.mjs")) return "vite";
+  if (cfg("svelte.config.js", "svelte.config.ts")) return "sveltekit";
+  return "unknown";
+}
+
+// A project's static web root, where `/fontlab/x.woff2` resolves. `public/` is the convention
+// across Next / Vite / TanStack Start / Remix; Astro too. (SvelteKit uses `static/`.)
+export function staticDirFor(framework) {
+  return framework === "sveltekit" ? "static" : "public";
+}
+
+// CSS generic keywords / global values that are NOT a real font family — so tracing a role var
+// to a value like `sans-serif` correctly reports "no concrete font here", not a family named
+// "sans-serif".
+const GENERIC_FAMILIES = new Set([
+  "serif", "sans-serif", "monospace", "system-ui", "ui-sans-serif", "ui-serif", "ui-monospace",
+  "ui-rounded", "cursive", "fantasy", "emoji", "math", "fangsong", "inherit", "initial", "unset",
+  "revert", "revert-layer", "none",
+]);
+
+// The first *concrete* family in a font-family value (`'Archivo Black', sans-serif` -> "Archivo
+// Black"). null if it's a var() ref (follow the chain) or only generics.
+function firstConcreteFamily(value) {
+  const seg = String(value).split(",")[0].trim().replace(/^["']|["']$/g, "").trim();
+  if (!seg || /^var\(/i.test(seg)) return null;
+  if (GENERIC_FAMILIES.has(seg.toLowerCase())) return null;
+  return seg;
+}
+
+// Follow a CSS custom-property's `var(--x)` chain until we hit a literal font-family value.
+// This names the current font on ANY css-wired site — Google `@import`, `<link>`, or a raw
+// `@font-face` — not just next/font. Returns { family, leafVar } or null. Cycle-guarded.
+function resolveCssFontFamily(startVar, cssVars) {
+  const seen = new Set();
+  let cur = startVar;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const val = cssVars.get(cur);
+    if (val == null) return null;
+    const fam = firstConcreteFamily(val);
+    if (fam) return { family: fam, leafVar: cur };
+    const next = val.match(/var\(\s*(--[A-Za-z0-9-]+)/);
+    if (!next) return null;
+    cur = next[1];
+  }
+  return null;
+}
+
+// Common project names for each role's font var, beyond Font Lab's own tokens — so we resolve
+// (and later repoint) whatever the project actually calls its display/body/mono vars.
+const ROLE_VAR_ALIASES = {
+  display: ["--font-display", "--fd", "--font-heading", "--font-head", "--heading-font", "--display-font", "--ff-display"],
+  body: ["--font-sans", "--font-body", "--font-base", "--fb", "--body-font", "--ff-body", "--font"],
+  mono: ["--font-mono", "--fm", "--font-code", "--mono-font", "--ff-mono"],
+};
+
+// Families pulled from a Google Fonts `@import url(...)` or `<link href=...>` — the most common
+// non-next/font loader. Handles css2 (`&family=`) and css1 (`family=A|B`) forms, strips axes.
+function googleFamiliesFrom(text) {
+  const fams = new Set();
+  const re = /fonts\.googleapis\.com\/css2?\?([^"')\s]+)/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const query = m[1];
+    for (const fm of query.matchAll(/family=([^&:]+)/g)) {
+      const raw = fm[1];
+      for (const part of raw.split("|")) {
+        try {
+          const fam = decodeURIComponent(part.split(":")[0].replace(/\+/g, " ")).trim();
+          if (fam) fams.add(fam);
+        } catch {}
+      }
+    }
+  }
+  return [...fams];
+}
+
 // ---- the public surface -----------------------------------------------------
 
 export function analyzeProject(projectDir) {
@@ -432,7 +533,7 @@ export function analyzeProject(projectDir) {
   const deps = readDeps(projectDir);
   const { declarationFile, router, css: cssPath, twConfig } = locate(projectDir);
 
-  const framework = deps.next ? "next" : "unknown";
+  const framework = detectFramework(deps, projectDir);
   const styling = deps.tailwindcss ? "tailwind" : "unknown";
 
   const tsPaths = readTsPaths(projectDir);
@@ -441,11 +542,19 @@ export function analyzeProject(projectDir) {
   const cssVars = collectCssVars(css);
   const tw = detectTailwind(css, deps, twConfig);
 
+  // The project's CSS with Font Lab's OWN applied block removed — so CSS-native detection reads
+  // the project's original wiring, never what a prior css-entry apply wrote. Without this, our
+  // fenced `@theme { --font-display: 'FL X' }` would make re-analysis resolve the role's leaf var
+  // to the role token itself, changing what we repoint and breaking idempotent re-apply.
+  const FL_FENCE = /\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//g;
+  const cssClean = css.replace(FL_FENCE, "");
+  const cssVarsClean = collectCssVars(cssClean);
+
   const fontByVar = new Map();
   for (const f of [...decl.nextFonts, ...decl.localFonts]) if (f.variable) fontByVar.set(f.variable, f);
   const fontVarSet = new Set(fontByVar.keys());
 
-  // Resolve each role's font by tracing the role var through the CSS graph.
+  // Resolve each role's font by tracing the role var through the CSS graph to a next/font const.
   const roles = {};
   let resolvedAny = false;
   for (const role of ROLES) {
@@ -460,6 +569,7 @@ export function analyzeProject(projectDir) {
         importName: font.importName,
         nextFontVar: font.variable,
         roleVar: ROLE_VARS[role],
+        leafVar: font.variable,
         fromModule: font.fromModule ?? null,
       };
     } else {
@@ -467,13 +577,50 @@ export function analyzeProject(projectDir) {
     }
   }
 
+  // Nothing from next/font? Fall back to a CSS-native trace — name the family the project loads
+  // via Google `@import`/`<link>` or a raw `@font-face`, keyed on whatever it calls its role var
+  // (`--fd`, `--font-display`, …). This is what makes Font Lab see the current fonts on a
+  // TanStack/Vite/Astro site instead of reporting `fontWiring: none`.
+  let cssNativeResolvedAny = false;
+  for (const role of ROLES) {
+    if (roles[role]) continue;
+    for (const v of ROLE_VAR_ALIASES[role]) {
+      const hit = resolveCssFontFamily(v, cssVarsClean);
+      if (hit) {
+        roles[role] = { family: hit.family, source: "css", roleVar: v, leafVar: hit.leafVar, nextFontVar: null, constName: null, importName: null, fromModule: null };
+        cssNativeResolvedAny = true;
+        break;
+      }
+    }
+  }
+
+  // How are the current fonts loaded? Drives the ship branch and honest messaging. Read from the
+  // fence-stripped CSS so our own applied @font-face/@import edits don't masquerade as the
+  // project's loader on re-analyze.
+  const googleImportFamilies = googleFamiliesFrom(cssClean);
+  let fontLoading = "none";
+  if (resolvedAny) fontLoading = "next-font";
+  else if (googleImportFamilies.length) fontLoading = "import-url";
+  else if (/@font-face\s*\{/i.test(cssClean)) fontLoading = "font-face";
+  else if (cssNativeResolvedAny) fontLoading = "css-var";
+  else if (decl.nextFonts.length + decl.localFonts.length > 0) fontLoading = "next-font";
+
+  // Every current family we can name, from any loader — what the taste engine steers *away* from.
+  const currentFamilies = [...new Set([...ROLES.map((r) => roles[r]?.family).filter(Boolean), ...googleImportFamilies])];
+
   // Wiring: role vars resolving to next/font consts is the high-fidelity, swap-friendly
   // path. next/font present but unreachable through vars (or literal font-family) is the
   // lower-fidelity hardcoded path. Nothing at all is "none".
   const hasNextFont = decl.nextFonts.length + decl.localFonts.length > 0;
-  const hardcodedFamily = /font-family\s*:\s*(['"][A-Za-z][^;}]*|[A-Za-z][\w -]*,)/.test(
-    css.replace(/font-family\s*:\s*var\([^)]*\)[^;}]*/g, ""),
-  );
+  // A literal `font-family: 'X'` USAGE means hardcoded wiring — but a `font-family` *inside*
+  // an `@font-face` block is a face declaration, not usage, and our own fenced block is
+  // self-hosted parity CSS. Strip both so a css-entry apply stays self-consistent on re-analyze
+  // (else re-apply would refuse, breaking idempotency), and `var(...)` usage is css-variable wiring.
+  const cssForHardcoded = css
+    .replace(/@font-face\s*\{[^}]*\}/gi, "")
+    .replace(/\/\* font-lab:start \*\/[\s\S]*?\/\* font-lab:end \*\//g, "")
+    .replace(/font-family\s*:\s*var\([^)]*\)[^;}]*/g, "");
+  const hardcodedFamily = /font-family\s*:\s*(['"][A-Za-z][^;}]*|[A-Za-z][\w -]*,)/.test(cssForHardcoded);
   let fontWiring = "none";
   if (resolvedAny) fontWiring = "css-variables";
   else if (hasNextFont || hardcodedFamily) fontWiring = "hardcoded";
@@ -513,6 +660,43 @@ export function analyzeProject(projectDir) {
 
   const supported = reasons.length === 0;
 
+  // ── ship branch selection (decoupled from Next) ──────────────────────────────
+  // Two auto-ship branches, and an honest degraded path:
+  //   • next-font  — the original: Next App Router + TW v4 + next/font (`supported`).
+  //   • css-entry  — ANY framework on Tailwind v4 whose fonts are CSS-wired (Google @import,
+  //                  css vars, or none yet). We self-host the parity woff2 + @font-face into the
+  //                  CSS entry and map the role tokens — no next/font, no layout.tsx needed.
+  //   • manual     — everything else: compose + preview still work; the human applies by hand.
+  const nextFontBranch = supported;
+  const cssEntryBranch =
+    !nextFontBranch &&
+    tw.version === 4 &&
+    !!cssPath &&
+    fontLoading !== "next-font" &&
+    fontWiring !== "hardcoded" &&
+    !moduleFontFiles.length;
+  const applyMode = nextFontBranch ? "next-font" : cssEntryBranch ? "css-entry" : null;
+  const shippable = applyMode !== null;
+
+  // What an agent can actually do here — the manifest that turns a refusal into a paved path
+  // instead of a dead end. `livePanel` is the in-app HMR panel (Next-only today); everything
+  // else (taste engine + screenshot preview + apply) works on the css-entry branch too.
+  const capabilities = {
+    autoApply: shippable,
+    applyMode,
+    livePanel: nextFontBranch,
+    screenshotPreview: true,
+    composeDirections: true,
+    manualApply: !shippable,
+    applyTarget: applyMode === "css-entry" ? rel(projectDir, cssPath) : applyMode === "next-font" ? rel(projectDir, declarationFile) : rel(projectDir, cssPath),
+  };
+  const shipNote =
+    applyMode === "next-font"
+      ? "auto-ship via next/font + Tailwind (App Router)"
+      : applyMode === "css-entry"
+        ? `auto-ship via self-hosted @font-face + Tailwind @theme into ${capabilities.applyTarget} (${framework}, no next/font)`
+        : `no auto-ship branch (${reasons.join("; ") || "unknown"}) — compose + preview still work; the human applies the pick by hand${capabilities.applyTarget ? ` into ${capabilities.applyTarget}` : ""}`;
+
   // Coverage: will a swap actually be visible, and is this the only font subsystem?
   const dead = deadRoles(css).filter((role) => roles[role]); // only roles we'd actually swap
   const otherSubsystems = otherFontSubsystems(projectDir, rel(projectDir, declarationFile), decl.fromModules);
@@ -537,8 +721,11 @@ export function analyzeProject(projectDir) {
   return {
     projectDir,
     ...target,
+    fontLoading,
+    currentFamilies,
     declarationFile: rel(projectDir, declarationFile),
     cssFile: rel(projectDir, cssPath),
+    staticDir: staticDirFor(framework),
     tailwindConfig: rel(projectDir, twConfig),
     classNameTarget: decl.classNameTarget,
     classNameTargetTag: decl.classNameTargetTag,
@@ -550,6 +737,10 @@ export function analyzeProject(projectDir) {
     tailwindSignals: tw.signals,
     coverage,
     supported,
+    applyMode,
+    shippable,
+    capabilities,
+    shipNote,
     reasons,
     notes,
   };
