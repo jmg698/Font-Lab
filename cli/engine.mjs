@@ -16,11 +16,12 @@ import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSyn
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
-import { gatherContext } from "./context.mjs";
+import { gatherContext, extractColors } from "./context.mjs";
 import { resolveDirectionsMode, mergeDirections } from "./flow.mjs";
+import { buildSpecimenHtml } from "./specimen.mjs";
 import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
-import { generateCatalog } from "./catalog-build.mjs";
+import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -268,6 +269,123 @@ export async function preparePreview(projectDir, { directions, vibe, count, allo
   const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, dirs);
   return { analysis, mode, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
+}
+
+// ── the portable "choosing moment" (framework-agnostic, no dev server) ────────
+// Build a single self-contained HTML sheet — the parity fonts embedded (base64 when inlined) —
+// that renders each direction on the project's own palette. Works on ANY project (it's just a
+// file the human opens), which is what the live in-app panel can't be. Carries a real width-diff
+// render check so a silently-fallen-back font is badged, not trusted (the fonts.check trap).
+
+function resolvePalette(colors = []) {
+  const by = {};
+  for (const { name, value } of colors) by[name.toLowerCase()] = value;
+  const pick = (...names) => names.map((n) => by[n]).find(Boolean) || null;
+  const pal = {};
+  const map = {
+    bg: ["--background", "--bg", "--color-background", "--surface", "--paper", "--color-bg"],
+    fg: ["--foreground", "--fg", "--text", "--color-foreground", "--ink", "--color-text"],
+    muted: ["--muted", "--muted-foreground", "--subtle", "--color-muted"],
+    accent: ["--accent", "--primary", "--brand", "--color-accent", "--color-primary", "--ring"],
+    rule: ["--border", "--rule", "--divider", "--color-border"],
+  };
+  for (const [k, names] of Object.entries(map)) {
+    const v = pick(...names);
+    if (v) pal[k] = v;
+  }
+  return pal;
+}
+
+// Directions -> render-ready shape { id, name, vibe, rationale, parity, roles:{role:{family,stack}} }.
+function specimenDirections(directions, stacks) {
+  return directions.map((d) => ({
+    id: d.id,
+    name: d.name,
+    vibe: d.vibe,
+    rationale: d.rationale,
+    parity: d.parity || null,
+    roles: Object.fromEntries(
+      ROLES.map((role) => {
+        const fam = d.roles?.[role]?.family ?? d[role];
+        return [role, fam ? { family: fam, stack: stacks[fam] || fam } : { family: null, stack: "inherit" }];
+      }),
+    ),
+  }));
+}
+
+export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, log } = {}) {
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  await ensureAdmitted(dir, dirs);
+
+  const families = [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles?.[r]?.family ?? d[r]).filter(Boolean)))];
+  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, specFor: mergedSpecFor(dir), log });
+
+  const ctx = gatherContext(dir);
+  const cssText = analysis.cssFile ? (() => { try { return readFileSync(path.join(dir, analysis.cssFile), "utf8"); } catch { return ""; } })() : "";
+  const palette = resolvePalette([...extractColors(cssText), ...(ctx.colors || [])]);
+  const copy = ctx.copySample?.length ? { headline: ctx.copySample[0], paragraph: ctx.copySample.slice(1, 4).join(" ") || undefined } : {};
+  const title = path.basename(dir);
+
+  const html = buildSpecimenHtml({ directions: specimenDirections(dirs, stacks), faceCss, palette, copy, title });
+  const outPath = path.join(dir, ".font-lab", "preview.html");
+  mkdirSync(path.dirname(outPath), { recursive: true });
+  writeFileSync(outPath, html);
+
+  return {
+    path: outPath,
+    rel: path.relative(dir, outPath),
+    framework: analysis.framework,
+    inline: !!inline && fetch !== false,
+    fonts: families,
+    directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
+    nextStep:
+      "Open the HTML (it's self-contained — fonts embedded, opens offline) and have the human compare. " +
+      "Each card has a live render-check badge. Then record the pick with select_direction and ship with apply.",
+  };
+}
+
+// Headless capture of the specimen sheet: open the local HTML, wait for the embedded render check
+// to run, screenshot each card, and report per-face load verdicts — a VERIFIED capture (never a
+// silent Times-in-disguise shot). No dev server, no init, no panel; works on any framework.
+export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executablePath, directions, vibe, count, fetch = true, inline = true } = {}) {
+  const dir = path.resolve(projectDir);
+  let html = htmlPath;
+  if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline })).path;
+  let chromium;
+  try {
+    ({ chromium } = await import("playwright"));
+  } catch {
+    throw new Error("Playwright isn't installed for screenshots (`npm i -D playwright`). The HTML at " + html + " still opens in any browser.");
+  }
+  const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
+  mkdirSync(out, { recursive: true });
+  const { browser, via } = await launchBrowser(chromium, { executablePath });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1120, height: 1400 }, deviceScaleFactor: 2 });
+    await page.goto("file://" + html, { waitUntil: "load" });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-fl-verified") === "1", { timeout: 15000 }).catch(() => {});
+    const verdicts = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll("[data-fl-card]")];
+      return {
+        summary: document.getElementById("fl-render-summary")?.textContent || "",
+        allLoaded: document.getElementById("fl-render-summary")?.getAttribute("data-fl-all") === "1",
+        cards: cards.map((c) => ({ id: c.getAttribute("data-fl-card"), check: c.querySelector(".fl-check")?.textContent || "" })),
+      };
+    });
+    const shots = [];
+    const cards = await page.$$("[data-fl-card]");
+    for (const el of cards) {
+      const id = await el.getAttribute("data-fl-card");
+      const file = path.join(out, `${id}.png`);
+      await el.screenshot({ path: file });
+      shots.push({ id, screenshot: file, check: verdicts.cards.find((c) => c.id === id)?.check || "" });
+    }
+    return { html, outDir: out, browser: via, verified: verdicts.allLoaded, summary: verdicts.summary, shots };
+  } finally {
+    await browser.close();
+  }
 }
 
 // ── the human's pick, and shipping it ────────────────────────────────────────
