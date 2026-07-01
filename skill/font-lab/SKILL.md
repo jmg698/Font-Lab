@@ -86,9 +86,11 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    flip/mix/compare themselves, give them `font_lab_live_instructions({ projectDir })` —
    ready-to-run commands to launch the full editor locally (works in any terminal / IDE / Cursor).
 5. **Ship it** — once a selection exists (from any path), `font_lab_apply({ projectDir })`. On Next
-   it writes next/font + Tailwind; on TanStack/Vite/Astro (Tailwind v4) it self-hosts the parity
-   `@font-face`, maps Tailwind `@theme`, and repoints the project's own font vars — no next/font.
-   Reversible via `font_lab_undo`; remove the panel scaffolding with `font_lab_uninit`.
+   it writes next/font + Tailwind; elsewhere it self-hosts the parity `@font-face` and routes it
+   through the project's own seam — Tailwind `@theme` (TW v4), or the project's own CSS font vars
+   (`--font-*`, `--fd`, …) when it's var-wired, Tailwind or not. It refuses only when there's no
+   seam (hardcoded `font-family`, CSS-in-JS); `font_lab_analyze.capabilities` says which, and you
+   can still hand the human the generated block to paste. Reversible via `font_lab_undo`.
 
 ## Rules
 

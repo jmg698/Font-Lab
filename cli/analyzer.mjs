@@ -663,20 +663,26 @@ export function analyzeProject(projectDir) {
   // ── ship branch selection (decoupled from Next) ──────────────────────────────
   // Two auto-ship branches, and an honest degraded path:
   //   • next-font  — the original: Next App Router + TW v4 + next/font (`supported`).
-  //   • css-entry  — ANY framework on Tailwind v4 whose fonts are CSS-wired (Google @import,
-  //                  css vars, or none yet). We self-host the parity woff2 + @font-face into the
-  //                  CSS entry and map the role tokens — no next/font, no layout.tsx needed.
-  //   • manual     — everything else: compose + preview still work; the human applies by hand.
+  //   • css-entry  — self-host the parity woff2 + @font-face into the CSS entry and route it to
+  //                  the elements. Two ways in: (a) Tailwind v4, via @theme (any framework); or
+  //                  (b) VAR-WIRED, Tailwind or not — the project routes fonts through a CSS var
+  //                  (`--font-body`, `--fd`, …) that we repoint. Both are a single, clean seam.
+  //   • manual     — hardcoded font-family with no var, CSS-in-JS, etc.: compose + preview still
+  //                  work; the human applies the generated block by hand. (Tier B/C.)
   const nextFontBranch = supported;
+  // A role whose current font we resolved through a CSS variable — the seam we can repoint even
+  // without Tailwind. (next/font-sourced roles don't count; those take the next-font branch.)
+  const varWired = ROLES.some((r) => roles[r]?.source === "css" && roles[r]?.leafVar);
   const cssEntryBranch =
     !nextFontBranch &&
-    tw.version === 4 &&
     !!cssPath &&
     fontLoading !== "next-font" &&
     fontWiring !== "hardcoded" &&
-    !moduleFontFiles.length;
+    !moduleFontFiles.length &&
+    (tw.version === 4 || varWired);
   const applyMode = nextFontBranch ? "next-font" : cssEntryBranch ? "css-entry" : null;
   const shippable = applyMode !== null;
+  const cssEntryVia = applyMode === "css-entry" ? (tw.version === 4 ? "tailwind" : "css-var") : null;
 
   // What an agent can actually do here — the manifest that turns a refusal into a paved path
   // instead of a dead end. `livePanel` is the in-app HMR panel (Next-only today); everything
@@ -694,7 +700,9 @@ export function analyzeProject(projectDir) {
     applyMode === "next-font"
       ? "auto-ship via next/font + Tailwind (App Router)"
       : applyMode === "css-entry"
-        ? `auto-ship via self-hosted @font-face + Tailwind @theme into ${capabilities.applyTarget} (${framework}, no next/font)`
+        ? cssEntryVia === "tailwind"
+          ? `auto-ship via self-hosted @font-face + Tailwind @theme into ${capabilities.applyTarget} (${framework}, no next/font)`
+          : `auto-ship via self-hosted @font-face + repointing the project's own font var(s) in ${capabilities.applyTarget} (${framework}, no Tailwind)`
         : `no auto-ship branch (${reasons.join("; ") || "unknown"}) — compose + preview still work; the human applies the pick by hand${capabilities.applyTarget ? ` into ${capabilities.applyTarget}` : ""}`;
 
   // Coverage: will a swap actually be visible, and is this the only font subsystem?
@@ -738,6 +746,7 @@ export function analyzeProject(projectDir) {
     coverage,
     supported,
     applyMode,
+    cssEntryVia,
     shippable,
     capabilities,
     shipNote,
