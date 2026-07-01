@@ -159,7 +159,7 @@ const TOOLS = [
   {
     name: "font_lab_apply",
     description:
-      "Ship the human's pick: apply the exact next/font + Tailwind edits to the project, idempotently and reversibly (backup-first). Refuses out-of-branch projects with a clear reason. Run after read_pick returns a selection.",
+      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind; on ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). Run after read_pick returns a selection.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.apply(a.projectDir),
   },
@@ -192,6 +192,22 @@ const TOOLS = [
       required: ["projectDir", "baseUrl"],
     },
     handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir, executablePath: a.executablePath }),
+  },
+  {
+    name: "font_lab_preview",
+    description:
+      "Build a self-contained HTML 'choosing sheet' — one card per direction, the parity fonts EMBEDDED (opens offline), rendered on the project's own palette. This is the PORTABLE preview: it works on ANY framework (TanStack/Vite/Astro/plain), needs no dev server and no in-app panel — the right choice whenever the live panel isn't available (i.e. any non-Next project, or a web/cloud/phone session). Pass the `directions` you composed. Returns the HTML file path — SHOW it to the human (or open it) and have them pick an id. Each card carries a live render-check badge: a real width-diff that catches a font that silently failed to load, NOT a fonts.check false-positive. Fetches + inlines the fonts. Then select_direction → apply.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to render (from compose_directions)." },
+        vibe: { type: "string" },
+        count: { type: "number" },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.previewSpecimen(a.projectDir, { directions: a.directions, vibe: a.vibe, count: a.count, log }),
   },
   {
     name: "font_lab_select",

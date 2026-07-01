@@ -7,7 +7,7 @@
 // to build is the caller's choice (the curator default, or the agent's own composition).
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { get as catalogGet } from "./catalog.mjs";
 import { fontsForDirections } from "./curator.mjs";
@@ -93,8 +93,15 @@ export async function buildParityBundles(projectDir, families, opts = {}) {
     const fbName = isSerif ? "Times New Roman" : "Arial";
     const o = overrides(main, fb);
 
+    // src: a self-hosted path by default; a base64 data URI when inlining (a fully offline,
+    // single-file preview). Inlining needs the fetched bytes — fall back to the path if absent.
+    const woff2Path = PUBLIC + slug(family) + ".woff2";
+    let src = `url('/fontlab/${slug(family)}.woff2') format('woff2')`;
+    if (opts.inline && existsSync(woff2Path)) {
+      src = `url('data:font/woff2;base64,${readFileSync(woff2Path).toString("base64")}') format('woff2')`;
+    }
     faceCss.push(
-      `@font-face{font-family:'FL ${family}';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/${slug(family)}.woff2') format('woff2');}`,
+      `@font-face{font-family:'FL ${family}';font-style:normal;font-weight:100 900;font-display:swap;src:${src};}`,
       `@font-face{font-family:'FL ${family} Fallback';src:local('${fbName}');size-adjust:${o.sizeAdjust};ascent-override:${o.ascent};descent-override:${o.descent};line-gap-override:${o.lineGap};}`,
     );
     stacks[family] = `'FL ${family}', 'FL ${family} Fallback', ${generic(main.category)}`;

@@ -41,7 +41,12 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    the human the fidelity warning). `compose_directions` admits them and rejects only genuinely
    unshippable fonts. Browse the verified floor with `font_lab_list_catalog({ role, tag })`.
    `font_lab_curate({ projectDir, vibe? })` is the **fallback** when you have no brief.
-3. **Set up the preview** — `font_lab_init({ projectDir, directions })`, passing the directions
+   > **Which framework?** Check `analyze`'s `capabilities`. On **Next.js App Router** you get the
+   > live in-app panel (`livePanel: true`) — use the `init` path below. On **any other framework**
+   > (TanStack / Vite / Astro / … — `livePanel: false`), the panel can't mount: **skip `init`** and
+   > use the portable **`font_lab_preview`** in step 4 instead. Either way the pick ships with
+   > `font_lab_apply` (next/font on Next; self-hosted `@font-face` + Tailwind `@theme` elsewhere).
+3. **Set up the preview (Next only)** — `font_lab_init({ projectDir, directions })`, passing the directions
    you just composed. The panel shows **exactly those**. `init` **refuses without directions** —
    so you can't mount the generic default menu without doing the brief first; only pass
    `allowFallback: true` if the user explicitly wants the deterministic default. If `analyze`
@@ -51,8 +56,18 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    - **Want more options?** The menu is never capped. When the user asks "what else?", compose
      additional directions and call `font_lab_more_directions({ projectDir, directions })` — they're
      appended to the live panel (existing options kept).
-4. **The choosing moment** — pick the path that fits where you're running. Start the dev server
-   in the background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
+4. **The choosing moment** — pick the path that fits where you're running.
+
+   - **Portable (works on ANY framework, no dev server — the default off Next):**
+     `font_lab_preview({ projectDir, directions })` builds a single self-contained HTML sheet — one
+     card per direction, the parity fonts **embedded** (opens offline), rendered on the project's
+     own palette. **Show the human that file** (or open it) and ask them to pick an id. Each card
+     has a live **render-check badge** (a real width-diff — it flags a font that silently fell back,
+     unlike `document.fonts.check`). Want verified screenshots too? it also has a headless
+     screenshot+verify mode. Record the pick with `font_lab_select`.
+
+   The two paths below need Next's live panel (`init`) + a running dev server — start it in the
+   background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
 
    - **Live (best — when the human has a real browser on this machine):** you're in a local
      terminal / IDE (Mac or Linux terminal, VS Code, Cursor, the Claude Code IDE extension).
@@ -70,7 +85,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    Always offer the live escape hatch: if the screenshots aren't enough and the human wants to
    flip/mix/compare themselves, give them `font_lab_live_instructions({ projectDir })` —
    ready-to-run commands to launch the full editor locally (works in any terminal / IDE / Cursor).
-5. **Ship it** — once a selection exists (from either path), `font_lab_apply({ projectDir })`.
+5. **Ship it** — once a selection exists (from any path), `font_lab_apply({ projectDir })`. On Next
+   it writes next/font + Tailwind; on TanStack/Vite/Astro (Tailwind v4) it self-hosts the parity
+   `@font-face`, maps Tailwind `@theme`, and repoints the project's own font vars — no next/font.
    Reversible via `font_lab_undo`; remove the panel scaffolding with `font_lab_uninit`.
 
 ## Rules
