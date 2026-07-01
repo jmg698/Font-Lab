@@ -308,7 +308,16 @@ function planRoles(selection, analysis) {
   return ["display", "body", "mono"].map((role) => {
     const family = selection.roles[role].family;
     const existing = analysis.roles[role];
-    const adopt = existing && existing.nextFontVar && !ROLE_VAR_SET.has(existing.nextFontVar);
+    // Adopt the project's OWN variable-named const — but never our own generated one. On a
+    // re-apply the analyzer re-reads Font Lab's `fontLab*` const (which sits on a family-named
+    // var like `--font-fraunces`); treating that as "the project's wiring" would flip the role
+    // to adopt and make setFencedConsts strip its own block. The `fontLab` guard keeps re-apply
+    // byte-idempotent.
+    const adopt =
+      existing &&
+      existing.nextFontVar &&
+      !ROLE_VAR_SET.has(existing.nextFontVar) &&
+      !existing.constName?.startsWith("fontLab");
     return adopt
       ? {
           role,
@@ -340,7 +349,19 @@ export function applySelection(projectDir) {
   if (!analysis.supported)
     throw new Error(`project not supported by codegen yet: ${analysis.reasons.join("; ")}`);
 
-  const { layout, css } = resolveTargets(projectDir);
+  // Use the exact files the analyzer resolved (route-group root layouts and non-standard CSS
+  // entry names live outside resolveTargets' conventional list). Fall back to the conventional
+  // probe only if the analyzer somehow returned nothing.
+  const layout = analysis.declarationFile ? path.join(projectDir, analysis.declarationFile) : null;
+  const css = analysis.cssFile ? path.join(projectDir, analysis.cssFile) : null;
+  if (!layout || !css || !existsSync(layout) || !existsSync(css)) {
+    const t = resolveTargets(projectDir);
+    return applyResolved(projectDir, selection, analysis, t.layout, t.css);
+  }
+  return applyResolved(projectDir, selection, analysis, layout, css);
+}
+
+function applyResolved(projectDir, selection, analysis, layout, css) {
   const classTarget = analysis.classNameTarget || "html";
   const roles = planRoles(selection, analysis);
 
