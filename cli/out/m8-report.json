@@ -1,0 +1,104 @@
+{
+  "results": [
+    {
+      "name": "specimen: is a full HTML document",
+      "pass": true
+    },
+    {
+      "name": "specimen: one card per direction",
+      "pass": true
+    },
+    {
+      "name": "specimen: embeds the provided @font-face",
+      "pass": true
+    },
+    {
+      "name": "specimen: tags role elements with their primary face",
+      "pass": true
+    },
+    {
+      "name": "specimen: registers all faces for the render check",
+      "pass": true
+    },
+    {
+      "name": "specimen: includes the width-diff render check (not fonts.check)",
+      "pass": true
+    },
+    {
+      "name": "specimen: RENDER_CHECK_JS export is embedded",
+      "pass": true
+    },
+    {
+      "name": "specimen: applies the project palette",
+      "pass": true
+    },
+    {
+      "name": "specimen: uses the direction's font stack on the headline",
+      "pass": true
+    },
+    {
+      "name": "specimen: shows a parity badge when provided",
+      "pass": true
+    },
+    {
+      "name": "specimen: escapes untrusted direction names (no raw <b>)",
+      "pass": true
+    },
+    {
+      "name": "specimen: references no network font CDN itself (offline)",
+      "pass": true
+    },
+    {
+      "name": "specimen: array faceCss is newline-joined (both @font-face survive)",
+      "pass": true
+    },
+    {
+      "name": "specimen: empty directions still render a valid doc",
+      "pass": true
+    },
+    {
+      "name": "preview: writes .font-lab/preview.html",
+      "pass": true
+    },
+    {
+      "name": "preview: works on a non-Next framework (tanstack-start)",
+      "pass": true
+    },
+    {
+      "name": "preview: bundles the picked + role fonts",
+      "pass": true
+    },
+    {
+      "name": "preview: emits @font-face for the picked display",
+      "pass": true
+    },
+    {
+      "name": "preview: picks up the project palette (accent #ff3b30)",
+      "pass": true
+    },
+    {
+      "name": "preview: is self-contained (no CDN fetch in the HTML)",
+      "pass": true
+    },
+    {
+      "name": "preview: works on Vite",
+      "pass": true
+    },
+    {
+      "name": "preview: available even on a non-shippable (non-Tailwind) project",
+      "pass": true
+    },
+    {
+      "name": "engine: exports previewSpecimen + screenshotSpecimen",
+      "pass": true
+    },
+    {
+      "name": "screenshot: captures one image per card",
+      "pass": true
+    },
+    {
+      "name": "screenshot: render check ran (summary present)",
+      "pass": true
+    }
+  ]
+}
