@@ -1,33 +1,55 @@
 name: Publish to npm (with provenance)
 
-# Publishes the cli/ package to npm whenever you cut a GitHub Release (or run this manually).
-# Auth is npm Trusted Publishing (OIDC) — NO token/secret. npm is configured to trust this exact
-# workflow (Package settings -> Trusted Publisher -> GitHub Actions: jmg698/Font-Lab, publish.yml),
-# and the short-lived id-token below proves the build's identity. CI publish also attaches a signed
-# provenance attestation — the verified badge that cryptographically ties font-lab to THIS repo +
-# commit, so it can't be mistaken for a typosquat.
+# ONE release = ONE version, everywhere. Cut a GitHub Release tagged vX.Y.Z and this
+# workflow does the rest:
+#   1. derives the version FROM THE TAG (the single source of truth — no version strings
+#      to bump in the repo; package.json / server.json are stamped here before publishing),
+#   2. publishes cli/ to npm with provenance,
+#   3. then (and only then) publishes the same version to the MCP Registry — the registry
+#      validates against the published npm package, so ordering matters.
+#
+# npm auth is Trusted Publishing (OIDC) — NO token/secret. npm trusts this exact workflow
+# file (jmg698/Font-Lab, publish.yml), and the provenance attestation cryptographically
+# ties the package to this repo + commit. MCP Registry auth is GitHub OIDC — also no secret.
+#
+# Manual runs (workflow_dispatch) must supply the version explicitly.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
+      version:
+        description: "Version to publish (e.g. 0.9.2) — required for manual runs"
+        required: true
       dist_tag:
         description: "npm dist-tag to publish under"
         default: latest
 
 permissions:
   contents: read
-  id-token: write # REQUIRED for npm provenance (OIDC)
+  id-token: write # REQUIRED for npm provenance AND MCP Registry OIDC
 
 jobs:
-  publish:
+  publish-npm:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: cli
     steps:
       - uses: actions/checkout@v4
+
+      # The tag IS the version. Accept v0.9.2 / V0.9.2 / 0.9.2; fail fast (before any
+      # publish) on anything that isn't semver, with a message that says how to fix it.
+      - name: Derive version from tag
+        run: |
+          RAW="${{ github.event.inputs.version || github.event.release.tag_name }}"
+          VERSION="${RAW#v}"; VERSION="${VERSION#V}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$RAW' is not a semver version. Tag releases like v0.9.2." && exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Publishing version $VERSION"
 
       - uses: actions/setup-node@v4
         with:
@@ -36,6 +58,10 @@ jobs:
 
       # Trusted Publishing (OIDC) needs a recent npm; node 22's bundled npm may predate it.
       - run: npm install -g npm@latest
+
+      # Stamp the tag's version into package.json — the repo copy is a dev placeholder.
+      - name: Stamp version
+        run: npm pkg set version="$VERSION"
 
       # Install prod deps and run the gates so we never publish a broken build.
       - run: npm install --omit=dev --no-audit --no-fund
@@ -46,3 +72,34 @@ jobs:
       # provenance automatically. The package page then shows it was built + signed on GitHub
       # Actions from jmg698/Font-Lab at the exact commit.
       - run: npm publish --provenance --access public --tag "${{ github.event.inputs.dist_tag || 'latest' }}"
+
+  publish-mcp-registry:
+    needs: publish-npm # registry validates the npm package — it must exist first
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        run: |
+          RAW="${{ github.event.inputs.version || github.event.release.tag_name }}"
+          VERSION="${RAW#v}"; VERSION="${VERSION#V}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # Stamp the same version into server.json (top-level + the npm package entry).
+      - name: Stamp version
+        run: |
+          jq --arg v "$VERSION" '.version = $v | .packages[].version = $v' server.json > server.tmp
+          mv server.tmp server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish

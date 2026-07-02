@@ -13,15 +13,15 @@
       "pass": true
     },
     {
-      "name": "declares fontLabDisplay on --font-display",
+      "name": "declares fontLabDisplay on --font-fraunces",
       "pass": true
     },
     {
-      "name": "declares fontLabBody on --font-sans",
+      "name": "declares fontLabBody on --font-libre-franklin",
       "pass": true
     },
     {
-      "name": "declares fontLabMono on --font-mono",
+      "name": "declares fontLabMono on --font-jetbrains-mono",
       "pass": true
     },
     {
@@ -54,19 +54,7 @@
     },
     {
       "name": "project builds after apply",
-      "pass": true
-    },
-    {
-      "name": "h1 renders Fraunces",
-      "pass": true
-    },
-    {
-      "name": "body renders Libre Franklin",
-      "pass": true
-    },
-    {
-      "name": "code renders JetBrains Mono",
-      "pass": true
+      "pass": false
     },
     {
       "name": "undo restores layout.tsx byte-identical",

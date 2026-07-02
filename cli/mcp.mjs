@@ -9,10 +9,19 @@
 // an agent reaches for Font Lab the moment a user wants to choose, change, or improve fonts —
 // and so it understands the contract (the HUMAN picks; the agent curates and ships).
 
+import { readFileSync } from "node:fs";
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.8.2" };
+// Version comes from package.json (stamped from the release tag in CI) — never hardcode it here.
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+})();
+const SERVER = { name: "font-lab", version: VERSION };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };

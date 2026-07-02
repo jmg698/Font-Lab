@@ -141,27 +141,71 @@
       "pass": true
     },
     {
-      "name": "plain: detects framework vite",
+      "name": "varwired: framework vite, no Tailwind",
       "pass": true
     },
     {
-      "name": "plain: still names the current font (Poppins) for the brief",
+      "name": "varwired: names current fonts via CSS vars (Poppins)",
       "pass": true
     },
     {
-      "name": "plain: applyMode null (no Tailwind v4)",
+      "name": "varwired: applyMode css-entry via css-var (Tier A)",
       "pass": true
     },
     {
-      "name": "plain: capability manifest flags manualApply",
+      "name": "varwired: shipNote mentions repointing font vars (no Tailwind)",
       "pass": true
     },
     {
-      "name": "plain: applyTarget still points at the CSS entry",
+      "name": "varwired: apply via css-var",
       "pass": true
     },
     {
-      "name": "plain: apply refuses cleanly (degraded → hand-apply)",
+      "name": "varwired: self-hosts @font-face",
+      "pass": true
+    },
+    {
+      "name": "varwired: repoints all three project vars",
+      "pass": true
+    },
+    {
+      "name": "varwired: sets --font-body to the FL stack",
+      "pass": true
+    },
+    {
+      "name": "varwired: writes NO @theme block (non-Tailwind)",
+      "pass": true
+    },
+    {
+      "name": "varwired: drops the Google @import",
+      "pass": true
+    },
+    {
+      "name": "varwired: idempotent re-apply",
+      "pass": true
+    },
+    {
+      "name": "varwired: undo restores byte-identical",
+      "pass": true
+    },
+    {
+      "name": "hardcoded: framework vite",
+      "pass": true
+    },
+    {
+      "name": "hardcoded: still names the current font (Poppins) for the brief",
+      "pass": true
+    },
+    {
+      "name": "hardcoded: applyMode null (no var seam, no Tailwind)",
+      "pass": true
+    },
+    {
+      "name": "hardcoded: capability manifest flags manualApply + a target",
+      "pass": true
+    },
+    {
+      "name": "hardcoded: apply refuses cleanly (degraded → hand-apply)",
       "pass": true
     },
     {
