@@ -293,7 +293,9 @@ function backup(projectDir, files) {
     manifest.files.push({ path: rel, sha256: sha(readFileSync(f)) });
   }
   try {
-    manifest.git = execFileSync("git", ["-C", projectDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    // stderr ignored: on a non-git project the catch swallows the error, but git's
+    // "fatal: not a git repository" would still leak through inherited stderr.
+    manifest.git = execFileSync("git", ["-C", projectDir, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch {}
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
@@ -308,7 +310,7 @@ function restore(projectDir, backupDir) {
 
 // Decide per-role whether to adopt the project's existing wiring or write a role-var const.
 function planRoles(selection, analysis) {
-  return ["display", "body", "mono"].map((role) => {
+  const plans = ["display", "body", "mono"].map((role) => {
     const family = selection.roles[role].family;
     const existing = analysis.roles[role];
     // Adopt the project's OWN variable-named const — but never our own generated one. On a
@@ -339,6 +341,29 @@ function planRoles(selection, analysis) {
           varName: ROLE_VARS[role], // the Tailwind role token (left side of the @theme map)
           fontVar: fontVar(family), // the distinct next/font variable (what the const sets, right side)
         };
+  });
+  // One project const can back several roles (a single sans doing display+body duty: both
+  // roles trace to the same leaf var). Only one family can live in that const — the first
+  // role keeps the adopt; a later role wanting a DIFFERENT family there falls back to its
+  // own role-var const, else the two rewrites race and last-write-wins breaks verify.
+  const claimed = new Map(); // constName -> importName of the role that adopted it
+  return plans.map((p) => {
+    if (p.mode !== "adopt") return p;
+    const first = claimed.get(p.constName);
+    if (!first) {
+      claimed.set(p.constName, p.importName);
+      return p;
+    }
+    if (first === p.importName) return p; // same family: one rewrite serves both roles
+    return {
+      role: p.role,
+      family: p.family,
+      importName: p.importName,
+      mode: "rolevar",
+      constName: constName(p.role),
+      varName: ROLE_VARS[p.role],
+      fontVar: fontVar(p.family),
+    };
   });
 }
 
@@ -464,7 +489,19 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
 export async function applySelection(projectDir, opts = {}) {
   const selPath = path.join(projectDir, ".font-lab", "selection.json");
   if (!existsSync(selPath)) throw new Error(`no selection at ${selPath} — pick one first`);
-  const selection = JSON.parse(readFileSync(selPath, "utf8"));
+  let selection;
+  try {
+    selection = JSON.parse(readFileSync(selPath, "utf8"));
+  } catch (e) {
+    throw new Error(`selection.json is not valid JSON (${e.message}) — re-pick, or fix ${selPath}`);
+  }
+  // Agents sometimes hand-write this file; a wrong shape must fail with the fix, not a stack trace.
+  const missingRoles = ["display", "body", "mono"].filter((r) => typeof selection?.roles?.[r]?.family !== "string");
+  if (missingRoles.length)
+    throw new Error(
+      `selection.json missing roles.{${missingRoles.join(", ")}}.family — expected shape: ` +
+        `{ roles: { display: { family, weights }, body: {…}, mono: {…} } } (font_lab_select and the panel write this)`,
+    );
 
   // The analyzer picks the branch; codegen never re-guesses.
   const analysis = analyzeProject(projectDir);

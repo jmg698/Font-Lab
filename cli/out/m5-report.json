@@ -17,7 +17,7 @@
       "pass": true
     },
     {
-      "name": "composeDirections accepts catalog fonts",
+      "name": "composeDirections accepts distinctive catalog fonts",
       "pass": true
     },
     {
@@ -25,7 +25,11 @@
       "pass": true
     },
     {
-      "name": "composeDirections refuses non-catalog fonts",
+      "name": "composeDirections refuses an all-generic menu",
+      "pass": true
+    },
+    {
+      "name": "composeDirections force:true overrides the anti-generic gate",
       "pass": true
     },
     {
@@ -34,6 +38,10 @@
     },
     {
       "name": "preparePreview reports prepared fonts",
+      "pass": true
+    },
+    {
+      "name": "preparePreview bakes in wiring (panel can swap)",
       "pass": true
     },
     {
@@ -114,6 +122,10 @@
     },
     {
       "name": "MCP rejects unknown tool",
+      "pass": true
+    },
+    {
+      "name": "MCP enforces required args with a clear in-band error",
       "pass": true
     }
   ]
