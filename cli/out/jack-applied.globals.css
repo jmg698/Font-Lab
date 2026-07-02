@@ -1,10 +1,4 @@
 @import 'tailwindcss';
-
-/* font-lab:start */
-@theme inline {
-  --font-mono: var(--font-mono);
-}
-/* font-lab:end */
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
@@ -93,6 +87,12 @@
   --color-card-forest: var(--card-forest);
 }
 
+/* font-lab:start */
+@theme inline {
+  --font-mono: var(--font-jetbrains-mono);
+}
+/* font-lab:end */
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -161,3 +161,4 @@
     transition-duration: 0.01ms !important;
   }
 }
+

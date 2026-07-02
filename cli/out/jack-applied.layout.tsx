@@ -5,7 +5,7 @@ import './globals.css'
 
 // font-lab:start
 // generated — re-run `font-lab apply` to update, `font-lab undo` to revert
-const fontLabMono = JetBrains_Mono({ subsets: ["latin"], display: "swap", variable: "--font-mono" });
+const fontLabMono = JetBrains_Mono({ subsets: ["latin"], display: "swap", variable: "--font-jetbrains-mono" });
 // font-lab:end
 
 // Display: characterful humanist grotesque — warm, a little idiosyncratic.

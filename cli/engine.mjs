@@ -12,7 +12,7 @@
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync, watch as fsWatch, statSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
@@ -23,6 +23,7 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath } from "./state.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
 
@@ -125,7 +126,17 @@ export async function admitDirections(directions, { projectDir } = {}) {
 // self-hosted by the SAME build path the catalog uses).
 function specFromVerdict(v) {
   if (!isShippable(v)) return null;
-  return { css2: v.css2 || null, capsize: v.capsize || null, woff2Url: v.woff2Url || null, category: v.category || null, roles: v.roles || ROLES };
+  return {
+    css2: v.css2 || null,
+    capsize: v.capsize || null,
+    woff2Url: v.woff2Url || null,
+    category: v.category || null,
+    roles: v.roles || ROLES,
+    // Honesty metadata for the panel + apply: where the face ships from and whether the
+    // preview is byte-for-byte (catalog specs omit these; generateCatalog defaults them).
+    source: v.source || "google",
+    parity: v.parity || "best-effort",
+  };
 }
 
 // Spec resolver for generateCatalog: catalog members first (the proven path, byte-identical),
@@ -405,8 +416,106 @@ export function readSelection(projectDir) {
 }
 
 export async function apply(projectDir, opts = {}) {
-  return applySelection(path.resolve(projectDir), opts);
+  const dir = path.resolve(projectDir);
+  const result = await applySelection(dir, opts);
+  // Stamp the ship so the panel (via the endpoint's SSE) and font_lab_status can show
+  // "shipped" for the current pick without guessing from file mtimes.
+  writeAppliedStamp(dir, result);
+  return result;
 }
+
+// Block until the human picks (or timeoutMs elapses) — the MCP-native handoff. While waiting,
+// an agent-waiting marker makes the presence visible to the panel ("agent listening"), so the
+// human knows their pick lands somewhere. fs.watch is advisory on some platforms; a 1s poll
+// backstops it. Returns { picked, selection?, timedOut?, waitedMs }.
+export async function waitForPick(projectDir, { timeoutMs = 240_000, ignoreExisting = false } = {}) {
+  const dir = path.resolve(projectDir);
+  const selPath = selectionPath(dir);
+  const startedAt = Date.now();
+  const baseline = ignoreExisting && existsSync(selPath) ? statSafe(selPath) : null;
+
+  const current = () => {
+    if (!existsSync(selPath)) return null;
+    if (baseline) {
+      const st = statSafe(selPath);
+      if (st && st.mtimeMs <= baseline.mtimeMs) return null; // same stale pick — keep waiting
+    }
+    return readSelection(dir);
+  };
+
+  const immediate = current();
+  if (immediate) return { picked: true, selection: immediate, waitedMs: 0 };
+
+  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  setAgentWaiting(dir, true);
+  try {
+    const selection = await new Promise((resolve) => {
+      let watcher = null;
+      let poller = null;
+      let deadline = null;
+      const settle = (v) => {
+        try { watcher?.close(); } catch {}
+        clearInterval(poller);
+        clearTimeout(deadline);
+        resolve(v);
+      };
+      const check = () => {
+        const sel = current();
+        if (sel) settle(sel);
+      };
+      try {
+        watcher = fsWatch(path.join(dir, ".font-lab"), (_ev, name) => {
+          if (!name || name === "selection.json") check();
+        });
+      } catch {}
+      poller = setInterval(check, 1000);
+      deadline = setTimeout(() => settle(null), timeoutMs);
+      check();
+    });
+    if (selection) return { picked: true, selection, waitedMs: Date.now() - startedAt };
+    return {
+      picked: false,
+      timedOut: true,
+      waitedMs: Date.now() - startedAt,
+      hint: "No pick yet. Call font_lab_wait_for_pick again to keep waiting, or check in with the human.",
+    };
+  } finally {
+    setAgentWaiting(dir, false);
+  }
+}
+
+// One snapshot of the whole handoff: the pick, the ship, agent presence, the endpoint, and
+// the latest backup. The cheap "where are we?" for a resumed or interrupted session.
+export async function status(projectDir, { port = 7777 } = {}) {
+  const dir = path.resolve(projectDir);
+  const state = readHandoffState(dir);
+  let endpoint = { up: false, port };
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 500);
+    const res = await fetch(`http://127.0.0.1:${port}/status`, { signal: ctl.signal });
+    clearTimeout(t);
+    if (res.ok) {
+      const body = await res.json();
+      endpoint = { up: true, port, once: !!body.once, autoApply: !!body.autoApply };
+      if (body.agentWaiting) state.agentWaiting = true;
+    }
+  } catch {}
+  let backups = null;
+  try {
+    const runId = readFileSync(path.join(dir, ".font-lab", "backups", "latest.txt"), "utf8").trim();
+    backups = { latestRunId: runId };
+  } catch {}
+  return { ...state, endpoint, backups };
+}
+
+const statSafe = (p) => {
+  try {
+    return statSync(p);
+  } catch {
+    return null;
+  }
+};
 
 // Fix a role the analyzer flags as dead (declared but not actually rendered). Reversible.
 export function rewire(projectDir) {
@@ -554,7 +663,10 @@ export function uninit(projectDir) {
 }
 
 export function undo(projectDir) {
-  return undoApply(path.resolve(projectDir));
+  const dir = path.resolve(projectDir);
+  const result = undoApply(dir);
+  clearAppliedStamp(dir); // state returns to "picked, not shipped"
+  return result;
 }
 
 // ── headless pick mode ────────────────────────────────────────────────────────

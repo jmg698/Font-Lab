@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" data-fl-verified="0">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>happenings — choosing sheet</title>
+<style>
+@font-face{font-family:'FL Archivo';src:url('/fontlab/archivo.woff2') format('woff2');}
+:root { --bg:#0b0b0b; --fg:#f5f5f5; --muted:#6b6b6b; --rule:#e2e0da; --accent:#ff3b30; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); -webkit-font-smoothing:antialiased; font-family: system-ui, sans-serif; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 40px 28px 80px; }
+.masthead { display:flex; align-items:baseline; justify-content:space-between; gap:16px; border-bottom:2px solid var(--fg); padding-bottom:12px; margin-bottom:8px; }
+.masthead .brand { font-weight:700; letter-spacing:-0.01em; }
+.masthead .sub { color:var(--muted); font-size:13px; }
+#fl-render-summary { font-size:12px; color:var(--muted); }
+#fl-render-summary[data-fl-all="1"]::before { content:"● "; color:#1a9d55; }
+#fl-render-summary[data-fl-all="0"]::before { content:"● "; color:var(--accent); }
+.hint { color:var(--muted); font-size:13px; margin:14px 0 28px; }
+.card { border:1px solid var(--rule); border-radius:14px; background:color-mix(in srgb, var(--bg) 92%, #fff); margin:0 0 22px; overflow:hidden; }
+.card-head { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--rule); }
+.card-head .idx { font-variant-numeric:tabular-nums; font-weight:700; color:var(--accent); font-size:13px; }
+.card-head .meta { flex:1; min-width:0; }
+.card-head .name { font-weight:650; font-size:14px; }
+.card-head .fonts { color:var(--muted); font-size:12px; margin-top:2px; }
+.badges { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.fl-tag { font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--rule); color:var(--muted); text-transform:lowercase; }
+.fl-cur { border-color:var(--fg); color:var(--fg); }
+.fl-parity-guaranteed { color:#1a7d47; border-color:#bfe3cd; }
+.fl-parity-best-effort { color:#9a6a00; border-color:#ecdaa8; }
+.fl-check { font-size:11px; padding:2px 7px; border-radius:999px; }
+.fl-check.fl-good { color:#1a7d47; }
+.fl-check.fl-bad { color:var(--accent); font-weight:600; }
+.specimen { padding: 22px 26px 28px; }
+.specimen .eyebrow { text-transform:uppercase; letter-spacing:0.14em; font-size:11px; color:var(--accent); margin-bottom:10px; }
+.specimen .headline { font-size: clamp(30px, 5vw, 52px); line-height:1.03; letter-spacing:-0.02em; margin:0 0 16px; font-weight:700; }
+.specimen .body { font-size:17px; line-height:1.5; max-width:60ch; margin:0 0 16px; color:color-mix(in srgb, var(--fg) 88%, var(--bg)); }
+.specimen .mono { display:inline-block; font-size:13px; background:color-mix(in srgb, var(--fg) 8%, transparent); padding:4px 8px; border-radius:6px; }
+.specimen .rationale { margin-top:16px; font-size:13px; color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="masthead">
+    <div><span class="brand">happenings</span> <span class="sub">choosing sheet · fonts embedded, opens offline</span></div>
+    <div id="fl-render-summary">verifying…</div>
+  </div>
+  <div class="hint">Each card renders the same copy in one direction — Display · Body · Mono. Scroll to compare, then tell the agent which id to ship. The badge on each card is a live render check (not a fonts.check false-positive).</div>
+  
+    <section class="card" data-fl-card="constructivist">
+      <header class="card-head">
+        <div class="idx">00</div>
+        <div class="meta">
+          <div class="name">Constructivist</div>
+          <div class="fonts">Archivo · Hanken Grotesk · Spline Sans Mono</div>
+        </div>
+        <div class="badges"><span class="fl-tag fl-parity-guaranteed">guaranteed</span><span class="fl-check"></span></div>
+      </header>
+      <div class="specimen">
+        <div class="eyebrow" style="font-family:'FL Hanken Grotesk', sans-serif" data-fl-face="FL Hanken Grotesk">The personal event wall</div>
+        <h2 class="headline" style="font-family:'FL Archivo', 'FL Archivo Fallback', sans-serif" data-fl-face="FL Archivo">Type is the fastest way a product shows its taste.</h2>
+        <p class="body" style="font-family:'FL Hanken Grotesk', sans-serif" data-fl-face="FL Hanken Grotesk">A flyer someone screenshotted off Instagram. A link a friend dropped in the group chat. The same face has to carry a loud headline and stay calm under a paragraph of body copy — so you read it here, at the real size, before it ships.</p>
+        <code class="mono" style="font-family:'FL Spline Sans Mono', monospace" data-fl-face="FL Spline Sans Mono">const preview = ship; // 0123456789</code>
+        <div class="rationale" style="font-family:'FL Hanken Grotesk', sans-serif">Tall condensed caps.</div>
+      </div>
+    </section>
+
+    <section class="card" data-fl-card="editorial">
+      <header class="card-head">
+        <div class="idx">01</div>
+        <div class="meta">
+          <div class="name">Editorial &lt;b&gt;</div>
+          <div class="fonts">Fraunces · Hanken Grotesk · Spline Sans Mono</div>
+        </div>
+        <div class="badges"><span class="fl-check"></span></div>
+      </header>
+      <div class="specimen">
+        <div class="eyebrow" style="font-family:'FL Hanken Grotesk', sans-serif" data-fl-face="FL Hanken Grotesk">The personal event wall</div>
+        <h2 class="headline" style="font-family:'FL Fraunces', serif" data-fl-face="FL Fraunces">Type is the fastest way a product shows its taste.</h2>
+        <p class="body" style="font-family:'FL Hanken Grotesk', sans-serif" data-fl-face="FL Hanken Grotesk">A flyer someone screenshotted off Instagram. A link a friend dropped in the group chat. The same face has to carry a loud headline and stay calm under a paragraph of body copy — so you read it here, at the real size, before it ships.</p>
+        <code class="mono" style="font-family:'FL Spline Sans Mono', monospace" data-fl-face="FL Spline Sans Mono">const preview = ship; // 0123456789</code>
+        <div class="rationale" style="font-family:'FL Hanken Grotesk', sans-serif">Characterful &amp; calm.</div>
+      </div>
+    </section>
+</div>
+<script>window.__FL_FACES = ["FL Archivo","FL Hanken Grotesk","FL Spline Sans Mono","FL Fraunces"];</script>
+<script>
+(function () {
+  function widthOf(text, fam) {
+    var s = document.createElement("span");
+    s.style.cssText = "position:absolute;left:-9999px;top:-9999px;white-space:nowrap;font-size:100px;font-weight:400;font-family:" + fam + ";";
+    s.textContent = text;
+    document.body.appendChild(s);
+    var w = s.offsetWidth;
+    document.body.removeChild(s);
+    return w;
+  }
+  // "Really rendering" = the primary face measurably changes the probe width vs. every generic
+  // baseline. We deliberately test the PRIMARY only (not the metric-matched fallback), so a
+  // silent fallback is caught rather than masked. (This is FontFaceObserver's technique.)
+  var PROBE = "WgqQ mmiiWW 0123 — the quick brown fox";
+  var GENERICS = ["serif", "sans-serif", "monospace"];
+  function rendering(face) {
+    for (var i = 0; i < GENERICS.length; i++) {
+      var base = widthOf(PROBE, GENERICS[i]);
+      var withFace = widthOf(PROBE, "'" + face + "'," + GENERICS[i]);
+      if (Math.abs(withFace - base) > 1.5) return true;
+    }
+    return false;
+  }
+  function run() {
+    var faces = window.__FL_FACES || [];
+    var ok = 0;
+    faces.forEach(function (f) {
+      var good = rendering(f);
+      if (good) ok++;
+      var nodes = document.querySelectorAll('[data-fl-face="' + f + '"]');
+      for (var i = 0; i < nodes.length; i++) nodes[i].setAttribute("data-fl-loaded", good ? "1" : "0");
+    });
+    var cards = document.querySelectorAll("[data-fl-card]");
+    for (var c = 0; c < cards.length; c++) {
+      var faceEls = cards[c].querySelectorAll("[data-fl-face]");
+      var bad = 0;
+      for (var j = 0; j < faceEls.length; j++) if (faceEls[j].getAttribute("data-fl-loaded") === "0") bad++;
+      var badge = cards[c].querySelector(".fl-check");
+      if (badge) {
+        badge.textContent = bad ? "⚠ " + bad + " font" + (bad > 1 ? "s" : "") + " not loaded" : "✓ fonts rendering";
+        badge.className = "fl-check " + (bad ? "fl-bad" : "fl-good");
+      }
+    }
+    var sum = document.getElementById("fl-render-summary");
+    if (sum) {
+      sum.textContent = ok + " / " + faces.length + " faces rendering";
+      sum.setAttribute("data-fl-all", ok === faces.length ? "1" : "0");
+    }
+    document.documentElement.setAttribute("data-fl-verified", "1");
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { setTimeout(run, 60); });
+  else window.addEventListener("load", run);
+})();
+</script>
+</body>
+</html>

@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { analyzeProject } from "./analyzer.mjs";
 import { inCatalog, get as catalogGet } from "./catalog.mjs";
-import { normalize as normFamily } from "./admit.mjs";
+import { normalize as normFamily, admit as admitFont, isShippable } from "./admit.mjs";
 import { buildParityBundles } from "./catalog-build.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
@@ -33,6 +33,10 @@ const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 const constName = (role) => "fontLab" + cap(role);
 const importName = (family) => family.replace(/[^A-Za-z0-9]+/g, "_");
+// Roles whose const WE generate in the fenced block (vs adopt of the project's own const).
+// "localfont" is rolevar-shaped everywhere except the import + the const's factory call.
+const isGenerated = (r) => r.mode === "rolevar" || r.mode === "localfont";
+const famSlug = (family) => family.toLowerCase().replace(/[^a-z0-9]+/g, "-"); // matches catalog-build's woff2 naming
 // A distinct, family-named CSS variable for a new role, matching the common project convention
 // (`--font-bricolage`, `--font-jetbrains-mono`). Keeping it distinct from the role token avoids the
 // self-referential `--font-mono: var(--font-mono)` and the collision with a project's own token.
@@ -104,15 +108,24 @@ function buildClassNameInit(dynamic, statics) {
 }
 
 function editLayoutAst(sf, roles, classTarget) {
-  // 1) ensure the next/font/google import carries every new family.
+  // 1) ensure the next/font/google import carries every new GOOGLE family. Local-shipped
+  //    (foundry) families must never land here — an unknown name in this import is exactly
+  //    the "apply exits 0, next build fails" failure this branch used to have.
   let imp = sf.getImportDeclaration((d) => d.getModuleSpecifierValue() === "next/font/google");
   if (!imp) imp = sf.addImportDeclaration({ moduleSpecifier: "next/font/google", namedImports: [] });
   const named = new Set(imp.getNamedImports().map((n) => n.getName()));
-  for (const r of roles)
+  for (const r of roles.filter((r) => r.mode !== "localfont"))
     if (!named.has(r.importName)) {
       imp.addNamedImport(r.importName);
       named.add(r.importName);
     }
+
+  // 1b) self-hosted faces ride next/font/local's default import.
+  if (roles.some((r) => r.mode === "localfont")) {
+    const local = sf.getImportDeclaration((d) => d.getModuleSpecifierValue() === "next/font/local");
+    if (!local) sf.addImportDeclaration({ moduleSpecifier: "next/font/local", defaultImport: "localFont" });
+    else if (!local.getDefaultImport()) local.setDefaultImport("localFont");
+  }
 
   const replaced = [];
   const oldImports = new Set();
@@ -155,7 +168,7 @@ function editLayoutAst(sf, roles, classTarget) {
   const attr = el.getAttribute("className");
   const { dynamic, statics } = classNameTokens(attr);
   const kept = dynamic.filter((d) => !removeNames.some((n) => d === n || d.startsWith(n + ".")));
-  for (const r of roles.filter((r) => r.mode === "rolevar")) {
+  for (const r of roles.filter(isGenerated)) {
     const token = `${r.constName}.variable`;
     if (!kept.includes(token)) kept.push(token);
   }
@@ -180,15 +193,20 @@ function editLayoutAst(sf, roles, classTarget) {
 // Only role-var roles need a generated const; adopted roles are rewritten above.
 
 function setFencedConsts(text, roles) {
-  const rv = roles.filter((r) => r.mode === "rolevar");
+  const rv = roles.filter(isGenerated);
   const strip = (t) => t.replace(/\n*\/\/ font-lab:start[\s\S]*?\/\/ font-lab:end\n*/g, "\n\n");
   if (!rv.length) return strip(text);
+  const constLine = (r) =>
+    r.mode === "localfont"
+      ? // Self-hosted parity woff2 (foundry faces): the same file + declared weight range the
+        // preview used, so what the human saw is what ships. `weight: "100 900"` mirrors the
+        // preview's `font-weight: 100 900` @font-face descriptor.
+        `const ${r.constName} = localFont({ src: [{ path: "${r.srcPath}", weight: "100 900", style: "normal" }], display: "swap", variable: "${r.fontVar}" });`
+      : `const ${r.constName} = ${r.importName}({ subsets: ["latin"], display: "swap", variable: "${r.fontVar}" });`;
   const lines = [
     "// font-lab:start",
     "// generated — re-run `font-lab apply` to update, `font-lab undo` to revert",
-    ...rv.map(
-      (r) => `const ${r.constName} = ${r.importName}({ subsets: ["latin"], display: "swap", variable: "${r.fontVar}" });`,
-    ),
+    ...rv.map(constLine),
     "// font-lab:end",
   ];
   const block = lines.join("\n");
@@ -212,6 +230,10 @@ function verifyLayout(sf, roles, classTarget) {
       const callee = vd.getInitializer()?.getExpression?.().getText();
       if (callee !== r.importName) throw new Error(`verify: ${r.constName} not rewritten to ${r.importName}`);
     }
+    if (r.mode === "localfont") {
+      const callee = vd.getInitializer()?.getExpression?.().getText();
+      if (callee !== "localFont") throw new Error(`verify: ${r.constName} not a localFont const`);
+    }
   }
   const { dynamic } = classNameTokens(findClassTarget(sf, classTarget)?.getAttribute("className"));
   for (const r of roles) {
@@ -223,7 +245,7 @@ function verifyLayout(sf, roles, classTarget) {
 // Only role-var roles need a @theme mapping; adopted roles reuse the project's existing one.
 
 function editCss(cssPath, roles) {
-  const rv = roles.filter((r) => r.mode === "rolevar");
+  const rv = roles.filter(isGenerated);
   const css = readFileSync(cssPath, "utf8");
   const next = composeCss(css, rv);
   if (next !== css) writeFileSync(cssPath, next);
@@ -308,39 +330,50 @@ function restore(projectDir, backupDir) {
   for (const f of manifest.files) copyFileSync(path.join(backupDir, f.path), path.join(projectDir, f.path));
 }
 
-// Decide per-role whether to adopt the project's existing wiring or write a role-var const.
-function planRoles(selection, analysis) {
+// Decide per-role whether to adopt the project's existing wiring or write a generated const
+// (rolevar for Google faces, localfont for self-hosted foundry faces).
+function planRoles(selection, analysis, shipInfo = {}) {
   const plans = ["display", "body", "mono"].map((role) => {
     const family = selection.roles[role].family;
     const existing = analysis.roles[role];
+    const ship = shipInfo[family] || { kind: "google" };
     // Adopt the project's OWN variable-named const — but never our own generated one. On a
     // re-apply the analyzer re-reads Font Lab's `fontLab*` const (which sits on a family-named
     // var like `--font-fraunces`); treating that as "the project's wiring" would flip the role
     // to adopt and make setFencedConsts strip its own block. The `fontLab` guard keeps re-apply
     // byte-idempotent.
+    //
+    // Two more adopt exclusions:
+    //   • a locally-shipped (foundry) family — adopt rewrites the callee to a next/font/google
+    //     name, which can't express a `src:` file; it gets its own localFont const instead;
+    //   • an existing next/font/local const — rewriting its callee to a Google name would leave
+    //     the local-only `src` option behind, which next/font/google rejects at build.
     const adopt =
       existing &&
       existing.nextFontVar &&
       !ROLE_VAR_SET.has(existing.nextFontVar) &&
-      !existing.constName?.startsWith("fontLab");
-    return adopt
-      ? {
-          role,
-          family,
-          importName: importName(family),
-          mode: "adopt",
-          constName: existing.constName,
-          adoptVar: existing.nextFontVar,
-        }
-      : {
-          role,
-          family,
-          importName: importName(family),
-          mode: "rolevar",
-          constName: constName(role),
-          varName: ROLE_VARS[role], // the Tailwind role token (left side of the @theme map)
-          fontVar: fontVar(family), // the distinct next/font variable (what the const sets, right side)
-        };
+      !existing.constName?.startsWith("fontLab") &&
+      existing.source !== "local" &&
+      ship.kind !== "local";
+    if (adopt)
+      return {
+        role,
+        family,
+        importName: importName(family),
+        mode: "adopt",
+        constName: existing.constName,
+        adoptVar: existing.nextFontVar,
+      };
+    return {
+      role,
+      family,
+      importName: importName(family),
+      mode: ship.kind === "local" ? "localfont" : "rolevar",
+      constName: constName(role),
+      varName: ROLE_VARS[role], // the Tailwind role token (left side of the @theme map)
+      fontVar: fontVar(family), // the distinct next/font variable (what the const sets, right side)
+      ...(ship.kind === "local" ? { srcPath: ship.srcPath } : {}),
+    };
   });
   // One project const can back several roles (a single sans doing display+body duty: both
   // roles trace to the same leaf var). Only one family can live in that const — the first
@@ -365,6 +398,88 @@ function planRoles(selection, analysis) {
       fontVar: fontVar(p.family),
     };
   });
+}
+
+// ---- next-font branch: ship-source resolution (the pre-apply trust gate) ----
+// Every family must resolve to a real, buildable source BEFORE we write a byte:
+//   catalog member            → next/font/google (the proven path)
+//   admitted, source google   → next/font/google
+//   admitted, source foundry  → next/font/local, self-hosting the SAME parity woff2 the
+//                               preview rendered (copied from <staticDir>/fontlab/, or
+//                               fetched from the admitted verdict's woff2Url)
+//   unknown                   → run the shippability gate now (network); refuse with the
+//                               gate's reason rather than emitting an import that fails at
+//                               `next build` ("Unknown font") long after apply exited 0.
+
+const CURL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+function admittedFileCache(projectDir) {
+  const p = path.join(projectDir, ".font-lab", "admitted.json");
+  const load = () => {
+    try {
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch {
+      return {};
+    }
+  };
+  return {
+    get: (key) => load()[key],
+    set: (key, verdict) => {
+      const all = load();
+      all[key] = verdict;
+      mkdirSync(path.dirname(p), { recursive: true });
+      writeFileSync(p, JSON.stringify(all, null, 2));
+    },
+  };
+}
+
+function ensureLocalFontFile(projectDir, analysis, layoutPath, family, woff2Url) {
+  const name = `fontlab-${famSlug(family)}.woff2`;
+  const fontsDir = path.join(path.dirname(layoutPath), "fonts");
+  const dest = path.join(fontsDir, name);
+  if (!existsSync(dest)) {
+    mkdirSync(fontsDir, { recursive: true });
+    // The preview already self-hosted this exact file — prefer it (byte-identical, offline).
+    const staged = path.join(projectDir, analysis.staticDir || "public", "fontlab", famSlug(family) + ".woff2");
+    if (existsSync(staged)) copyFileSync(staged, dest);
+    else if (woff2Url) execFileSync("curl", ["-sSL", "-A", CURL_UA, "-o", dest, woff2Url]);
+    else throw new Error(`no self-hostable woff2 for "${family}" — run font_lab_check_fonts (or prepare the preview) first`);
+  }
+  // next/font/local resolves src relative to the declaring file (layout.tsx).
+  return { srcPath: `./fonts/${name}`, file: path.relative(projectDir, dest) };
+}
+
+async function resolveShipInfo(projectDir, analysis, layoutPath, families) {
+  const cache = admittedFileCache(projectDir);
+  const info = {};
+  const localFiles = [];
+  for (const family of new Set(families)) {
+    if (inCatalog(family)) {
+      info[family] = { kind: "google" };
+      continue;
+    }
+    let v = cache.get(normFamily(family));
+    if (!v) {
+      try {
+        v = await admitFont(family, { cache });
+      } catch (e) {
+        throw new Error(
+          `couldn't verify "${family}" for the next/font branch (${e.message}) — ` +
+            `run font_lab_check_fonts first, or pick a Google Fonts family`,
+        );
+      }
+    }
+    if (!isShippable(v))
+      throw new Error(`"${family}" can't ship: ${v.reason || "not resolvable to a buildable source"} — pick a different face or re-run font_lab_check_fonts`);
+    if (v.source === "foundry" || (!v.css2 && v.woff2Url)) {
+      const { srcPath, file } = ensureLocalFontFile(projectDir, analysis, layoutPath, family, v.woff2Url);
+      info[family] = { kind: "local", srcPath };
+      localFiles.push(file);
+    } else {
+      info[family] = { kind: "google" };
+    }
+  }
+  return { info, localFiles };
 }
 
 // ---- CSS-entry apply branch (framework-agnostic, no next/font) --------------
@@ -527,9 +642,14 @@ export async function applySelection(projectDir, opts = {}) {
   return applyResolved(projectDir, selection, analysis, layout, css);
 }
 
-function applyResolved(projectDir, selection, analysis, layout, css) {
+async function applyResolved(projectDir, selection, analysis, layout, css) {
   const classTarget = analysis.classNameTarget || "html";
-  const roles = planRoles(selection, analysis);
+
+  // Resolve every family to a buildable source FIRST — a refusal here costs nothing;
+  // discovering an unknown font at `next build` costs the user their deploy.
+  const families = ["display", "body", "mono"].map((r) => selection.roles[r].family);
+  const { info: shipInfo, localFiles } = await resolveShipInfo(projectDir, analysis, layout, families);
+  const roles = planRoles(selection, analysis, shipInfo);
 
   const { dir: backupDir, runId } = backup(projectDir, [layout, css]);
 
@@ -560,12 +680,15 @@ function applyResolved(projectDir, selection, analysis, layout, css) {
 
   return {
     runId,
+    mode: "next-font",
     direction: selection.direction,
     roles: roles.map((r) => ({ role: r.role, family: r.family, mode: r.mode })),
     replaced,
     classTarget,
     edited: [path.relative(projectDir, layout), path.relative(projectDir, css)],
+    selfHosted: localFiles, // woff2 copied into the source tree for next/font/local roles
     backupDir: path.relative(projectDir, backupDir),
+    verify: "structure verified; run the project's build (e.g. `next build`) to confirm before deploying",
   };
 }
 
