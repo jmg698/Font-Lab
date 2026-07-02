@@ -159,16 +159,38 @@ const TOOLS = [
     handler: (a) => engine.preparePreview(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
   },
   {
+    name: "font_lab_wait_for_pick",
+    description:
+      "BLOCK until the human picks in the live panel (or timeoutSec elapses) — the preferred way to receive a pick. While waiting, the panel shows 'agent listening' so the human knows their pick lands somewhere. Returns { picked: true, selection } or { picked: false, timedOut: true } — on timeout, call it again to keep waiting (or check in with the human). Alternative for harnesses with background terminals: run `npx font-lab serve --once` as a background task — it exits the moment the pick lands, with the selection as its final stdout line.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        timeoutSec: { type: "number", description: "Max seconds to block (default 240). Re-call on timeout." },
+        ignoreExisting: { type: "boolean", description: "Wait for a NEW pick even if a previous selection.json exists." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.waitForPick(a.projectDir, { timeoutMs: (a.timeoutSec ?? 240) * 1000, ignoreExisting: a.ignoreExisting === true }),
+  },
+  {
+    name: "font_lab_status",
+    description:
+      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands.",
+    inputSchema: { type: "object", properties: { projectDir: proj, port: { type: "number", description: "Pick-endpoint port (default 7777)." } }, required: ["projectDir"] },
+    handler: (a) => engine.status(a.projectDir, { port: a.port ?? 7777 }),
+  },
+  {
     name: "font_lab_read_pick",
     description:
-      "Read the human's pick (.font-lab/selection.json). Returns null until they've chosen in the panel. Poll this after prepare_preview; ship it with font_lab_apply once present.",
+      "One-shot read of the human's pick (.font-lab/selection.json); null until they've chosen. Prefer font_lab_wait_for_pick (it blocks and shows the human 'agent listening') — use read_pick for a quick non-blocking check.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.readSelection(a.projectDir),
   },
   {
     name: "font_lab_apply",
     description:
-      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind; on ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). Run after read_pick returns a selection.",
+      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind — Google faces via next/font/google, open-foundry faces via next/font/local with the woff2 self-hosted into the source tree (every family is verified buildable BEFORE any file is written; unverifiable families refuse with the reason). On ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). After applying on Next, run the project's build (or dev-server compile) to confirm before declaring success. Run after wait_for_pick/read_pick returns a selection.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.apply(a.projectDir),
   },

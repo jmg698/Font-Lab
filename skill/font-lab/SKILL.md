@@ -71,9 +71,19 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 
    - **Live (best — when the human has a real browser on this machine):** you're in a local
      terminal / IDE (Mac or Linux terminal, VS Code, Cursor, the Claude Code IDE extension).
-     Also start the pick endpoint (`node cli/font-lab.mjs --project <dir>`), then tell the human
-     to open their site and flip the panel (← →, `↑↓`+`[ ]` to mix, `B` for before/after) and
-     **pick one**. Read the pick with `font_lab_read_pick` (poll until it returns a selection).
+     Also start the pick endpoint, then tell the human to open their site and flip the panel
+     (← →, `↑↓`+`[ ]` to mix, `B` for before/after) and **pick one**.
+
+     **How to receive the pick — turn-based agents can't poll while idle, so pick ONE
+     mechanism (never "check back later"):**
+     | Your harness | Do this |
+     |---|---|
+     | Background terminals available (Claude Code, Cursor, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits the moment the pick lands** (the selection JSON is its final stdout line) — the exit wakes you. |
+     | MCP-only / no background terminals | Start the endpoint however you can (`npx font-lab serve`; the panel needs it), then call **`font_lab_wait_for_pick`** — it blocks up to 240s and lights up "agent listening" in the panel. On `{ timedOut: true }`, call it again. |
+
+     Resuming a session, or unsure where things stand? **`font_lab_status`** returns the pick,
+     whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by
+     default; pass `--host 0.0.0.0` only if the human wants to flip from another device.
 
    - **Headless (when there's NO live browser for the human — a web/cloud session, or they're on
      a phone):** call `font_lab_screenshot_directions({ projectDir, baseUrl })`. It drives the
@@ -86,11 +96,17 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    flip/mix/compare themselves, give them `font_lab_live_instructions({ projectDir })` —
    ready-to-run commands to launch the full editor locally (works in any terminal / IDE / Cursor).
 5. **Ship it** — once a selection exists (from any path), `font_lab_apply({ projectDir })`. On Next
-   it writes next/font + Tailwind; elsewhere it self-hosts the parity `@font-face` and routes it
+   it writes next/font + Tailwind — Google faces via `next/font/google`, open-foundry faces via
+   `next/font/local` (the parity woff2 self-hosted into `app/fonts/`; every family is verified
+   buildable **before** any file is written, so apply refuses with a reason rather than leaving a
+   build that breaks later). Elsewhere it self-hosts the parity `@font-face` and routes it
    through the project's own seam — Tailwind `@theme` (TW v4), or the project's own CSS font vars
    (`--font-*`, `--fd`, …) when it's var-wired, Tailwind or not. It refuses only when there's no
    seam (hardcoded `font-family`, CSS-in-JS); `font_lab_analyze.capabilities` says which, and you
    can still hand the human the generated block to paste. Reversible via `font_lab_undo`.
+   **After applying, verify before declaring success:** run the project's build (`next build`, or
+   at minimum let the dev server recompile cleanly) and report the result honestly — apply verifies
+   structure; the build verifies the fonts resolve.
 
 ## Rules
 

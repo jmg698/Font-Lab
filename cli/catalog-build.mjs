@@ -123,13 +123,26 @@ export async function generateCatalog(projectDir, directions, meta = {}, opts = 
   const families = fontsForDirections(directions);
   const { faceCss, stacks } = await buildParityBundles(projectDir, families, opts);
 
+  // Real per-family source + parity — the panel's honesty data. Catalog members are the
+  // proven byte-identical path; admitted specs carry their verdict's source/parity through
+  // (engine.mergedSpecFor adds them to the spec).
+  const specFor = opts.specFor || catalogGet;
+  const famInfo = (family) => {
+    try {
+      const spec = specFor(family);
+      return { source: spec.source || "google", parity: spec.parity || "guaranteed" };
+    } catch {
+      return { source: "google", parity: "guaranteed" };
+    }
+  };
+
   const outDirections = directions.map((d) => ({
     id: d.id,
     name: d.name,
     vibe: d.vibe,
     rationale: d.rationale,
     roles: Object.fromEntries(
-      Object.entries(d.roles).map(([role, r]) => [role, { family: r.family, source: "google", weights: r.weights, stack: stacks[r.family] }]),
+      Object.entries(d.roles).map(([role, r]) => [role, { family: r.family, ...famInfo(r.family), weights: r.weights, stack: stacks[r.family] }]),
     ),
   }));
 
@@ -146,7 +159,7 @@ export const replaces = ${JSON.stringify(meta.replaces ?? null, null, 2)} as con
 export const wiring = ${JSON.stringify(meta.wiring ?? null, null, 2)} as const;
 
 export type Role = "display" | "body" | "mono";
-export type RoleFont = { family: string; source: string; weights: number[]; stack: string };
+export type RoleFont = { family: string; source: string; parity: "guaranteed" | "best-effort"; weights: number[]; stack: string };
 export type Direction = {
   id: string;
   name: string;

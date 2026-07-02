@@ -113,15 +113,19 @@
       "pass": true
     },
     {
-      "name": "clean: fontLabDisplay on --font-display",
+      "name": "clean: fontLabDisplay carries --font-fraunces",
       "pass": true
     },
     {
-      "name": "clean: fontLabBody on --font-sans",
+      "name": "clean: fontLabBody carries --font-libre-franklin",
       "pass": true
     },
     {
-      "name": "clean: fontLabMono on --font-mono",
+      "name": "clean: fontLabMono carries --font-jetbrains-mono",
+      "pass": true
+    },
+    {
+      "name": "clean: @theme maps --font-display -> --font-fraunces",
       "pass": true
     },
     {
@@ -177,7 +181,7 @@
       "pass": true
     },
     {
-      "name": "jack: creates fontLabMono on --font-mono",
+      "name": "jack: creates fontLabMono carrying --font-jetbrains-mono",
       "pass": true
     },
     {
@@ -238,6 +242,94 @@
     },
     {
       "name": "hardcoded: codegen refuses (need css-variables)",
+      "pass": true
+    },
+    {
+      "name": "routegroup: App Router detected",
+      "pass": true
+    },
+    {
+      "name": "routegroup: finds root layout in (marketing)",
+      "pass": true
+    },
+    {
+      "name": "routegroup: body font Inter",
+      "pass": true
+    },
+    {
+      "name": "routegroup: supported",
+      "pass": true
+    },
+    {
+      "name": "routegroup: codegen edits the route-group layout",
+      "pass": true
+    },
+    {
+      "name": "altcss: finds non-standard CSS entry",
+      "pass": true
+    },
+    {
+      "name": "altcss: Tailwind v4",
+      "pass": true
+    },
+    {
+      "name": "altcss: supported",
+      "pass": true
+    },
+    {
+      "name": "altcss: codegen writes @theme into the found CSS",
+      "pass": true
+    },
+    {
+      "name": "modrel: names the real body font (Inter) from ./fonts",
+      "pass": true
+    },
+    {
+      "name": "modrel: reads css-variable wiring (not 'hardcoded')",
+      "pass": true
+    },
+    {
+      "name": "modrel: records the source module on the role",
+      "pass": true
+    },
+    {
+      "name": "modrel: does NOT flag the primary module as an 'other subsystem'",
+      "pass": true
+    },
+    {
+      "name": "modrel: refused with a module-specific reason",
+      "pass": true
+    },
+    {
+      "name": "modrel: codegen refuses (module)",
+      "pass": true
+    },
+    {
+      "name": "modalias: resolves @/ alias to lib/fonts.ts",
+      "pass": true
+    },
+    {
+      "name": "modalias: names the aliased display font",
+      "pass": true
+    },
+    {
+      "name": "modalias: refused with a module-specific reason",
+      "pass": true
+    },
+    {
+      "name": "wrapper: no html/body class target",
+      "pass": true
+    },
+    {
+      "name": "wrapper: detects the real carrier tag (<div>)",
+      "pass": true
+    },
+    {
+      "name": "wrapper: refused, not silently treated as <html>",
+      "pass": true
+    },
+    {
+      "name": "wrapper: codegen refuses (wrapper)",
       "pass": true
     }
   ]
