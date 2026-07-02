@@ -12,7 +12,7 @@
 import * as engine from "./engine.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER = { name: "font-lab", version: "0.8.2" };
+const SERVER = { name: "font-lab", version: "0.9.1" };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
 const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
