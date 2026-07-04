@@ -19,6 +19,17 @@ import { catalogFontFaceCss, directions, replaces, target, wiring, type Directio
 
 const ENDPOINT = "http://localhost:7777";
 const STORE_KEY = "fontlab.working.v1";
+// Stamped by `font_lab_init` with the tool version that installed this panel (left as the
+// literal placeholder in the repo template; replaced on copy). The panel compares it against
+// the running tool reported over the pick endpoint to surface a stale-panel notice.
+const PANEL_VERSION = "__FONTLAB_VERSION__";
+const isRealVersion = (v: string) => /^\d+\.\d+\.\d+/.test(v || "");
+const cmpVersions = (a: string, b: string) => {
+  const parse = (v: string) => String(v || "").split(".").map((n) => parseInt(n, 10) || 0);
+  const pa = parse(a), pb = parse(b);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+};
 const ROLES = ["display", "body", "mono"] as const;
 type Role = (typeof ROLES)[number];
 const LABEL: Record<Role, string> = { display: "Display", body: "Body", mono: "Mono" };
@@ -173,7 +184,21 @@ export function FontLabDevPanel() {
         .status { font-size: 12px; line-height: 1.5; color: rgba(244,244,245,.82); margin-top: 9px; min-height: 17px; }
         .status[data-tone="good"] { color: #86efac; }
         .status[data-tone="warn"] { color: #fcd34d; }
+
+        /* Stale-panel notice: appears ONLY when the running tool is newer than this panel.
+           A full-bordered inset card (no side-stripe), warm red at low chroma so it reads as
+           "heads up" not "on fire", contrast-checked, and it eases open rather than snapping. */
+        .notice { display: none; margin-top: 10px; padding: 9px 11px; border-radius: 10px;
+          background: rgba(248,113,113,.11); border: 1px solid rgba(248,113,113,.34); overflow: hidden; }
+        .notice[data-show="true"] { display: block; animation: fl-notice .24s cubic-bezier(.25, 1, .5, 1); }
+        .notice .n-head { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #fca5a5; }
+        .notice .n-glyph { display: inline-flex; width: 15px; height: 15px; }
+        .notice .n-glyph svg { width: 15px; height: 15px; fill: none; stroke: #fca5a5; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+        .notice .n-body { margin-top: 4px; font-size: 11px; line-height: 1.55; color: rgba(244,244,245,.85); }
+        .notice .n-body code { background: rgba(255,255,255,.09); border-radius: 4px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: 10.5px; color: #fecaca; }
+
         .hint { font-size: 11px; color: rgba(244,244,245,.62); margin-top: 7px; line-height: 1.7; }
+        @keyframes fl-notice { from { opacity: 0; transform: translateY(-5px); max-height: 0; } to { opacity: 1; transform: none; max-height: 140px; } }
         kbd { background: #26262e; border-radius: 4px; padding: 0 4px; font-size: 10px; font-family: ui-monospace, monospace; }
 
         @keyframes fl-pulse { 0% { opacity: 1; } 50% { opacity: .35; } 100% { opacity: 1; } }
@@ -200,6 +225,10 @@ export function FontLabDevPanel() {
           <button class="mini" data-fl-action="pin" title="Pin to compare (P)">📌</button>
         </div>
         <div class="status" id="status"></div>
+        <div class="notice" id="notice" data-show="false">
+          <div class="n-head"><span class="n-glyph"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5V5H11"/></svg></span><span>Update available</span></div>
+          <div class="n-body" id="noticeBody"></div>
+        </div>
         <div class="hint"><kbd>← →</kbd> direction · <kbd>↑↓</kbd> role · <kbd>[ ]</kbd> swap · <kbd>B</kbd> before/after · <kbd>P</kbd>/<kbd>Space</kbd> pin · <kbd>↵</kbd> pick</div>
       </div>`;
 
@@ -210,6 +239,8 @@ export function FontLabDevPanel() {
     const statusEl = shadow.getElementById("status")!;
     const connEl = shadow.getElementById("conn")!;
     const connLabelEl = shadow.getElementById("connLabel")!;
+    const noticeEl = shadow.getElementById("notice")!;
+    const noticeBodyEl = shadow.getElementById("noticeBody")!;
     const pickBtn = shadow.querySelector<HTMLButtonElement>('[data-fl-action="pick"]')!;
     const pickLabelEl = shadow.getElementById("pickLabel")!;
     const cmpBtn = shadow.querySelector<HTMLButtonElement>('[data-fl-action="compare"]')!;
@@ -431,8 +462,21 @@ export function FontLabDevPanel() {
             ? "Pick endpoint is up on :7777. Picks save; hand them to your agent to ship."
             : "No pick endpoint on :7777 — run `npx font-lab` in your project.";
     };
+    // Only warns when the running tool is strictly newer than what installed this panel — so a
+    // current panel never nags, and a stale one (the exact npx-cache trap) says exactly what to do.
+    const ver = (v: string) => String(v || "").replace(/[^0-9A-Za-z.\-]/g, "");
+    const checkVersion = (running: string) => {
+      const stale = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
+      noticeEl.dataset.show = String(stale);
+      if (stale)
+        noticeBodyEl.innerHTML =
+          `This panel was installed by Font&nbsp;Lab <code>${ver(PANEL_VERSION)}</code>, but <code>${ver(running)}</code> is running. ` +
+          `Re-run <code>font_lab_init</code> to refresh it.`;
+    };
+
     let es: EventSource | null = null;
     const handleStatus = (s: any) => {
+      if (s.version) checkVersion(s.version);
       setConn(s.agentWaiting ? "agent" : "ready");
       if (s.selection?.direction?.id && !savedId) savedId = s.selection.direction.id; // survive reloads
       shipped = s.applied ? { current: !!s.applied.current } : null;

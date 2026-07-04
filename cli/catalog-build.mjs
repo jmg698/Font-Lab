@@ -11,6 +11,7 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { get as catalogGet } from "./catalog.mjs";
 import { fontsForDirections } from "./curator.mjs";
+import { VERSION } from "./version.mjs";
 
 const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 const slug = (family) => family.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -150,6 +151,10 @@ export async function generateCatalog(projectDir, directions, meta = {}, opts = 
 import type { CSSProperties } from "react";
 
 export const catalogFontFaceCss = ${JSON.stringify("\n" + faceCss.join("\n") + "\n")};
+
+// The Font Lab version that generated this project's assets. The panel compares it against the
+// running tool (reported over the pick endpoint) to warn when the panel has gone stale.
+export const generatedBy = ${JSON.stringify(VERSION)};
 
 export const target = ${JSON.stringify(meta.target ?? null, null, 2)} as const;
 export const replaces = ${JSON.stringify(meta.replaces ?? null, null, 2)} as const;

@@ -65,6 +65,7 @@ if (SUB === "install" || SUB === "uninstall") {
 async function runServe() {
 
 const { readHandoffState, writeAppliedStamp } = await import("./state.mjs");
+const { VERSION } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
 const arg = (flag, def) => {
@@ -101,6 +102,7 @@ const statusPayload = () => ({
   ok: true,
   once: ONCE,
   autoApply: AUTO_APPLY,
+  version: VERSION, // running tool version — the panel compares it against its own stamp
   ...readHandoffState(PROJECT),
   // --once means an agent parked a process on this pick; count it as a listening agent.
   agentWaiting: ONCE || readHandoffState(PROJECT).agentWaiting,

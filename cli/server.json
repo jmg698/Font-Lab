@@ -7,12 +7,12 @@
     "url": "https://github.com/jmg698/Font-Lab",
     "source": "github"
   },
-  "version": "0.9.1",
+  "version": "0.9.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "font-lab",
-      "version": "0.9.1",
+      "version": "0.9.3",
       "transport": {
         "type": "stdio"
       },

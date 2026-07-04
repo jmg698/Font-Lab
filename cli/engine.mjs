@@ -24,6 +24,7 @@ import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
 import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath } from "./state.mjs";
+import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
 
@@ -506,7 +507,29 @@ export async function status(projectDir, { port = 7777 } = {}) {
     const runId = readFileSync(path.join(dir, ".font-lab", "backups", "latest.txt"), "utf8").trim();
     backups = { latestRunId: runId };
   } catch {}
-  return { ...state, endpoint, backups };
+  return { ...state, endpoint, backups, versions: panelDrift(dir) };
+}
+
+// Compare the version that installed the project's panel against the running tool. Surfaces the
+// exact npx-cache trap to the AGENT — even when the panel is too old to render its own notice
+// (a pre-stamp panel reads as stale, which is correct: it predates this feature).
+function panelDrift(dir) {
+  const panelPath = ["app", "src/app"]
+    .map((d) => path.join(dir, d, "_fontlab", "FontLabDevPanel.tsx"))
+    .find((p) => existsSync(p));
+  const drift = { tool: VERSION, panel: null, stale: false };
+  if (!panelPath) return drift; // no panel installed — nothing to warn about
+  let installed = null;
+  try {
+    const m = readFileSync(panelPath, "utf8").match(/PANEL_VERSION\s*=\s*["']([^"']+)["']/);
+    if (m && isRealVersion(m[1])) installed = m[1];
+  } catch {}
+  drift.panel = installed;
+  // A real older stamp, or a panel with no stamp at all (predates the feature) => stale.
+  drift.stale = installed ? cmpVersions(VERSION, installed) > 0 : true;
+  if (drift.stale)
+    drift.hint = `The Font Lab panel in this project ${installed ? `is v${installed}` : "predates version stamping"}, but ${VERSION} is running. Re-run font_lab_init to refresh the panel.`;
+  return drift;
 }
 
 const statSafe = (p) => {
@@ -601,7 +624,9 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   const built = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
 
   mkdirSync(path.join(appDir, "_fontlab"), { recursive: true });
-  copyFileSync(PANEL_TEMPLATE, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"));
+  // Stamp the installing tool's version into the panel so it can later notice when it's stale.
+  const panelSrc = readFileSync(PANEL_TEMPLATE, "utf8").replace(/__FONTLAB_VERSION__/g, VERSION);
+  writeFileSync(path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"), panelSrc);
   const mounted = mountPanel(layout);
   writePreviewSet(dir, dirs);
 
