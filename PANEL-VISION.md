@@ -222,6 +222,12 @@ and modeless, the delta ledger dissolved into row verdicts, the rationale moved 
 direction list, the vocabulary collapsed to direction/role/font, the compare bar was deleted
 in favor of the list-based model above, and inline copy editing was integrated.
 
+**Status: implemented** — this spec is live in `cli/templates/font-lab-panel.tsx` (the
+sentinel scan, inspect, change receipts, list-based compare, copy editing via the endpoint's
+`/edit`+`/undo` backed by `cli/copyedit.mjs`, and the shared-leaf wiring split in
+`analyzer.wiringFor`). Verified against the real fixture: loop 16/16, m6 18/18, handoff
+19/19, version 13/13, write-back engine 13/13, plus a live dblclick→source→undo e2e.
+
 Prototype: `spike/panel-galley/prototype.html` — open it in a browser. The demo harness
 (top-left) switches connection/honesty states; candidate faces render as local stand-ins
 (the artifact sandbox can't fetch webfonts); the real panel loads the true subsets, so flips

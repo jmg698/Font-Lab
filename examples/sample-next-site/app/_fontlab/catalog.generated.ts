@@ -3,6 +3,10 @@ import type { CSSProperties } from "react";
 
 export const catalogFontFaceCss = "\n@font-face{font-family:'FL Fraunces';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/fraunces.woff2') format('woff2');}\n@font-face{font-family:'FL Fraunces Fallback';src:local('Times New Roman');size-adjust:115.45%;ascent-override:84.71%;descent-override:22.09%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Libre Franklin';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/libre-franklin.woff2') format('woff2');}\n@font-face{font-family:'FL Libre Franklin Fallback';src:local('Arial');size-adjust:104.31%;ascent-override:92.61%;descent-override:23.58%;line-gap-override:0.00%;}\n@font-face{font-family:'FL JetBrains Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/jetbrains-mono.woff2') format('woff2');}\n@font-face{font-family:'FL JetBrains Mono Fallback';src:local('Arial');size-adjust:134.59%;ascent-override:75.79%;descent-override:22.29%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Bricolage Grotesque';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/bricolage-grotesque.woff2') format('woff2');}\n@font-face{font-family:'FL Bricolage Grotesque Fallback';src:local('Arial');size-adjust:105.43%;ascent-override:88.21%;descent-override:25.61%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Figtree';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/figtree.woff2') format('woff2');}\n@font-face{font-family:'FL Figtree Fallback';src:local('Arial');size-adjust:100.72%;ascent-override:94.32%;descent-override:24.82%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Geist';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/geist.woff2') format('woff2');}\n@font-face{font-family:'FL Geist Fallback';src:local('Arial');size-adjust:104.76%;ascent-override:95.94%;descent-override:28.16%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Geist Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/geist-mono.woff2') format('woff2');}\n@font-face{font-family:'FL Geist Mono Fallback';src:local('Arial');size-adjust:134.59%;ascent-override:74.67%;descent-override:21.92%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Hanken Grotesk';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/hanken-grotesk.woff2') format('woff2');}\n@font-face{font-family:'FL Hanken Grotesk Fallback';src:local('Arial');size-adjust:100.94%;ascent-override:99.07%;descent-override:30.02%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Spline Sans Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/spline-sans-mono.woff2') format('woff2');}\n@font-face{font-family:'FL Spline Sans Mono Fallback';src:local('Arial');size-adjust:134.59%;ascent-override:71.59%;descent-override:17.57%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Playfair Display';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/playfair-display.woff2') format('woff2');}\n@font-face{font-family:'FL Playfair Display Fallback';src:local('Times New Roman');size-adjust:111.26%;ascent-override:97.25%;descent-override:22.56%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Source Serif 4';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/source-serif-4.woff2') format('woff2');}\n@font-face{font-family:'FL Source Serif 4 Fallback';src:local('Times New Roman');size-adjust:117.91%;ascent-override:87.87%;descent-override:28.41%;line-gap-override:0.00%;}\n@font-face{font-family:'FL Roboto Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('/fontlab/roboto-mono.woff2') format('woff2');}\n@font-face{font-family:'FL Roboto Mono Fallback';src:local('Arial');size-adjust:134.61%;ascent-override:77.84%;descent-override:20.13%;line-gap-override:0.00%;}\n";
 
+// The Font Lab version that generated this project's assets. The panel compares it against the
+// running tool (reported over the pick endpoint) to warn when the panel has gone stale.
+export const generatedBy = "0.9.3";
+
 export const target = {
   "framework": "next",
   "router": "app",
@@ -16,8 +20,25 @@ export const replaces = {
   "mono": "JetBrains Mono"
 } as const;
 
+// Per-role preview swap target (M5/M6): which leaf var to override and on which element. The
+// portable panel reads this so the live swap is honest on any site. null = unswappable role.
+export const wiring = {
+  "display": {
+    "var": "--fl-display",
+    "el": "html"
+  },
+  "body": {
+    "var": "--fl-sans",
+    "el": "html"
+  },
+  "mono": {
+    "var": "--font-jbmono",
+    "el": "html"
+  }
+} as const;
+
 export type Role = "display" | "body" | "mono";
-export type RoleFont = { family: string; source: string; weights: number[]; stack: string };
+export type RoleFont = { family: string; source: string; parity: "guaranteed" | "best-effort"; weights: number[]; stack: string };
 export type Direction = {
   id: string;
   name: string;
@@ -36,6 +57,7 @@ export const directions: Direction[] = [
       "display": {
         "family": "Fraunces",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -45,6 +67,7 @@ export const directions: Direction[] = [
       "body": {
         "family": "Libre Franklin",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -54,6 +77,7 @@ export const directions: Direction[] = [
       "mono": {
         "family": "JetBrains Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -71,6 +95,7 @@ export const directions: Direction[] = [
       "display": {
         "family": "Bricolage Grotesque",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -80,6 +105,7 @@ export const directions: Direction[] = [
       "body": {
         "family": "Figtree",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -89,6 +115,7 @@ export const directions: Direction[] = [
       "mono": {
         "family": "JetBrains Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -106,6 +133,7 @@ export const directions: Direction[] = [
       "display": {
         "family": "Geist",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -115,6 +143,7 @@ export const directions: Direction[] = [
       "body": {
         "family": "Geist",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -124,6 +153,7 @@ export const directions: Direction[] = [
       "mono": {
         "family": "Geist Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -141,6 +171,7 @@ export const directions: Direction[] = [
       "display": {
         "family": "Bricolage Grotesque",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -150,6 +181,7 @@ export const directions: Direction[] = [
       "body": {
         "family": "Hanken Grotesk",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -159,6 +191,7 @@ export const directions: Direction[] = [
       "mono": {
         "family": "Spline Sans Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -176,6 +209,7 @@ export const directions: Direction[] = [
       "display": {
         "family": "Playfair Display",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -185,6 +219,7 @@ export const directions: Direction[] = [
       "body": {
         "family": "Source Serif 4",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -194,6 +229,7 @@ export const directions: Direction[] = [
       "mono": {
         "family": "Roboto Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700

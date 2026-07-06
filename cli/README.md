@@ -117,7 +117,7 @@ picks → `font_lab_select({ projectDir, directionId })` → `font_lab_apply`.
 ### 2. Live — the full UI, when you want to drive
 
 A real dev-panel on your running site: flip with `← →`, mix a heading from one direction with a
-body from another (`[ ]`), toggle before/after (`B`), pin two to compare, "more like this," and
+body from another (`[ ]`), toggle before/after (`B`), snap between your two finalists (`space`), save a hand-mix as a direction (`S`), and
 see each face across multiple routes. This is the richest way to choose — and it needs a browser
 *you* can click in, so it runs **locally**: a Mac/Linux terminal, or the integrated terminal in
 **VS Code / Cursor / the Claude Code IDE extension**.
@@ -228,7 +228,7 @@ directions, swapping live on your real content. Keys (M6):
 
 - `←` `→` — flip direction · `↑` `↓` — focus a role · `[` `]` — swap just that role (**mixed
   picks**: heading from one direction, body from another)
-- `B` — before/after · `P` then `Space` — **pin two and compare** · `M` — more like this
+- `B` — before/after (hold to peek) · `space` — **snap back to the last direction you viewed** (tap repeatedly to compare finalists) · `S` — save a hand-mix as a direction · `X` — inspect (hover the page to identify text; on by default) · `⇧X` — map every role at once · `J` — jump to the focused role on the page · double-click any words — retype them in place (saves to source, reversibly)
 - `Enter` or **Pick** — write the selection
 
 The working pairing follows you across routes (`/`, `/dense`, `/form`) so you can judge a face

@@ -71,7 +71,7 @@
   ],
   "finalSelection": {
     "version": 1,
-    "pickedAt": "2026-06-25T23:19:27.455Z",
+    "pickedAt": "2026-07-06T14:30:00.435Z",
     "direction": {
       "id": "mixed",
       "name": "Mixed",
@@ -82,6 +82,7 @@
       "display": {
         "family": "Fraunces",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
@@ -90,6 +91,7 @@
       "body": {
         "family": "Figtree",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           600
@@ -98,6 +100,7 @@
       "mono": {
         "family": "JetBrains Mono",
         "source": "google",
+        "parity": "guaranteed",
         "weights": [
           400,
           700
