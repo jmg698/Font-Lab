@@ -583,6 +583,7 @@ export function FontLabDevPanel() {
     let hoverChip: HTMLElement | null = null;
     let dwellTimer: ReturnType<typeof setTimeout> | null = null;
     let chipVisible = false;
+    let lastInspectEvent: MouseEvent | null = null;
     function inspectClear() {
       if (hoverHit) { hoverHit.el.classList.remove("__fl_hover"); hoverHit = null; }
       if (hoverChip) hoverChip.style.display = "none";
@@ -591,6 +592,7 @@ export function FontLabDevPanel() {
     }
     function positionChip(e: MouseEvent) {
       if (!hoverHit) return;
+      lastInspectEvent = e;
       if (!hoverChip) {
         hoverChip = document.createElement("div");
         hoverChip.style.cssText = `position:fixed;z-index:2147483647;background:#100F0D;color:#F2EFE5;font:10px ${MONO};` +
@@ -600,16 +602,23 @@ export function FontLabDevPanel() {
       const cs = getComputedStyle(hoverHit.el);
       const cov = coverage();
       const editable = isEditableText(hoverHit.el);
+      const role = hoverHit.role;
+      // name the live font in its own typeface — the same touch the panel rows use
+      const specimen = canSwap(role) ? (stackOf(role, effSel()) || MONO) : MONO;
       hoverChip.style.display = "block";
       hoverChip.innerHTML =
-        `<b style="color:#E7FF3B;font-weight:600">${hoverHit.role.toUpperCase()}</b> · ${esc(famOf(hoverHit.role, effSel()))} · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[hoverHit.role]} on page` +
-        `<br><span style="color:rgba(242,239,229,.55)">${editable ? "[ ] flips this text · double-click retypes it" : "[ ] flips this text · words come from data / markup — not retypable"}</span>`;
+        `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")};font-size:13px;line-height:1">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
+        `<br><span style="color:rgba(242,239,229,.55)">${editable ? "[ or ] to flip fonts · double-click retypes it" : "[ or ] to flip fonts · words come from data / markup — not retypable"}</span>`;
       const r = hoverHit.el.getBoundingClientRect();
       const x = Math.max(8, Math.min(innerWidth - hoverChip.offsetWidth - 8, e.clientX - 20));
       let y = r.top - hoverChip.offsetHeight - 6;
       if (y < 8) y = Math.min(innerHeight - hoverChip.offsetHeight - 8, r.bottom + 6);
       hoverChip.style.left = x + "px";
       hoverChip.style.top = y + "px";
+    }
+    // [ or ] flips the live fonts; keep the hovering chip's name + specimen in sync
+    function refreshChip() {
+      if (chipVisible && hoverHit && lastInspectEvent) positionChip(lastInspectEvent);
     }
     const inspectMove = (e: MouseEvent) => {
       if (!state.inspect || !state.expanded || editingEl) return;
@@ -874,6 +883,7 @@ export function FontLabDevPanel() {
         if (!pickable && !state.saving && !editingEl)
           guardStatus(state.beforeView ? "Viewing before — flip back to pick." : "On current — nothing to pick.");
       }
+      refreshChip();
       persist();
     }
     const pickIdOf = (sel: Record<Role, number>) => (onCurrent(sel) ? "current" : matchedDir(sel)?.id ?? "mixed");
