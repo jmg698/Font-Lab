@@ -1,5 +1,10 @@
 # Galley — the definitive Font Lab panel
 
+> "Galley" is this design's internal codename. The product surface says only **FONT LAB** —
+> one tool name, and a strict glossary: **direction** (a curated set of three), **role**
+> (display / body / mono), **font** (the candidate you cycle, "font 3 of 5"). Every string in
+> the panel uses these three nouns and no synonyms.
+
 > The unconstrained answer to "what is the absolute best version of this panel?" — synthesized
 > from a five-concept design exploration (specimen sheet, hardware console, page x-ray,
 > editorial companion, darkroom contact sheet) judged from three lenses (founder taste, design
@@ -89,10 +94,15 @@ re-stamped by a debounced MutationObserver.
 - **Panel → page**: hover any role row → every element of that role illuminates (marker
   underline + 13% tint, element-level classes so it's scroll-proof), with a docked count tag:
   `BODY — 214 elements · 91% of text on this page`.
-- **Page → panel (Proof Mode, `X` or ⌖)**: hover any text on the live site → marker outline +
-  an ink chip names it: `DISPLAY · Fraunces · 40px · 4 on page`, while the matching role row
-  lights up in the panel. **Click to lock** — the next `[` / `]` flips the face of the exact
-  text under your cursor. Point at your own headline and flip it: the signature move.
+- **Page → panel (Inspect — ON BY DEFAULT, no mode)**: hover any text on the live site
+  (160ms dwell) → a quiet underline + an ink chip names it: `DISPLAY · Fraunces · 40px ·
+  4 on page`, and the matching role row takes focus in the panel. No clicks are ever
+  intercepted — the site stays fully usable. Because hover *is* focus, `[` / `]` flips the
+  role you're pointing at: point at your own headline and flip it, no lock step, no mode.
+  The ⌖ toggle lives in the masthead (pressed = paper, never resting yellow); `X` toggles it
+  off for people who find hover chips noisy.
+- **Keyboard parity**: moving role focus with `↑↓` fires an ~800ms pulse of that role's
+  page highlight, so keyboard users get the same panel→page mapping for free.
 - **Shift+X — the full map**: all roles at once, focused role in marker, others outlined with
   `D`/`B`/`M` chips (letters always present; color is never the only channel).
 - **Always-on**: every role row carries a live coverage stat — `73% of page text`,
@@ -107,35 +117,54 @@ Every flip (face, direction, or proof switch) fires four redundant layers:
    sweep, staggered by role and softened to a light wash when most of the page changes at
    once, so a full-direction flip reads as extent, not an explosion (reduced motion: static
    tint, one-step removal). Absence is information: unchanged text does not flash.
-2. **The delta ledger** — a line under the TOC states the diff in words, and asserts
-   non-change as loudly as change: `Δ display Inter → Fraunces · body unchanged · mono
-   unchanged · 13 elements · 3 below ↓ · ↺ flash`. The zero case is honest: `0 in view — J
-   jumps to nearest`.
+2. **Row verdicts as the receipt** — no separate ledger strip (it read as clutter in
+   testing). For ~2.5s after a flip, each role row's own stat line becomes its verdict —
+   `→ 4 spots changed` on changed rows, an explicit `unchanged` on the others — so
+   non-change is asserted as loudly as change, in the place you're already looking. The
+   status line carries the global receipt: `23 elements changed · 6 below ↓ · ↺ replay`,
+   with the honest zero case (`0 in view — J jumps to nearest`).
 3. **Edge ticks** — 2×14px marker ticks on the right viewport edge at each changed element's
    position, clickable to scroll, ~4s. Changes below the fold are never silent.
-4. **Row verdicts** — changed rows' family names take the marker color for a beat and fade
+4. **The name beat** — changed rows' font names take the marker color for a beat and fade
    back; unchanged rows dim briefly. One glance at the spread shows which of the three moved.
    The masthead `Aa` flipping (or not) is the peripheral fourth signal for display.
 
-## Compare — one object, one lit source
+## Compare — the list IS the comparison
 
-The **proof bar** replaces the B-flag + pin buttons: four flat tabs — `GALLEY` (live),
-`BEFORE` (current baseline, permanently present — the tray is never dead), `A`, `B`. Exactly
-one tab is ever underlined: *what is the page showing right now* always has a one-glance
-answer.
+An earlier draft had a four-tab "proof bar" (GALLEY / BEFORE / A / B) with pin slots. It was
+coherent and it was a second selection system to learn — founder testing killed it. The
+replacement folds comparison into the direction list itself, one mental model:
 
-- `B` toggles BEFORE; **hold-B (>400ms) is a momentary peek** that springs back on release —
-  the blink-comparator, the fastest diff the eye has. Both directions fire the change
-  machinery.
-- `P` pins the galley into A then B. Pinned tabs are micro-specimens: `A · Ag` set in the
-  pinned display face, plus **diff dots** — one per role that differs from the live galley
-  (lit only on the shown/hovered tab) — so "this pin differs on display" is readable at rest
-  without yellow decaying into decoration.
-- Pins are immutable snapshots: cycling a face while viewing A copies A into the galley first
-  (`Editing a copy of A in the galley — the pin is untouched.`).
-- **Guarded pick**: viewing a pin relabels the button `PICK A`; viewing BEFORE disables it
-  with a stated reason (`Viewing BEFORE — flip back to a proof to pick.`). No dead chrome, no
-  picking-while-looking-at-the-wrong-thing.
+- **`space` — snap back.** Toggles between the direction you're viewing and the one you
+  viewed last (alt-tab semantics, zero setup). Click your two finalists once each, then tap
+  space repeatedly and watch the page flicker between them — with the change-flash marking
+  exactly what differs, that *is* A/B comparison.
+- **`S` — save a mix.** A hand-mixed trio (the `MIX` state) saves as a real row in the list
+  (`06 Mix 01 ····· your mix`), named in its own display font like every other row. Mixes
+  are then comparable, pickable, and snap-back-able like anything else — no frozen-snapshot
+  concept, no "editing a copy of A."
+- **`B` — before.** Tap toggles the site's current fonts, **hold (>400ms) peeks** and
+  springs back — the blink-comparator. Both directions fire the change machinery. (It's
+  "snap back to row 00," but it earns its own key.)
+- **Pick always picks what the page is showing.** The only guard left: viewing Current or
+  before disables it with a stated reason (`Viewing before — flip back to pick.`).
+
+## Copy edits on the same proof (the text-edit brief, integrated)
+
+The inspect layer is the entry point the inline-copy-editing spike needs (see
+`spike/text-edit` — React 19 `_debugStack` → source map → ts-morph write-back, proven):
+
+- The inspect chip's second line already teaches it: `[ ] flips this text · double-click
+  retypes it`.
+- **Double-click any words → retype in place** (`contenteditable`, plaintext-only). `⏎`
+  saves — the panel narrates `Saved ✓ page.tsx:35 — words are in your source · undo` — and
+  `esc` cancels. Single clicks are never intercepted.
+- **Soft-degrade honesty**: dynamic text (`{post.title}`, mapped lists) gets `comes from
+  data — not editable` in the chip and a coral status line on attempt — refuse and explain,
+  never guess (the brief's own principle, in the panel's existing coral grammar).
+- Panel shortcuts suspend automatically while typing (the contentEditable guard).
+- Editorially the metaphor strengthens: marking up copy is exactly what an editor does on a
+  galley proof. Same loop, same honesty, same undo muscle — pointed at words.
 
 ## Honesty states (all inherited, restyled into the system)
 
@@ -146,7 +175,7 @@ answer.
   new best-effort mix, then quiets to the inline `≈`; hovering Pick revives it — honest at
   the moment it matters, not a permanent nag.
 - Unwired role: mono (never a fake specimen), boxed `WIRED ON SHIP` tag, steppers off,
-  coverage reads `previews after ship`.
+  tagline reads `previews after ship · pick records.`
 - Stale panel: the 4280f2c card restyled — plain language leads (`STALE PANEL — 0.9.1 SET ·
   0.9.3 RUNNING`), the press flavor is the subhead.
 - Pick narrative: `PICK → SAVING… → PICKED ✓ (drawn check, the only celebration) → SHIPPED`
@@ -161,9 +190,9 @@ Take: the committed acid yellow (with a grammar), big in-face specimens with pos
 counters, labeled section + live counter, keycap legend, per-role taglines (add a `tagline`
 field to the curator's role output — v0 invented it; it's worth making real). Reject: chip
 soup (dies at 12 directions — the TOC scales and is itself a specimen), the focus ring that
-only points at the panel (ours points at the page), the dead two-slot tray (ours carries
-specimens + diffs), LIVE-EDIT as a mode (the galley is always live), and a second accent
-hue.
+only points at the panel (ours points at the page), the dead two-slot tray (comparison lives
+in the list itself — space snaps between finalists), LIVE-EDIT as a mode (the working set is
+always live), and a second accent hue.
 
 ## Implementation notes (against `cli/templates/font-lab-panel.tsx`)
 
@@ -179,14 +208,19 @@ React shell:
 3. **Serif subsets**: build step embeds Instrument Serif regular+italic base64 into the
    template (placeholder-replaced like `__FONTLAB_VERSION__`); fall back to
    `Iowan Old Style/Palatino/Georgia` italic if the subset fails, with a build alarm.
-4. **State model**: `proof: 'galley'|'before'|'A'|'B'` replaces `comparing`/`showingPin`;
-   pick guard derives from it. Everything else is a restyle of existing state.
-5. The endpoint protocol, persistence, and DCE guard are untouched.
+4. **State model**: `beforeView: bool` + `lastView: {sel, cursor}` (space snap-back) +
+   saved mixes appended to the directions array replace `comparing`/`showingPin`/pins
+   entirely; the pick guard derives from `beforeView || onCurrent`.
+5. **Copy edits**: the dev server grows an `/edit` + `/undo` endpoint pair (sibling of
+   `/select`) backed by the `spike/text-edit` engine; the panel's dblclick handler posts
+   `{loc, before, after}` and narrates the ack. Same NODE_ENV guard, nothing ships.
+6. The font endpoint protocol, persistence, and DCE guard are untouched.
 
-The prototype survived a two-critic adversarial pass (design-craft lens + founder lens);
-their must-fixes — proof-mode chip never occluding the sampled glyphs, the contents list and
-counter always agreeing with the shown proof (`A·01` while viewing pin A), face-labeled
-per-role pagers, tiered flash, and the yellow-discipline fixes above — are already in.
+The prototype survived a two-critic adversarial pass (design-craft + founder lens) and a
+founder review round. The founder round reshaped it structurally: inspect became always-on
+and modeless, the delta ledger dissolved into row verdicts, the rationale moved up under the
+direction list, the vocabulary collapsed to direction/role/font, the compare bar was deleted
+in favor of the list-based model above, and inline copy editing was integrated.
 
 Prototype: `spike/panel-galley/prototype.html` — open it in a browser. The demo harness
 (top-left) switches connection/honesty states; candidate faces render as local stand-ins

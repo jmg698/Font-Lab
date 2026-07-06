@@ -1,5 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>html{box-sizing:border-box}*,*:before,*:after{box-sizing:inherit}body{margin:0}</style></head><body><title>Font Lab — Galley prototype</title>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{box-sizing:border-box}*,*:before,*:after{box-sizing:inherit}body{margin:0}</style></head><body><title>Font Lab — panel prototype</title>
 <style>
   /* ————— demo site: “The Margin” (the canvas the panel sits over) ————— */
   :root {
@@ -43,7 +42,8 @@
   .harness .hnote { font-size: 9px; line-height: 1.5; color: var(--page-dim); margin-top: 8px; border-top: 1px dashed var(--page-rule); padding-top: 8px; }
   @media (max-width: 1080px) { .harness { display: none; } }
 
-  /* ————— page-side machinery (x-ray, flash, spotlight) — element-level, scroll-proof ————— */
+  /* ————— page-side machinery (inspect, x-ray, flash, spotlight, editing) ————— */
+  .fl-hover { box-shadow: inset 0 -2px 0 0 #B7CC00; border-radius: 2px; }
   .fl-xray-hit { box-shadow: inset 0 -2px 0 0 #B7CC00, inset 0 0 0 200px rgba(231,255,59,.13); border-radius: 2px; }
   .fl-xray-other { box-shadow: inset 0 0 0 1px rgba(34,32,27,.25); border-radius: 2px; }
   .fl-flash { position: relative; }
@@ -57,9 +57,10 @@
   .fl-spot::after { content: ""; position: absolute; inset: -5px -8px; border-radius: 4px; pointer-events: none;
     box-shadow: 0 0 0 2px #B7CC00; opacity: 0; animation: fl-spot-pulse 1.4s ease-out; }
   @keyframes fl-spot-pulse { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
-  .fl-probe-cursor, .fl-probe-cursor * { cursor: crosshair !important; }
+  .fl-editing { outline: 2px solid #B7CC00 !important; outline-offset: 3px; border-radius: 2px;
+    background: rgba(231,255,59,.07); cursor: text; }
   @media (prefers-reduced-motion: reduce) {
-    .fl-flash::after { animation: none; opacity: 1; transition: opacity .2s linear 1.1s; }
+    .fl-flash::after, .fl-flash-soft::after { animation: none; opacity: 1; transition: opacity .2s linear 1.1s; }
     .fl-spot::after { animation: none; opacity: 1; }
   }
 </style>
@@ -73,7 +74,7 @@
   <article class="essay">
     <p class="eyebrow mono-ui">ESSAY</p>
     <h2 class="headline">Choosing type should feel like reading, not guessing</h2>
-    <p class="byline mono-ui">By Dana Whitfield · 6 min read</p>
+    <p class="byline mono-ui" data-fl-dynamic="true">By Dana Whitfield · 6 min read</p>
     <p class="body-p drop">We used to pick fonts by squinting at a dropdown and hoping. The trouble is that a typeface only tells the truth once it&rsquo;s set in real sentences, at real sizes, next to the rest of your interface. A specimen sheet can flatter anything.</p>
     <p class="body-p">That is why testing pairings in situ matters. Swap the display face and the headline&rsquo;s whole posture changes; swap the body and the reading rhythm shifts under your feet. The best decisions come from comparing candidates against what already ships.</p>
     <blockquote class="pull">&ldquo;Type is the interface. Everything else is arrangement.&rdquo;</blockquote>
@@ -100,7 +101,7 @@ font-family: var(--mono);     /* this block */</code></pre>
   <div class="hgroup"><div class="hlabel">HANDOFF LINK</div><div class="hchips" id="hConn"></div></div>
   <div class="hgroup"><div class="hlabel">HONESTY STATES</div><div class="hchips" id="hFlags"></div></div>
   <div class="hgroup"><div class="hlabel">MENU</div><div class="hchips" id="hMenu"></div></div>
-  <div class="hnote">Demo rig — not part of the panel. Candidate faces render with local stand-ins here; the real panel loads the true woff2 subsets.</div>
+  <div class="hnote">Demo rig — not part of the panel. Candidate fonts render with local stand-ins here; the real panel loads the true woff2 subsets. Text edits stay in this page (the real engine writes source).</div>
 </div>
 
 <div id="fl-overlay" style="position:fixed;inset:0;pointer-events:none;z-index:2147483646;"></div>
@@ -166,8 +167,8 @@ font-family: var(--mono);     /* this block */</code></pre>
         mono:    { family: "Red Hat Mono", tag: "steady terminal voice", stack: "Monaco, monospace", parity: "guaranteed", source: "google" } } },
   ];
 
-  /* ——— page wiring: the real mechanism in miniature. The panel owns the role variables and
-     always appends a sentinel family, so classification is ground truth, never a guess. ——— */
+  /* ——— page wiring: the panel owns the role variables and always appends a sentinel family,
+     so classifying any element by role is ground truth, never a guess. ——— */
   const rootEl = document.documentElement;
   const setRoleVar = (role, stack) => rootEl.style.setProperty("--site-" + role, stack + ", " + SENT[role]);
 
@@ -199,6 +200,12 @@ font-family: var(--mono);     /* this block */</code></pre>
     for (const { role, chars: c } of els) { chars[role] += c; count[role]++; total += c; }
     return { chars, count, total };
   }
+  // Fake source locations for the text-edit demo ack (the real engine resolves these via
+  // React fiber _debugStack → source map; see spike/text-edit).
+  const fakeLoc = (el) => {
+    const i = scan().findIndex(e => e.el === el);
+    return `page.tsx:${14 + Math.max(0, i) * 3}`;
+  };
 
   /* ——— panel state ——— */
   let directions = DIRECTIONS.slice();
@@ -215,19 +222,18 @@ font-family: var(--mono);     /* this block */</code></pre>
   rebuildCands();
 
   const state = {
-    cursor: 0,                       // 0 = Current, 1..n = directions
-    sel: { display: -1, body: -1, mono: -1 },   // index into CANDS, -1 = current
+    cursor: 0,                                   // 0 = Current, 1..n = directions
+    sel: { display: -1, body: -1, mono: -1 },    // index into CANDS, -1 = current
     focus: "display",
-    proof: "galley",                 // galley | before | A | B
-    pins: { A: null, B: null },      // {sel, folio}
-    conn: "agent",                   // offline | ready | agent
+    beforeView: false,                           // B — page shows what ships today
+    lastView: null,                              // {sel, cursor} — space snaps back to this
+    conn: "agent",
     wiredDisplay: true,
     stale: false,
     expanded: true,
-    probing: false,
-    probeLock: null,
+    inspect: true,                               // hover-identify, on by default
+    mixCount: 0,
     savedId: null, shipped: false, saving: false,
-    lastLedger: "", lastChanged: [],
   };
 
   const famOf = (role, sel = state.sel) => sel[role] < 0 ? CURRENT[role].family : CANDS[role][sel[role]].family;
@@ -236,9 +242,10 @@ font-family: var(--mono);     /* this block */</code></pre>
   const trio = (sel = state.sel) => ROLES.map(r => famOf(r, sel)).join(" / ");
   const matchedDir = (sel = state.sel) => directions.find(d => ROLES.every(r => d.roles[r].family === famOf(r, sel))) || null;
   const onCurrent = (sel = state.sel) => ROLES.every(r => sel[r] < 0);
-  const effSel = () => state.proof === "before" ? { display: -1, body: -1, mono: -1 }
-    : (state.proof === "A" || state.proof === "B") && state.pins[state.proof] ? state.pins[state.proof].sel : state.sel;
+  const BEFORE_SEL = { display: -1, body: -1, mono: -1 };
+  const effSel = () => state.beforeView ? BEFORE_SEL : state.sel;
   const parityOf = (sel) => ROLES.some(r => { const c = candOf(r, sel); return c && c.parity !== "guaranteed"; }) ? "best-effort" : "guaranteed";
+  const proofId = (sel) => { const d = matchedDir(sel); return onCurrent(sel) ? "current" : d ? d.id : "mixed:" + trio(sel); };
 
   function applyToPage(prevSel, nextSel, opts = {}) {
     const changed = [];
@@ -247,27 +254,45 @@ font-family: var(--mono);     /* this block */</code></pre>
       setRoleVar(role, stackOf(role, nextSel));
       if (prevSel && famOf(role, prevSel) !== famOf(role, nextSel)) changed.push(role);
     }
-    if (prevSel && !opts.silent) reportChange(prevSel, nextSel, changed, opts);
+    if (prevSel && !opts.silent) reportChange(prevSel, nextSel, changed);
     return changed;
   }
 
-  /* ——— the change machinery: flash, ledger, edge ticks, honesty ——— */
+  /* ——— the change receipt: page flash + edge ticks + per-row verdicts + status line ——— */
   const overlay = document.getElementById("fl-overlay");
-  let tickTimer = null;
-  function reportChange(prevSel, nextSel, changedRoles, opts = {}) {
-    const parts = [];
-    for (const role of ROLES) {
-      const a = famOf(role, prevSel), b = famOf(role, nextSel);
-      if (role === "display" && !state.wiredDisplay) {
-        if (a !== b) parts.push(`<span class="led-chg">Δ display ${esc(a)} → ${esc(b)} · on ship</span>`);
-        continue;
-      }
-      parts.push(a !== b
-        ? `<span class="led-chg">Δ ${role} ${esc(a)} → ${esc(b)}</span>`
-        : `<span class="led-same">${role} unchanged</span>`);
-    }
+  let tickTimer = null, verdictTimer = null, lastChangedRoles = [], verdictActive = false;
+  function reportChange(prevSel, nextSel, changedRoles) {
     const liveChanged = changedRoles.filter(r => !(r === "display" && !state.wiredDisplay));
-    let honesty = "";
+    lastChangedRoles = liveChanged;
+    const cov = coverage();
+    // per-row verdicts: the row's stat line becomes its receipt for a beat
+    for (const role of ROLES) {
+      const row = sh.querySelector(`.row[data-role="${role}"]`);
+      if (!row) continue;
+      const a = famOf(role, prevSel), b = famOf(role, nextSel);
+      const unwired = role === "display" && !state.wiredDisplay;
+      const v = row.querySelector(".cov");
+      if (a !== b) {
+        v.textContent = unwired ? "→ applies on ship"
+          : role === "body" ? `→ ${cov.count.body} elements changed`
+          : `→ ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} changed`;
+        v.dataset.verdict = "changed";
+        row.querySelector(".fam").dataset.just = "true";
+        row.dataset.dimmed = "false";
+      } else {
+        v.textContent = "unchanged";
+        v.dataset.verdict = "same";
+        row.dataset.dimmed = String(changedRoles.length > 0);
+      }
+    }
+    verdictActive = true;
+    clearTimeout(verdictTimer);
+    verdictTimer = setTimeout(() => {
+      verdictActive = false;
+      sh.querySelectorAll(".row").forEach(r => { r.dataset.dimmed = "false"; r.querySelector(".fam").dataset.just = "false"; });
+      render();  // restores coverage stats
+    }, 2600);
+    // page flash + edge ticks + off-screen honesty in the status line
     if (liveChanged.length) {
       const els = scan().filter(e => liveChanged.includes(e.role));
       const vh = innerHeight;
@@ -275,15 +300,20 @@ font-family: var(--mono);     /* this block */</code></pre>
       const below = els.filter(({ el }) => el.getBoundingClientRect().top >= vh).length;
       const above = els.length - seen.length - below;
       flash(seen.map(e => e.el));
-      drawTicks(seen, els);
-      if (!seen.length && els.length) honesty = ` · <span class="led-chg">0 in view — J jumps to nearest</span>`;
-      else if (below || above) honesty = ` · ${below ? below + " below ↓" : ""}${below && above ? " · " : ""}${above ? above + " above ↑" : ""}`;
-      parts.push(`<span class="led-count" style="white-space:nowrap">${els.length} element${els.length === 1 ? "" : "s"}${honesty}</span>`);
+      drawTicks(seen);
+      let msg = `${els.length} element${els.length === 1 ? "" : "s"} changed`;
+      if (!seen.length && els.length) msg += ` · <b>0 in view — J jumps to nearest</b>`;
+      else if (below || above) msg += `${below ? ` · ${below} below ↓` : ""}${above ? ` · ${above} above ↑` : ""}`;
+      setStatusHTML(`${msg} · <button class="linkish" id="replay">↺ replay</button>`);
+      const rb = sh.getElementById("replay");
+      if (rb) rb.addEventListener("click", () => {
+        const now = scan().filter(e => lastChangedRoles.includes(e.role))
+          .filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+        flash(now.map(e => e.el));
+      });
     }
-    setLedger(parts.join(" · "), liveChanged);
   }
   function flash(els) {
-    // Mass changes get a soft wash (extent legible, not an explosion); staggered by role.
     const visible = scan().filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).length;
     const cls = visible && els.length / visible > 0.6 ? "fl-flash-soft" : "fl-flash";
     const byRole = new Map(scan().map(e => [e.el, e.role]));
@@ -293,7 +323,7 @@ font-family: var(--mono);     /* this block */</code></pre>
     });
     setTimeout(() => els.forEach(el => { el.classList.remove("fl-flash"); el.classList.remove("fl-flash-soft"); }), (REDUCED ? 1400 : 780) + 200);
   }
-  function drawTicks(seen, all) {
+  function drawTicks(seen) {
     overlay.querySelectorAll(".fl-tick").forEach(t => t.remove());
     clearTimeout(tickTimer);
     for (const { el } of seen) {
@@ -321,8 +351,8 @@ font-family: var(--mono);     /* this block */</code></pre>
     setTimeout(() => spotlight(target.el), 350);
   }
 
-  /* ——— x-ray (panel→page) + proof mode (page→panel) ——— */
-  let xrayRole = null, xrayAll = false;
+  /* ——— x-ray (panel→page) + all-roles map ——— */
+  let xrayRole = null, xrayAll = false, pulseTimer = null;
   function setXray(role, all = false) {
     xrayRole = role; xrayAll = all;
     for (const { el, role: r } of scan()) {
@@ -361,58 +391,114 @@ font-family: var(--mono);     /* this block */</code></pre>
       overlay.appendChild(tag);
     }
   }
+  // keyboard role focus fires a short pulse of the same highlight
+  function pulseXray(role) {
+    clearTimeout(pulseTimer);
+    setXray(role);
+    pulseTimer = setTimeout(() => { if (xrayRole === role && !xrayAll) setXray(null); }, 800);
+  }
 
-  let probeTag = null, probeHover = null;
-  function enterProbe() {
-    state.probing = true; state.probeLock = null;
-    document.body.classList.add("fl-probe-cursor");
-    document.addEventListener("mousemove", onProbeMove, true);
-    document.addEventListener("click", onProbeClick, true);
-    render();
-  }
-  function exitProbe() {
-    state.probing = false; state.probeLock = null;
-    document.body.classList.remove("fl-probe-cursor");
-    document.removeEventListener("mousemove", onProbeMove, true);
-    document.removeEventListener("click", onProbeClick, true);
-    if (probeTag) { probeTag.remove(); probeTag = null; }
-    if (probeHover) { probeHover.el.classList.remove("fl-xray-hit"); probeHover = null; }
-    setXray(null); render();
-  }
-  function onProbeMove(e) {
-    const hit = scan().find(({ el }) => el.contains(e.target)) ||
-      scan().find(({ el }) => { const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
-    if (probeHover && (!hit || hit.el !== probeHover.el)) probeHover.el.classList.remove("fl-xray-hit");
-    probeHover = hit || null;
-    if (!hit) { if (probeTag) probeTag.style.display = "none"; return; }
-    hit.el.classList.add("fl-xray-hit");
-    const cs = getComputedStyle(hit.el);
-    const fam = famOf(hit.role, effSel());
-    if (!probeTag) {
-      probeTag = document.createElement("div");
-      probeTag.style.cssText = "position:fixed;z-index:2147483647;background:#100F0D;color:#F2EFE5;font:10px ui-monospace,Menlo,monospace;" +
-        "letter-spacing:.06em;padding:6px 9px;border-radius:4px;border:1px solid rgba(242,239,229,.25);pointer-events:none;white-space:nowrap;";
-      overlay.appendChild(probeTag);
+  /* ——— inspect: the always-on hover layer (page → panel), no click interception ——— */
+  let hoverHit = null, hoverChip = null, dwellTimer = null, chipVisible = false;
+  function inspectMove(e) {
+    if (!state.inspect || !state.expanded || editingEl) return;
+    if (e.target.closest && (e.target.closest("#fl-host") || e.target.closest(".harness"))) { inspectClear(); return; }
+    const hit = scan().find(({ el }) => el.contains(e.target));
+    if (!hit) { inspectClear(); return; }
+    if (!hoverHit || hoverHit.el !== hit.el) {
+      if (hoverHit) hoverHit.el.classList.remove("fl-hover");
+      hoverHit = hit;
+      hit.el.classList.add("fl-hover");
+      if (state.focus !== hit.role) { state.focus = hit.role; render(); }
+      if (!chipVisible) {                      // dwell before the first chip; instant once visible
+        clearTimeout(dwellTimer);
+        dwellTimer = setTimeout(() => { chipVisible = true; positionChip(e); }, 160);
+        return;
+      }
     }
+    if (chipVisible) positionChip(e);
+  }
+  function positionChip(e) {
+    if (!hoverHit) return;
+    if (!hoverChip) {
+      hoverChip = document.createElement("div");
+      hoverChip.style.cssText = "position:fixed;z-index:2147483647;background:#100F0D;color:#F2EFE5;font:10px ui-monospace,Menlo,monospace;" +
+        "letter-spacing:.06em;padding:6px 9px;border-radius:3px;border:1px solid rgba(242,239,229,.25);pointer-events:none;white-space:nowrap;line-height:1.6;";
+      overlay.appendChild(hoverChip);
+    }
+    const cs = getComputedStyle(hoverHit.el);
     const cov = coverage();
-    probeTag.style.display = "block";
-    probeTag.innerHTML = `<b style="color:#E7FF3B;font-weight:600">${hit.role.toUpperCase()}</b> · ${esc(fam)} · ${parseFloat(cs.fontSize)}px · ${cov.count[hit.role]} on page` +
-      (state.probeLock === hit.role ? ` · <span style="color:#E7FF3B">[ ] flips this text</span>` : "");
-    const r = hit.el.getBoundingClientRect();
-    const x = Math.max(8, Math.min(innerWidth - probeTag.offsetWidth - 8, e.clientX - 20));
-    let y = r.top - probeTag.offsetHeight - 6;                    // above the block…
-    if (y < 8) y = Math.min(innerHeight - 34, r.bottom + 6);      // …or below if clipped
-    probeTag.style.left = x + "px"; probeTag.style.top = y + "px";
-    if (state.focus !== hit.role && state.probeLock === null) { state.focus = hit.role; render(); }
+    const dynamic = hoverHit.el.hasAttribute("data-fl-dynamic");
+    hoverChip.style.display = "block";
+    hoverChip.innerHTML =
+      `<b style="color:#E7FF3B;font-weight:600">${hoverHit.role.toUpperCase()}</b> · ${esc(famOf(hoverHit.role, effSel()))} · ${parseFloat(cs.fontSize)}px · ${cov.count[hoverHit.role]} on page` +
+      `<br><span style="color:rgba(242,239,229,.55)">${dynamic ? "[ ] flips this text · comes from data — not editable" : "[ ] flips this text · double-click retypes it"}</span>`;
+    const r = hoverHit.el.getBoundingClientRect();
+    const x = Math.max(8, Math.min(innerWidth - hoverChip.offsetWidth - 8, e.clientX - 20));
+    let y = r.top - hoverChip.offsetHeight - 6;
+    if (y < 8) y = Math.min(innerHeight - hoverChip.offsetHeight - 8, r.bottom + 6);
+    hoverChip.style.left = x + "px"; hoverChip.style.top = y + "px";
   }
-  function onProbeClick(e) {
-    if (e.target.closest("#fl-host") || e.target.closest(".harness")) return;
-    e.preventDefault(); e.stopPropagation();
-    if (probeHover) {
-      state.probeLock = probeHover.role; state.focus = probeHover.role;
-      setStatus(`${probeHover.role.toUpperCase()} locked — [ ] flips this text · X exits`);
-      render();
+  function inspectClear() {
+    if (hoverHit) { hoverHit.el.classList.remove("fl-hover"); hoverHit = null; }
+    if (hoverChip) hoverChip.style.display = "none";
+    clearTimeout(dwellTimer);
+    chipVisible = false;
+  }
+  document.addEventListener("mousemove", inspectMove, true);
+
+  /* ——— inline text edit: double-click any words, retype, Enter saves ——— */
+  let editingEl = null, editingOriginal = "";
+  document.addEventListener("dblclick", (e) => {
+    if (!state.expanded || editingEl) return;
+    if (e.target.closest && (e.target.closest("#fl-host") || e.target.closest(".harness"))) return;
+    const hit = scan().find(({ el }) => el.contains(e.target));
+    if (!hit) return;
+    e.preventDefault();
+    if (hit.el.hasAttribute("data-fl-dynamic")) {
+      setStatus("This text comes from data — not directly editable in place.", "warn");
+      return;
     }
+    startEdit(hit.el);
+  }, true);
+  function startEdit(el) {
+    inspectClear();
+    editingEl = el; editingOriginal = el.textContent;
+    el.classList.add("fl-editing");
+    el.setAttribute("contenteditable", "plaintext-only");
+    el.focus();
+    setStatus("Retype in place — ⏎ saves to source · esc cancels.");
+    el.addEventListener("keydown", editKeys);
+    el.addEventListener("blur", saveEdit);
+  }
+  function editKeys(e) {
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+  }
+  function endEdit() {
+    const el = editingEl; if (!el) return null;
+    el.removeEventListener("keydown", editKeys);
+    el.removeEventListener("blur", saveEdit);
+    el.removeAttribute("contenteditable");
+    el.classList.remove("fl-editing");
+    editingEl = null;
+    return el;
+  }
+  function saveEdit() {
+    const el = endEdit(); if (!el) return;
+    const before = editingOriginal, after = el.textContent;
+    if (before === after) { setStatus(""); return; }
+    invalidateScan();
+    // The real engine posts to /edit and ts-morph rewrites the JSX literal (spike/text-edit).
+    setStatusHTML(`Saved ✓ <b>${esc(fakeLoc(el))}</b> — words are in your source. <button class="linkish" id="undoEdit">undo</button>`, "good");
+    const ub = sh.getElementById("undoEdit");
+    if (ub) ub.addEventListener("click", () => { el.textContent = before; invalidateScan(); setStatus("Restored — byte-exact undo.", "good"); });
+  }
+  function cancelEdit() {
+    const el = endEdit(); if (!el) return;
+    el.textContent = editingOriginal;
+    setStatus("Edit cancelled — nothing written.");
   }
 
   /* ——— the panel (shadow DOM) ——— */
@@ -431,14 +517,20 @@ font-family: var(--mono);     /* this block */</code></pre>
     button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #E7FF3B; outline-offset: 1px; }
     .dim { color: rgba(242,239,229,.58); }
     .u { text-transform: uppercase; letter-spacing: .14em; }
+    .linkish { color: rgba(242,239,229,.8); text-decoration: underline dotted; font-size: inherit; padding: 0; }
 
     /* masthead */
     .mast { display: flex; align-items: center; gap: 9px; padding: 10px 14px; height: 46px; }
-    .badge { width: 26px; height: 26px; background: #191813; border: 1px solid rgba(242,239,229,.14); border-radius: 4px;
-      display: grid; place-items: center; font-size: 14px; color: #F2EFE5; }
-    .wordmark { font-size: 11px; letter-spacing: .18em; font-weight: 600; }
-    .galley-it { font-family: ${SERIF_I}; font-style: italic; font-size: 12px; color: rgba(242,239,229,.6); letter-spacing: .02em; }
-    .presence { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 8.5px; letter-spacing: .12em; color: rgba(242,239,229,.66); }
+    .badge { width: 26px; height: 26px; background: #191813; border: 1px solid rgba(242,239,229,.14); border-radius: 3px;
+      display: grid; place-items: center; font-size: 14px; color: #F2EFE5; flex: none; }
+    .wordmark { font-size: 11px; letter-spacing: .18em; font-weight: 600; white-space: nowrap; }
+    .collapsed-info { display: none; margin-left: 2px; font-size: 9.5px; color: rgba(242,239,229,.6); letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .collapsed-info .tick { color: #E7FF3B; }
+    .slip[data-collapsed="true"] .collapsed-info { display: inline; }
+    .inspect-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18);
+      border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.75); margin-left: auto; flex: none; }
+    .inspect-btn[aria-pressed="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
+    .presence { display: flex; align-items: center; gap: 6px; font-size: 8.5px; letter-spacing: .12em; color: rgba(242,239,229,.66); flex: none; }
     .pdot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(242,239,229,.5); }
     .presence[data-conn="ready"] .pdot { background: #F2EFE5; border-color: #F2EFE5; }
     .presence[data-conn="agent"] .pdot { background: #6EE7A0; border-color: #6EE7A0; animation: pulse 2.4s ease-in-out infinite; }
@@ -448,20 +540,18 @@ font-family: var(--mono);     /* this block */</code></pre>
     .oxford { border-top: 2px solid rgba(242,239,229,.3); border-bottom: 1px solid rgba(242,239,229,.14); height: 5px; }
 
     /* stale notice */
-    .notice { display: none; margin: 10px 14px 0; padding: 9px 11px; border: 1px solid rgba(233,138,109,.4); border-radius: 5px; background: #191813; }
+    .notice { display: none; margin: 10px 14px 0; padding: 9px 11px; border: 1px solid rgba(233,138,109,.4); border-radius: 3px; background: #191813; }
     .notice[data-show="true"] { display: block; }
     .notice .nh { font-size: 9.5px; letter-spacing: .14em; color: #E98A6D; font-weight: 600; }
     .notice .nb { margin-top: 4px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.78); }
     .notice code { background: rgba(242,239,229,.1); padding: 0 4px; border-radius: 3px; font-size: 9.5px; }
 
-    /* contents */
+    /* directions */
     .sect { display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; }
     .sect .lab { font-size: 9.5px; letter-spacing: .16em; color: rgba(242,239,229,.58); font-weight: 600; }
     .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
     .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
     .sect .counter b { color: #E7FF3B; font-weight: 600; }
-    .probe-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18); border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.75); }
-    .probe-btn[aria-pressed="true"] { background: #E7FF3B; color: #100F0D; border-color: #E7FF3B; }
     .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
       -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
       mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
@@ -475,24 +565,24 @@ font-family: var(--mono);     /* this block */</code></pre>
     @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
     .toc-row .leader { flex: 1; border-bottom: 1px dotted rgba(242,239,229,.28); transform: translateY(-3px); min-width: 12px; }
     .toc-row .vibe { font-size: 9px; letter-spacing: .1em; color: rgba(242,239,229,.5); flex: none; }
+    .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
+    .toc-cue[data-show="true"] { display: block; }
 
-    /* ledger */
-    .ledger { display: none; padding: 6px 14px; font-size: 9.5px; line-height: 1.5; border-top: 1px solid rgba(242,239,229,.1); color: rgba(242,239,229,.6); }
-    .ledger[data-show="true"] { display: block; }
-    .led-chg { color: #F2EFE5; } .led-same { color: rgba(242,239,229,.45); } .led-count { color: rgba(242,239,229,.6); }
-    .ledger .replay { color: rgba(242,239,229,.5); text-decoration: underline dotted; margin-left: 4px; font-size: 9.5px; }
+    /* standfirst — why this direction, right under the list of directions */
+    .standfirst { padding: 10px 14px 12px; border-top: 1px solid rgba(242,239,229,.1); font-family: ${SERIF_I}; font-style: italic;
+      font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
 
     /* the spread (role rows) */
     .spread { border-top: 1px solid rgba(242,239,229,.14); }
     .row { display: grid; grid-template-columns: 22px 1fr auto; padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(242,239,229,.08); position: relative; cursor: pointer; }
     .row:last-child { border-bottom: 0; }
     .row .margin { display: grid; place-items: center; font-size: 9px; color: rgba(242,239,229,.4); }
-    .row[data-focus="true"] .margin { color: #100F0D; }
+    .row[data-focus="true"] .margin { color: #100F0D; position: relative; z-index: 1; font-weight: 700; }
     .row[data-focus="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 16px; background: #E7FF3B; }
-    .row[data-focus="true"] .margin { position: relative; z-index: 1; font-weight: 700; }
     .row .mid { min-width: 0; padding-left: 10px; }
     .row .labline { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .14em; color: rgba(242,239,229,.55); }
     .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row .cov[data-verdict="changed"] { color: #F2EFE5; }
     .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 2px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
     .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 2px; padding: 0 4px; font-size: 8px; letter-spacing: .1em; color: rgba(242,239,229,.6); white-space: nowrap; flex: none; }
     .row .spec { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
@@ -503,42 +593,17 @@ font-family: var(--mono);     /* this block */</code></pre>
     .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; }
     .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
-    .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; }
+    .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; white-space: nowrap; }
     .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.8); display: grid; place-items: center; }
     .row .step:hover:not(:disabled) { background: #232219; }
     .row .step:disabled { opacity: .25; cursor: not-allowed; }
     .row[data-dimmed="true"] { opacity: .7; }
-
-    /* standfirst */
-    .standfirst { padding: 11px 14px; border-top: 1px solid rgba(242,239,229,.14); font-family: ${SERIF_I}; font-style: italic;
-      font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
-    .standfirst .q { color: rgba(242,239,229,.4); }
-
-    /* proof bar */
-    .proofbar { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border-top: 1px solid rgba(242,239,229,.14); }
-    .ptab { padding: 8px 4px 7px; text-align: center; font-size: 9px; letter-spacing: .12em; color: rgba(242,239,229,.55);
-      border-right: 1px solid rgba(242,239,229,.1); position: relative; }
-    .ptab:last-child { border-right: 0; }
-    .ptab[aria-pressed="true"] { color: #F2EFE5; }
-    .ptab[aria-pressed="true"]::after { content: ""; position: absolute; left: 16%; right: 16%; bottom: 3px; height: 3px; background: #E7FF3B; }
-    .ptab .sub { display: block; margin-top: 2px; font-size: 8.5px; letter-spacing: .04em; color: rgba(242,239,229,.4); }
-    .ptab .ag { font-size: 12px; color: rgba(242,239,229,.85); letter-spacing: 0; text-transform: none; }
-    .ptab .swatches { display: inline-flex; gap: 2px; margin-left: 3px; vertical-align: 1px; }
-    .ptab .sw { width: 5px; height: 5px; border-radius: 1px; }
-    .sw.diff { background: #8a877c; } .ptab[aria-pressed="true"] .sw.diff, .ptab:hover .sw.diff { background: #E7FF3B; }
-    .ptab:hover { background: #191813; }
 
     /* fidelity + pick */
     .fidelity { display: none; padding: 7px 14px; border-top: 1px solid rgba(242,239,229,.1); border-left: 2px solid #E98A6D;
       font-size: 9.5px; line-height: 1.5; color: #E9A88F; }
     .fidelity[data-show="true"] { display: block; }
     .fidelity[data-quiet="true"] { display: none; }
-    .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
-    .toc-cue[data-show="true"] { display: block; }
-    .collapsed-info { display: none; margin-left: 4px; font-size: 9.5px; color: rgba(242,239,229,.6); letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-    .collapsed-info .tick { color: #E7FF3B; }
-    .slip[data-collapsed="true"] .collapsed-info { display: inline; }
-    .slip[data-collapsed="true"] .galley-it { display: none; }
     .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); }
     .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 3px; font-size: 11px; font-weight: 700;
       letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
@@ -551,6 +616,7 @@ font-family: var(--mono);     /* this block */</code></pre>
     .pick[data-just="true"] .tick path { animation: tickdraw .42s cubic-bezier(.25,1,.5,1); }
     @keyframes tickdraw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
     .status { padding: 7px 14px 10px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.7); min-height: 30px; }
+    .status b { color: #F2EFE5; font-weight: 600; }
     .status[data-tone="good"] { color: #9BE7B8; } .status[data-tone="warn"] { color: #E9A88F; }
 
     /* colophon */
@@ -560,32 +626,30 @@ font-family: var(--mono);     /* this block */</code></pre>
     .ver { margin-left: auto; font-size: 8.5px; color: rgba(242,239,229,.35); }
 
     .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
-    .slip[data-collapsed="true"] { width: 344px; }
+    .slip[data-collapsed="true"] .inspect-btn { display: none; }
     @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
   </style>
   <div class="slip" data-collapsed="false" role="group" aria-label="Font Lab">
     <div class="mast">
-      <div class="badge" id="aa" title="the current display face">Aa</div>
+      <div class="badge" id="aa" title="the current display font">Aa</div>
       <span class="wordmark u">FONT LAB</span>
-      <span class="galley-it">Galley</span><span class="collapsed-info" id="collapsedInfo"></span>
+      <span class="collapsed-info" id="collapsedInfo"></span>
+      <button class="inspect-btn" id="inspectBtn" aria-pressed="true" title="Inspect — hover the page to identify text (X toggles)">⌖</button>
       <div class="presence" id="presence" data-conn="offline"><span class="pdot"></span><span id="presLabel">OFFLINE</span></div>
     </div>
     <div class="dogear" id="dogear" title="collapse"></div>
     <div class="oxford"></div>
     <div class="notice" id="notice" data-show="false">
       <div class="nh u">STALE PANEL — <code>0.9.1</code> SET · <code>0.9.3</code> RUNNING</div>
-      <div class="nb">This proof was set by an older press. Re-run <code>font_lab_init</code> to refresh it.</div>
+      <div class="nb">This panel was set by an older version. Re-run <code>font_lab_init</code> to refresh it.</div>
     </div>
     <div class="sect">
       <span class="lab u">DIRECTION</span><span class="rule"></span>
       <span class="counter" id="counter"><b>00</b> / 05</span>
-      <button class="probe-btn" id="probeBtn" title="Proof mode — point at the page (X)" aria-pressed="false">⌖</button>
     </div>
     <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
-    <div class="ledger" id="ledger" data-show="false"></div>
-    <div class="spread" id="spread"></div>
     <div class="standfirst" id="standfirst"></div>
-    <div class="proofbar" id="proofbar"></div>
+    <div class="spread" id="spread"></div>
     <div class="fidelity" id="fidelity" data-show="false"></div>
     <div class="pickwrap">
       <button class="pick" id="pick" data-state="idle">
@@ -595,9 +659,16 @@ font-family: var(--mono);     /* this block */</code></pre>
     </div>
     <div class="status" id="status"></div>
     <div class="colophon" id="colophon">
-      <span><kbd>←→</kbd> direction</span><span><kbd>↑↓</kbd> role</span><span><kbd>[ ]</kbd> face</span>
-      <span><kbd>B</kbd> before</span><span><kbd>P</kbd> pin</span><span><kbd>␣</kbd> proofs</span>
-      <span><kbd>X</kbd> proof mode</span><span><kbd>⇧X</kbd> map</span><span><kbd>J</kbd> jump</span><span><kbd>↵</kbd> pick</span>
+      <span title="previous / next direction"><kbd>←→</kbd> direction</span>
+      <span title="move between the three roles"><kbd>↑↓</kbd> role</span>
+      <span title="previous / next font for the focused role"><kbd>[ ]</kbd> font</span>
+      <span title="snap back to the direction you viewed last — tap repeatedly to compare two finalists"><kbd>space</kbd> snap back</span>
+      <span title="tap: toggle the site's current fonts · hold: peek"><kbd>B</kbd> before</span>
+      <span title="save a hand-mixed set as a direction in the list"><kbd>S</kbd> save mix</span>
+      <span title="hover-identify text on the page (on by default)"><kbd>X</kbd> inspect</span>
+      <span title="tag every element on the page with its role at once"><kbd>⇧X</kbd> map</span>
+      <span title="scroll to the nearest element of the focused role"><kbd>J</kbd> jump</span>
+      <span title="save your pick — same as the PICK button"><kbd>↵</kbd> pick</span>
       <span class="ver">v0.9.3</span>
     </div>
   </div>`;
@@ -606,30 +677,8 @@ font-family: var(--mono);     /* this block */</code></pre>
   const slip = sh.querySelector(".slip");
   const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  let ledgerTimer = null;
-  function setLedger(html, changedRoles = []) {
-    const el = $("ledger");
-    el.innerHTML = html + (changedRoles.length ? ` <button class="replay" id="replay">↺ flash</button>` : "");
-    el.dataset.show = "true";
-    const rb = sh.getElementById("replay");
-    if (rb) rb.addEventListener("click", () => {
-      const els = scan().filter(e => changedRoles.includes(e.role) && !(e.role === "display" && !state.wiredDisplay));
-      flash(els.filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).map(e => e.el));
-    });
-    clearTimeout(ledgerTimer);
-    ledgerTimer = setTimeout(() => { el.dataset.show = "false"; }, 5200);
-    for (const role of ROLES) {
-      const row = sh.querySelector(`.row[data-role="${role}"]`);
-      if (!row) continue;
-      const changed = changedRoles.includes(role);
-      row.querySelector(".fam").dataset.just = String(changed);
-      row.dataset.dimmed = String(changedRoles.length > 0 && !changed);
-    }
-    setTimeout(() => sh.querySelectorAll(".row").forEach(r => {
-      r.dataset.dimmed = "false"; r.querySelector(".fam").dataset.just = "false";
-    }), 900);
-  }
   function setStatus(text, tone = "") { $("status").textContent = text; $("status").dataset.tone = tone; }
+  function setStatusHTML(html, tone = "") { $("status").innerHTML = html; $("status").dataset.tone = tone; }
   function updateTocCue() {
     const toc = $("toc"), cue = $("tocCue");
     const hidden = Math.max(0, Math.round((toc.scrollHeight - toc.scrollTop - toc.clientHeight) / 37));
@@ -638,7 +687,7 @@ font-family: var(--mono);     /* this block */</code></pre>
   }
   let fidTimer = null, fidKey = "";
 
-  /* ——— render ——— */
+  /* ——— build ——— */
   function buildToc() {
     const toc = $("toc"); toc.innerHTML = "";
     const rows = [{ id: "current", name: `Current — ${CURRENT.display.family} / ${CURRENT.mono.family}`, vibe: "baseline", dir: null }]
@@ -664,33 +713,19 @@ font-family: var(--mono);     /* this block */</code></pre>
           <div class="spec"><span class="fam"></span></div>
           <div class="tagline"></div>
         </div>
-        <div class="right"><span class="pos"></span><button class="step" data-d="-1" aria-label="previous ${role} face">‹</button><button class="step" data-d="1" aria-label="next ${role} face">›</button></div>`;
+        <div class="right"><span class="pos"></span><button class="step" data-d="-1" aria-label="previous ${role} font">‹</button><button class="step" data-d="1" aria-label="next ${role} font">›</button></div>`;
       row.addEventListener("click", (e) => { if (e.target.closest(".step")) return; state.focus = role; render(); });
-      row.addEventListener("mouseenter", () => { if (!state.probing && !xrayAll) { state.focus = role; setXray(role); render(); } });
-      row.addEventListener("mouseleave", () => { if (!state.probing && !xrayAll) setXray(null); });
+      row.addEventListener("mouseenter", () => { if (!xrayAll) { state.focus = role; setXray(role); render(); } });
+      row.addEventListener("mouseleave", () => { if (!xrayAll) setXray(null); });
       row.querySelectorAll(".step").forEach(btn => btn.addEventListener("click", () => cycleRole(role, +btn.dataset.d)));
       wrap.appendChild(row);
     }
   }
-  function buildProofbar() {
-    const bar = $("proofbar"); bar.innerHTML = "";
-    const tabs = [
-      { key: "galley", label: "GALLEY" },
-      { key: "before", label: "BEFORE" },
-      { key: "A", label: "A" }, { key: "B", label: "B" },
-    ];
-    for (const t of tabs) {
-      const b = document.createElement("button");
-      b.className = "ptab u"; b.dataset.key = t.key;
-      b.addEventListener("click", () => showProof(t.key));
-      bar.appendChild(b);
-    }
-  }
 
+  /* ——— render ——— */
   function render() {
     const eff = effSel();
     const cov = coverage();
-    slip.dataset.proof = state.proof;
     // masthead
     $("aa").style.fontFamily = stackOf("display", state.sel);
     const pres = $("presence"); pres.dataset.conn = state.conn;
@@ -698,85 +733,57 @@ font-family: var(--mono);     /* this block */</code></pre>
     pres.title = state.conn === "agent" ? "An agent is blocked on your pick — it ships the moment you choose."
       : state.conn === "ready" ? "Pick endpoint on :7777. Your pick saves the moment you make it."
       : "No pick endpoint on :7777 — run npx font-lab in your project.";
+    $("inspectBtn").setAttribute("aria-pressed", String(state.inspect));
     $("notice").dataset.show = String(state.stale);
     const gd0 = matchedDir(state.sel);
     const gFol = onCurrent(state.sel) ? "00 Current" : gd0 ? `${String(directions.indexOf(gd0) + 1).padStart(2, "0")} ${gd0.name}` : "mix — set by hand";
     const unsaved = !onCurrent(state.sel) && state.savedId !== proofId(state.sel);
     $("collapsedInfo").innerHTML = `· ${esc(gFol)}${unsaved ? ' <span class="tick">′</span>' : ""} <span style="opacity:.55">· \` opens</span>`;
-    // contents
+    // directions
     const shownDirM = matchedDir(eff);
     const idx = onCurrent(eff) ? 0 : shownDirM ? directions.indexOf(shownDirM) + 1 : -1;
-    const pinKey = state.proof === "A" || state.proof === "B" ? state.proof : null;
-    $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${pinKey ? pinKey + "·" : ""}${String(idx).padStart(2, "0")}</b>`) + ` / ${String(directions.length).padStart(2, "0")}`;
-    sh.querySelectorAll(".toc-row").forEach((r, i) => {
-      r.setAttribute("aria-current", String(i === idx));
-      const folio = r.querySelector(".folio");
-      folio.textContent = i === idx && pinKey ? pinKey + "·" + String(i).padStart(2, "0") : String(i).padStart(2, "0");
-    });
+    $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${String(idx).padStart(2, "0")}</b>`) + ` / ${String(directions.length).padStart(2, "0")}`;
+    sh.querySelectorAll(".toc-row").forEach((r, i) => r.setAttribute("aria-current", String(i === idx)));
     updateTocCue();
-    $("probeBtn").setAttribute("aria-pressed", String(state.probing));
-    // spread
+    // standfirst — describes the direction shown
+    const sf = $("standfirst");
+    sf.textContent = state.beforeView ? `Before — ${trio(BEFORE_SEL)}. What ships today.`
+      : shownDirM ? shownDirM.rationale
+      : onCurrent(eff) ? "Flip to a direction — every change is shown on your real page."
+      : `Set by hand — ${trio(eff)}. S saves this mix as a direction.`;
+    // role rows
     for (const role of ROLES) {
       const row = sh.querySelector(`.row[data-role="${role}"]`);
       const cand = candOf(role, eff);
-      const fam = famOf(role, eff);
       const unwired = role === "display" && !state.wiredDisplay;
       row.dataset.focus = String(state.focus === role);
       row.dataset.unwired = String(unwired);
-      row.querySelector(".fam").textContent = fam;
+      row.querySelector(".fam").textContent = famOf(role, eff);
       row.querySelector(".fam").style.fontFamily = unwired ? MONO : stackOf(role, eff);
       row.querySelector(".fam").style.fontSize = unwired ? "12px" : "";
       row.querySelector(".parity").hidden = !(cand && cand.parity !== "guaranteed");
       row.querySelector(".parity").title = "best-effort — may render slightly differently once shipped";
       row.querySelector(".wtag").hidden = !unwired;
-      row.querySelector(".cov").textContent = unwired ? ""
-        : role === "body" ? `${Math.round(cov.chars.body / cov.total * 100)}% of page text`
-        : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
+      if (!verdictActive) {
+        const covEl = row.querySelector(".cov");
+        covEl.dataset.verdict = "";
+        covEl.textContent = unwired ? ""
+          : role === "body" ? `${Math.round(cov.chars.body / cov.total * 100)}% of page text`
+          : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on page`;
+      }
       row.querySelector(".tagline").textContent = unwired ? "previews after ship · pick records."
-        : cand && cand.tag ? cand.tag + "." : eff[role] < 0 && role === "display" ? "what ships today." : eff[role] < 0 ? "" : "";
+        : cand && cand.tag ? cand.tag + "." : "";
       const n = CANDS[role].length;
-      row.querySelector(".pos").textContent = "face " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
-      row.querySelectorAll(".step").forEach(b => b.disabled = unwired || state.proof === "before");
+      row.querySelector(".pos").textContent = "font " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
+      row.querySelectorAll(".step").forEach(b => b.disabled = unwired || state.beforeView);
     }
-    // standfirst
-    const sf = $("standfirst");
-    if (state.proof === "before") sf.textContent = `Before — ${trio({ display: -1, body: -1, mono: -1 })}. What ships today.`;
-    else {
-      const shownSel = eff, shownDir = matchedDir(shownSel);
-      sf.textContent = shownDir ? shownDir.rationale
-        : onCurrent(shownSel) ? "Flip to a direction — every change is proofed on your real page."
-        : `Set by hand — ${trio(shownSel)}.`;
-    }
-    // proof bar
-    sh.querySelectorAll(".ptab").forEach(tab => {
-      const key = tab.dataset.key;
-      tab.setAttribute("aria-pressed", String(state.proof === key));
-      if (key === "galley") {
-        const gd = matchedDir(state.sel);
-        const gIdx = onCurrent(state.sel) ? "00" : gd ? String(directions.indexOf(gd) + 1).padStart(2, "0") : "MIX";
-        tab.innerHTML = `GALLEY<span class="sub">live · ${gIdx}</span>`;
-      }
-      else if (key === "before") tab.innerHTML = `BEFORE<span class="sub">current</span>`;
-      else {
-        const pin = state.pins[key];
-        if (!pin) { tab.innerHTML = `${key}<span class="sub dim">press P</span>`; }
-        else {
-          const diffRoles = ROLES.filter(r => famOf(r, pin.sel) !== famOf(r, state.sel));
-          const swatches = diffRoles.length ? `<span class="swatches">` + diffRoles.map(r =>
-            `<span class="sw diff" title="${r} differs from the live galley"></span>`).join("") + `</span>` : "";
-          const ag = `<span class="ag" style="font-family:${stackOf("display", pin.sel).replace(/"/g, "'")}">Ag</span>`;
-          tab.innerHTML = `${key} · ${ag}${swatches}<span class="sub">${esc(pin.label)}</span>`;
-          tab.title = pin.label + (diffRoles.length ? ` — differs from live on ${diffRoles.join(", ")}` : " — matches the live galley");
-        }
-      }
-    });
-    // fidelity + pick
-    const bestEffort = parityOf(eff) === "best-effort" && !onCurrent(eff) && state.proof !== "before";
+    // fidelity — full for ~4.5s per new best-effort mix, then quiet to the inline ≈
+    const bestEffort = parityOf(eff) === "best-effort" && !onCurrent(eff) && !state.beforeView;
     const fid = $("fidelity");
     fid.dataset.show = String(bestEffort);
     if (bestEffort) {
       const faces = ROLES.map(r => candOf(r, eff)).filter(c => c && c.parity !== "guaranteed").map(c => c.family);
-      fid.textContent = `≈ close proof — ${faces.join(", ")} may differ slightly in press.`;
+      fid.textContent = `≈ close preview — ${faces.join(", ")} may differ slightly once shipped.`;
       const key = faces.join("|");
       if (key !== fidKey) {
         fidKey = key; fid.dataset.quiet = "false";
@@ -784,96 +791,105 @@ font-family: var(--mono);     /* this block */</code></pre>
         fidTimer = setTimeout(() => { fid.dataset.quiet = "true"; }, 4500);
       }
     } else { fidKey = ""; fid.dataset.quiet = "false"; }
+    // pick — always picks what the page is showing
     const pick = $("pick"), pl = $("pickLabel");
-    const pickable = state.proof !== "before" && !onCurrent(eff);
+    const pickable = !state.beforeView && !onCurrent(eff);
     if (state.shipped && state.savedId === proofId(eff)) { pick.dataset.state = "shipped"; pl.textContent = "SHIPPED"; pick.disabled = true; }
     else if (state.saving) { pick.dataset.state = "idle"; pl.textContent = "SAVING…"; pick.disabled = true; }
     else if (state.savedId && state.savedId === proofId(eff)) { pick.dataset.state = "picked"; pl.textContent = "PICKED"; pick.disabled = false; }
     else {
       pick.dataset.state = "idle"; pick.dataset.just = "false";
-      pl.textContent = state.proof === "A" || state.proof === "B" ? `PICK ${state.proof}` : "PICK";
+      pl.textContent = "PICK";
       pick.disabled = !pickable;
-      if (!pickable && !state.saving) setStatus(state.proof === "before" ? "Viewing BEFORE — flip back to a proof to pick." : "On current — nothing to pick.");
+      if (!pickable && !state.saving && !editingEl) setStatus(state.beforeView ? "Viewing before — flip back to pick." : "On current — nothing to pick.");
     }
   }
-  const proofId = (sel) => { const d = matchedDir(sel); return onCurrent(sel) ? "current" : d ? d.id : "mixed:" + trio(sel); };
 
   /* ——— interactions ——— */
+  function rememberView() { state.lastView = { sel: { ...state.sel }, cursor: state.cursor }; }
   function selectEntry(i, opts = {}) {
-    const prev = { ...state.sel };
-    if (i <= 0) state.sel = { display: -1, body: -1, mono: -1 };
+    const prev = { ...effSel() };
+    const target = Math.max(0, Math.min(i, directions.length));
+    if (target !== state.cursor || matchedDir(state.sel) === null) rememberView();
+    state.beforeView = false;
+    if (target <= 0) state.sel = { display: -1, body: -1, mono: -1 };
     else {
-      const d = directions[Math.min(i, directions.length) - 1];
+      const d = directions[target - 1];
       for (const role of ROLES) state.sel[role] = Math.max(0, CANDS[role].findIndex(c => c.family === d.roles[role].family));
     }
-    state.cursor = Math.max(0, Math.min(i, directions.length));
-    state.proof = "galley"; if (!opts.keepStatus) setStatus("");
+    state.cursor = target;
+    if (!opts.keepStatus) setStatus("");
     applyToPage(prev, state.sel);
     render();
-    const active = sh.querySelector(`.toc-row[data-idx="${i}"]`);
+    const active = sh.querySelector(`.toc-row[data-idx="${target}"]`);
     if (active) active.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
   }
   function cycleRole(role, d) {
     if (role === "display" && !state.wiredDisplay) return;
-    if (state.proof === "A" || state.proof === "B") {         // pins are immutable — edit a copy
-      const slot = state.proof;
-      state.sel = { ...state.pins[slot].sel };
-      state.proof = "galley";
-      setStatus(`Editing a copy of ${slot} in the galley — the pin is untouched.`);
-    }
-    if (state.proof === "before") state.proof = "galley";
+    if (state.beforeView) state.beforeView = false;
     state.focus = role;
+    if (onCurrent(state.sel)) { selectEntry(1); return; }
     const prev = { ...state.sel };
     const n = CANDS[role].length;
-    if (onCurrent(state.sel)) { selectEntry(1); return; }
     state.sel[role] = ((state.sel[role] < 0 ? 0 : state.sel[role]) + d + n) % n;
+    setStatus("");
     applyToPage(prev, state.sel);
     render();
   }
-  function moveFocus(d) { state.focus = ROLES[(ROLES.indexOf(state.focus) + d + 3) % 3]; render(); }
-  function showProof(key, opts = {}) {
-    if ((key === "A" || key === "B") && !state.pins[key]) { setStatus(`Nothing pinned in ${key} — press P to pin the galley.`); return; }
+  function moveFocus(d) {
+    state.focus = ROLES[(ROLES.indexOf(state.focus) + d + 3) % 3];
+    pulseXray(state.focus);
+    render();
+  }
+  function snapBack() {
+    if (!state.lastView) { setStatus("Nothing to snap back to yet — view another direction first."); return; }
     const prevEff = { ...effSel() };
-    state.proof = state.proof === key && key !== "galley" && opts.toggle ? "galley" : key;
-    const nextEff = { ...effSel() };
-    const changed = ROLES.filter(r => famOf(r, prevEff) !== famOf(r, nextEff));
-    applyToPage(null, nextEff, { silent: true });
-    if (changed.length) reportChange(prevEff, nextEff, changed);
-    setStatus(state.proof === "before" ? `Before — ${trio({ display: -1, body: -1, mono: -1 })}. B returns.`
-      : state.proof === "A" || state.proof === "B" ? `Showing ${state.proof} — ${state.pins[state.proof].label}.`
-      : "");
-    render();
-  }
-  function pin() {
-    if (onCurrent(state.sel)) { setStatus("Flip to a direction first — then pin it."); return; }
-    const slot = !state.pins.A ? "A" : !state.pins.B ? "B" : "A";
+    const to = state.lastView;
+    state.lastView = { sel: { ...state.sel }, cursor: state.cursor };
+    state.sel = { ...to.sel }; state.cursor = to.cursor; state.beforeView = false;
+    applyToPage(prevEff, state.sel);
     const d = matchedDir(state.sel);
-    state.pins[slot] = { sel: { ...state.sel }, label: d ? d.name : "mixed — " + trio(state.sel) };
-    setStatus(`Pinned ${slot} — ${state.pins[slot].label}${state.pins.A && state.pins.B ? " · ␣ compares" : ""}.`);
+    setStatus(`Snapped back to ${d ? d.name : onCurrent(state.sel) ? "Current" : "your mix"} — space returns.`);
     render();
   }
-  function cycleProofs() {
-    const order = ["galley", "A", "B"].filter(k => k === "galley" || state.pins[k]);
-    if (order.length < 2) { setStatus("Pin a proof first — P pins the galley into A, then B."); return; }
-    showProof(order[(order.indexOf(state.proof === "before" ? "galley" : state.proof) + 1) % order.length]);
+  function toggleBefore() {
+    const prevEff = { ...effSel() };
+    state.beforeView = !state.beforeView;
+    applyToPage(prevEff, effSel());
+    if (state.beforeView) {
+      setStatus(`Before — ${trio(BEFORE_SEL)}. B returns.`);
+      const r0 = sh.querySelector('.toc-row[data-idx="0"]');
+      if (r0) r0.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    } else setStatus("");
+    render();
   }
-
-  /* hold-B: tap toggles BEFORE, hold >400ms peeks and springs back */
+  function saveMix() {
+    if (state.beforeView || onCurrent(state.sel) || matchedDir(state.sel)) {
+      setStatus("Nothing to save — mix a set by hand first ([ ] flips a font).");
+      return;
+    }
+    state.mixCount++;
+    const name = `Mix ${String(state.mixCount).padStart(2, "0")}`;
+    const roles = {};
+    for (const role of ROLES) roles[role] = { ...CANDS[role][state.sel[role]] };
+    directions = directions.concat([{ id: `mix-${state.mixCount}`, name, vibe: "your mix", rationale: `Set by hand — ${trio()}.`, roles }]);
+    buildToc();
+    state.cursor = directions.length;
+    setStatus(`Saved as direction ${String(directions.length).padStart(2, "0")} — it's in the list now.`, "good");
+    render();
+    const newRow = sh.querySelector(`.toc-row[data-idx="${directions.length}"]`);
+    if (newRow) newRow.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+  }
+  /* hold-B: tap toggles before, hold >400ms peeks and springs back */
   let bDownAt = 0, bHeld = false;
-  function bDown() {
-    if (bHeld) return; bHeld = true; bDownAt = performance.now();
-    showProof(state.proof === "before" ? "galley" : "before");
-  }
-  function bUp() {
-    if (!bHeld) return; bHeld = false;
-    if (performance.now() - bDownAt > 400) showProof(state.proof === "before" ? "galley" : "before"); // spring back
-  }
+  function bDown() { if (bHeld) return; bHeld = true; bDownAt = performance.now(); toggleBefore(); }
+  function bUp() { if (!bHeld) return; bHeld = false; if (performance.now() - bDownAt > 400) toggleBefore(); }
 
   async function doPick() {
     const eff = effSel();
-    if (state.proof === "before" || onCurrent(eff)) return;
+    if (state.beforeView || onCurrent(eff)) return;
     const d = matchedDir(eff);
-    const label = d ? d.name : "your hand-set pairing";
+    const label = d ? d.name : "your hand-mixed set";
     if (state.conn === "offline") { setStatus("Endpoint offline — run npx font-lab, then Pick again.", "warn"); return; }
     state.saving = true; render();
     await new Promise(r => setTimeout(r, 650));
@@ -886,13 +902,13 @@ font-family: var(--mono);     /* this block */</code></pre>
       if (state.savedId !== proofId(effSel())) return;
       state.shipped = true;
       setStatus(parityOf(eff) === "guaranteed"
-        ? "Shipped — what you proofed is what shipped. Undo: npx font-lab-undo."
-        : "Shipped — ≈ best-effort faces may differ slightly. Undo: npx font-lab-undo.", "good");
+        ? "Shipped — exactly what you previewed. Undo: npx font-lab-undo."
+        : "Shipped — ≈ best-effort fonts may differ slightly. Undo: npx font-lab-undo.", "good");
       render();
     }
   }
 
-  /* keyboard — captured only while the panel is expanded */
+  /* keyboard — captured only while the panel is expanded; suspended while retyping text */
   document.addEventListener("keydown", (e) => {
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -902,28 +918,35 @@ font-family: var(--mono);     /* this block */</code></pre>
     else if (k === "ArrowLeft") { e.preventDefault(); selectEntry(Math.max(state.cursor - 1, 0)); }
     else if (k === "ArrowDown") { e.preventDefault(); moveFocus(1); }
     else if (k === "ArrowUp") { e.preventDefault(); moveFocus(-1); }
-    else if (k === "]") { e.preventDefault(); cycleRole(state.probeLock || state.focus, 1); }
-    else if (k === "[") { e.preventDefault(); cycleRole(state.probeLock || state.focus, -1); }
+    else if (k === "]") { e.preventDefault(); cycleRole(hoverHit ? hoverHit.role : state.focus, 1); }
+    else if (k === "[") { e.preventDefault(); cycleRole(hoverHit ? hoverHit.role : state.focus, -1); }
     else if (k === "b" || k === "B") { e.preventDefault(); if (!e.repeat) bDown(); }
-    else if (k === "p" || k === "P") { e.preventDefault(); pin(); }
-    else if (k === " ") { e.preventDefault(); cycleProofs(); }
-    else if (k === "x") { e.preventDefault(); state.probing ? exitProbe() : enterProbe(); }
+    else if (k === " ") { e.preventDefault(); snapBack(); }
+    else if (k === "s" || k === "S") { e.preventDefault(); saveMix(); }
+    else if (k === "x") { e.preventDefault(); toggleInspect(); }
     else if (k === "X" && e.shiftKey) { e.preventDefault(); xrayAll ? setXray(null, false) : setXray(state.focus, true); }
     else if (k === "j" || k === "J") { e.preventDefault(); jumpNearest(state.focus); }
-    else if (k === "Escape" && state.probing) { e.preventDefault(); exitProbe(); }
+    else if (k === "Escape" && xrayAll) { e.preventDefault(); setXray(null, false); }
     else if (k === "Enter") { e.preventDefault(); void doPick(); }
     else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
   });
   document.addEventListener("keyup", (e) => { if (e.key === "b" || e.key === "B") bUp(); });
 
+  function toggleInspect() {
+    state.inspect = !state.inspect;
+    if (!state.inspect) inspectClear();
+    setStatus(state.inspect ? "Inspect on — hover the page to identify text." : "Inspect off — X turns it back on.");
+    render();
+  }
   function toggleCollapsed() {
     state.expanded = !state.expanded;
     slip.dataset.collapsed = String(!state.expanded);
-    if (!state.expanded && state.probing) exitProbe();
+    if (!state.expanded) { inspectClear(); setXray(null, false); }
+    render();
   }
   $("dogear").addEventListener("click", toggleCollapsed);
-  sh.querySelector(".mast").addEventListener("click", (e) => { if (!state.expanded) toggleCollapsed(); });
-  $("probeBtn").addEventListener("click", () => state.probing ? exitProbe() : enterProbe());
+  sh.querySelector(".mast").addEventListener("click", (e) => { if (!state.expanded && !e.target.closest(".inspect-btn")) toggleCollapsed(); });
+  $("inspectBtn").addEventListener("click", toggleInspect);
   $("pick").addEventListener("click", doPick);
   $("pick").addEventListener("mouseenter", () => { const f = $("fidelity"); if (f.dataset.show === "true") f.dataset.quiet = "false"; });
   $("toc").addEventListener("scroll", updateTocCue);
@@ -958,7 +981,7 @@ font-family: var(--mono);     /* this block */</code></pre>
     if (extraAdded) return;
     extraAdded = true; b.setAttribute("aria-pressed", "true");
     directions = directions.concat(EXTRA); rebuildCands(); buildToc();
-    setLedger(`<span class="led-chg">+2 directions arrived — the menu is open-ended.</span>`);
+    setStatus("+2 directions arrived — the menu is open-ended.");
     render();
   });
   chip("hMenu", "reset pick", false, () => {
@@ -968,7 +991,7 @@ font-family: var(--mono);     /* this block */</code></pre>
   /* ——— boot ——— */
   for (const role of ROLES) setRoleVar(role, CURRENT[role].stack);
   invalidateScan();
-  buildToc(); buildSpread(); buildProofbar();
+  buildToc(); buildSpread();
   selectEntry(1, { keepStatus: true });   // open on the first direction so the demo lands mid-story
   setStatus("");
   addEventListener("resize", invalidateScan);
