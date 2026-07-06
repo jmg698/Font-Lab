@@ -749,13 +749,16 @@ export function liveInstructions(projectDir) {
   } catch {}
   return {
     note: "Run these in a local terminal — your Mac/Linux terminal, or the integrated terminal in VS Code / Cursor / the Claude Code IDE extension — to flip, mix, and compare the directions live on your real site.",
+    who: "AGENT WITH A LOCAL TERMINAL (Cursor, Claude Code, Windsurf, …): run the dev server and the :7777 endpoint YOURSELF as background tasks and leave them running (skip whichever is already up) — do NOT run them in the foreground, they never exit and your turn will hang. Then tell the human to open the site and pick. CLOUD / CONTAINER AGENT (no reach to the user's localhost): hand these commands to the human to run and tell them which URL to open — you can't start or reach these processes yourself.",
     steps: [
       "npx font-lab init --project .          # scaffold the live panel + parity bundles (reversible)",
-      `${devCmd}                              # start your dev server`,
-      "npx font-lab --project . &             # the pick endpoint on :7777 (records your choice)",
+      `${devCmd}                              # start your dev server (background task; leave running)`,
+      "npx font-lab --project . &             # pick + copy-edit endpoint on :7777 (background; leave running)",
       "# open your site (e.g. http://localhost:3000): ← → flip · [ ] mix a role · B before/after · Pick",
+      "#   …and double-click any text to retype it in place — it saves to source via the same endpoint",
       "npx font-lab-apply --project .         # the agent ships exactly what you picked",
     ],
+    endpointNote: "The :7777 endpoint both records the pick AND saves in-panel copy edits (double-click text -> retype -> written to source, reversibly). Start it from the site's own root and keep it up the whole time the human is choosing or editing.",
     teardown: "npx font-lab init --project . --undo   # remove the panel scaffolding when done",
   };
 }
