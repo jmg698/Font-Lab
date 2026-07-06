@@ -1,0 +1,935 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html{box-sizing:border-box}*,*:before,*:after{box-sizing:inherit}body{margin:0}</style></head><body><title>Font Lab — Galley prototype</title>
+<style>
+  /* ————— demo site: “The Margin” (the canvas the panel sits over) ————— */
+  :root {
+    --page: #F6F2E7; --page-ink: #22201B; --page-dim: #6E6A5E; --page-rule: #DAD4C2;
+    --page-accent: #1E4B38;
+  }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--page); color: var(--page-ink); }
+  .site { max-width: 680px; margin: 0 auto; padding: 48px 24px 120px; }
+  .mono-ui { font-family: var(--site-mono); }
+  .mast-row { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .12em; color: var(--page-dim); }
+  .mast-title { font-family: var(--site-display); font-size: 58px; line-height: 1.05; margin: 18px 0 8px; font-weight: 700; letter-spacing: -.01em; }
+  .mast-sub { font-family: var(--site-body); font-size: 16px; color: var(--page-dim); margin: 0 0 28px; }
+  .mast { border-bottom: 1px solid var(--page-rule); padding-bottom: 28px; margin-bottom: 40px; }
+  .eyebrow { font-size: 11px; letter-spacing: .22em; color: var(--page-accent); margin: 0 0 14px; }
+  .headline { font-family: var(--site-display); font-size: 40px; line-height: 1.12; margin: 0 0 14px; font-weight: 700; letter-spacing: -.008em; text-wrap: balance; }
+  .byline { font-size: 11.5px; letter-spacing: .06em; color: var(--page-dim); margin: 0 0 30px; }
+  .body-p { font-family: var(--site-body); font-size: 17.5px; line-height: 1.65; margin: 0 0 22px; }
+  .drop::first-letter { font-family: var(--site-display); font-size: 54px; float: left; line-height: .82; padding: 6px 10px 0 0; font-weight: 700; }
+  .pull { font-family: var(--site-display); font-size: 24px; line-height: 1.35; border-left: 3px solid var(--page-ink); margin: 34px 0; padding: 2px 0 2px 22px; font-weight: 500; }
+  .subhead { font-family: var(--site-display); font-size: 24px; margin: 38px 0 12px; font-weight: 700; }
+  .roles-dl { margin: 26px 0; display: grid; gap: 10px; }
+  .roles-dl > div { display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: baseline; }
+  .roles-dl dt { font-size: 11.5px; letter-spacing: .14em; color: var(--page-accent); }
+  .roles-dl dd { font-family: var(--site-body); margin: 0; font-size: 16.5px; line-height: 1.5; }
+  .code { background: #ECE6D3; border: 1px solid var(--page-rule); border-radius: 6px; padding: 16px 18px; overflow-x: auto; margin: 28px 0; }
+  .code code { font-family: var(--site-mono); font-size: 13.5px; line-height: 1.7; color: #3B3A31; }
+  .site-foot { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--page-rule); margin-top: 64px; padding-top: 18px; font-size: 10.5px; letter-spacing: .14em; color: var(--page-dim); }
+
+  /* ————— demo harness (not part of the panel design) ————— */
+  .harness { position: fixed; top: 14px; left: 14px; z-index: 999999; width: 208px;
+    background: rgba(246,242,231,.96); border: 1px solid var(--page-rule); border-radius: 8px;
+    padding: 10px 12px 12px; font-family: ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 8px 28px rgba(30,30,20,.14); }
+  .harness h4 { margin: 0 0 8px; font-size: 9.5px; letter-spacing: .18em; color: var(--page-dim); font-weight: 600; }
+  .harness .hgroup { margin-bottom: 8px; }
+  .harness .hlabel { font-size: 9px; letter-spacing: .14em; color: var(--page-dim); margin-bottom: 4px; }
+  .harness .hchips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .harness button { font: inherit; font-size: 10px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--page-rule);
+    background: #fff; color: var(--page-ink); cursor: pointer; }
+  .harness button[aria-pressed="true"] { background: var(--page-accent); border-color: var(--page-accent); color: #F6F2E7; }
+  .harness .hnote { font-size: 9px; line-height: 1.5; color: var(--page-dim); margin-top: 8px; border-top: 1px dashed var(--page-rule); padding-top: 8px; }
+  @media (max-width: 1080px) { .harness { display: none; } }
+
+  /* ————— page-side machinery (x-ray, flash, spotlight) — element-level, scroll-proof ————— */
+  .fl-xray-hit { box-shadow: inset 0 -2px 0 0 #B7CC00, inset 0 0 0 200px rgba(231,255,59,.13); border-radius: 2px; }
+  .fl-xray-other { box-shadow: inset 0 0 0 1px rgba(34,32,27,.25); border-radius: 2px; }
+  .fl-flash { position: relative; }
+  .fl-flash::after { content: ""; position: absolute; inset: -3px -5px; border-radius: 3px; pointer-events: none;
+    background: rgba(231,255,59,.32); box-shadow: 0 0 0 1px rgba(183,204,0,.55); opacity: 0; animation: fl-flash-decay 700ms ease-out; }
+  @keyframes fl-flash-decay { 0% { opacity: 1; } 100% { opacity: 0; } }
+  .fl-spot { position: relative; }
+  .fl-spot::after { content: ""; position: absolute; inset: -5px -8px; border-radius: 4px; pointer-events: none;
+    box-shadow: 0 0 0 2px #B7CC00; opacity: 0; animation: fl-spot-pulse 1.4s ease-out; }
+  @keyframes fl-spot-pulse { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+  .fl-probe-cursor, .fl-probe-cursor * { cursor: crosshair !important; }
+  @media (prefers-reduced-motion: reduce) {
+    .fl-flash::after { animation: none; opacity: 1; transition: opacity .2s linear 1.1s; }
+    .fl-spot::after { animation: none; opacity: 1; }
+  }
+</style>
+
+<div class="site" id="site">
+  <header class="mast">
+    <div class="mast-row mono-ui"><span>ISSUE NO. 042</span><span>TUE · JUL 5</span></div>
+    <h1 class="mast-title">The Margin</h1>
+    <p class="mast-sub">Field notes on typography, tools, and the craft of shipping.</p>
+  </header>
+  <article class="essay">
+    <p class="eyebrow mono-ui">ESSAY</p>
+    <h2 class="headline">Choosing type should feel like reading, not guessing</h2>
+    <p class="byline mono-ui">By Dana Whitfield · 6 min read</p>
+    <p class="body-p drop">We used to pick fonts by squinting at a dropdown and hoping. The trouble is that a typeface only tells the truth once it&rsquo;s set in real sentences, at real sizes, next to the rest of your interface. A specimen sheet can flatter anything.</p>
+    <p class="body-p">That is why testing pairings in situ matters. Swap the display face and the headline&rsquo;s whole posture changes; swap the body and the reading rhythm shifts under your feet. The best decisions come from comparing candidates against what already ships.</p>
+    <blockquote class="pull">&ldquo;Type is the interface. Everything else is arrangement.&rdquo;</blockquote>
+    <p class="body-p">Three roles carry most of the weight in a reading experience:</p>
+    <dl class="roles-dl">
+      <div><dt class="mono-ui">DISPLAY</dt><dd>headlines, mastheads, and moments that set a tone</dd></div>
+      <div><dt class="mono-ui">BODY</dt><dd>the long middle where readers actually live</dd></div>
+      <div><dt class="mono-ui">MONO</dt><dd>code, labels, timestamps, and quiet machinery</dd></div>
+    </dl>
+    <pre class="code"><code>font-family: var(--display);  /* headlines */
+font-family: var(--body);     /* paragraphs */
+font-family: var(--mono);     /* this block */</code></pre>
+    <p class="body-p">A good tool keeps you honest: it renders the candidate on your page, tells you exactly what changed, and gets out of the way while you read. The pick should be the easy part.</p>
+    <h3 class="subhead">What the eye checks first</h3>
+    <p class="body-p">Color of the text block at arm&rsquo;s length. The fit of the headline against the measure. Whether numerals sit still in a table. Whether italics whisper or shout. None of this appears in a font menu; all of it appears on your own page.</p>
+  </article>
+  <footer class="site-foot mono-ui">
+    <span>THE MARGIN — SET IN YOUR CANDIDATE TYPE</span><span>PROOFED WITH FONT LAB</span>
+  </footer>
+</div>
+
+<div class="harness" id="harness">
+  <h4>PROTOTYPE HARNESS</h4>
+  <div class="hgroup"><div class="hlabel">HANDOFF LINK</div><div class="hchips" id="hConn"></div></div>
+  <div class="hgroup"><div class="hlabel">HONESTY STATES</div><div class="hchips" id="hFlags"></div></div>
+  <div class="hgroup"><div class="hlabel">MENU</div><div class="hchips" id="hMenu"></div></div>
+  <div class="hnote">Demo rig — not part of the panel. Candidate faces render with local stand-ins here; the real panel loads the true woff2 subsets.</div>
+</div>
+
+<div id="fl-overlay" style="position:fixed;inset:0;pointer-events:none;z-index:2147483646;"></div>
+<div id="fl-host"></div>
+
+<script>
+(() => {
+  "use strict";
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ROLES = ["display", "body", "mono"];
+  const SENT = { display: "__fl_display", body: "__fl_body", mono: "__fl_mono" };
+
+  /* ——— data (family names are Font Lab's real proposals; stacks are local stand-ins) ——— */
+  const CURRENT = {
+    display: { family: "Inter", stack: "'Helvetica Neue', Arial, sans-serif" },
+    body:    { family: "Inter", stack: "'Helvetica Neue', Arial, sans-serif" },
+    mono:    { family: "JetBrains Mono", stack: "'Courier New', monospace" },
+  };
+  const DIRECTIONS = [
+    { id: "sunday-letter", name: "Sunday Letter", vibe: "editorial",
+      rationale: "A letter, not a feed — Fraunces warms the masthead without costume; Literata keeps long paragraphs unhurried.",
+      roles: {
+        display: { family: "Fraunces", tag: "warm old-style headlines", stack: "'Iowan Old Style', Palatino, Georgia, serif", parity: "guaranteed", source: "google" },
+        body:    { family: "Literata", tag: "unhurried long-form serif", stack: "Charter, Georgia, serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "JetBrains Mono", tag: "quiet code voice", stack: "Menlo, Consolas, monospace", parity: "guaranteed", source: "google" } } },
+    { id: "newsroom-wire", name: "Newsroom Wire", vibe: "brisk",
+      rationale: "Wire-desk urgency in the headlines, calm credibility in the copy — compressed grotesque over a newsprint serif.",
+      roles: {
+        display: { family: "Bricolage Grotesque", tag: "compressed wire-desk energy", stack: "'Avenir Next Condensed', 'Arial Narrow', sans-serif", parity: "guaranteed", source: "google" },
+        body:    { family: "Source Serif 4", tag: "credible newsprint gray", stack: "Georgia, 'Times New Roman', serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "Spline Sans Mono", tag: "timetable numerals", stack: "'Courier New', monospace", parity: "guaranteed", source: "google" } } },
+    { id: "signals-desk", name: "Signals Desk", vibe: "technical",
+      rationale: "For the systems-minded reader — Cabinet Grotesk's drawn curves keep the tech voice human; Hanken disappears into the reading.",
+      roles: {
+        display: { family: "Cabinet Grotesk", tag: "drawn, not extruded", stack: "Futura, 'Trebuchet MS', sans-serif", parity: "best-effort", source: "fontshare" },
+        body:    { family: "Hanken Grotesk", tag: "effortless working body", stack: "Seravek, Verdana, sans-serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "Martian Mono", tag: "wide technical ledger", stack: "Monaco, 'Lucida Console', monospace", parity: "guaranteed", source: "google" } } },
+    { id: "personal-dispatch", name: "Personal Dispatch", vibe: "warm-humanist",
+      rationale: "Signed by hand — Sentient's bookish display over Baskerville-blooded copy makes the page feel written to one reader.",
+      roles: {
+        display: { family: "Sentient", tag: "bookish, softly serifed", stack: "'Hoefler Text', 'Book Antiqua', serif", parity: "best-effort", source: "fontshare" },
+        body:    { family: "Newsreader", tag: "intimate essay measure", stack: "Baskerville, 'Palatino Linotype', serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "IBM Plex Mono", tag: "typewriter descendants", stack: "'American Typewriter', 'Courier New', monospace", parity: "guaranteed", source: "google" } } },
+    { id: "morning-brief", name: "Morning Brief", vibe: "crisp-modern",
+      rationale: "Front-page confidence — Familjen brings playful Scandinavian personality to headlines; Figtree keeps the brief brisk.",
+      roles: {
+        display: { family: "Familjen Grotesk", tag: "warm Scandinavian headlines", stack: "'Gill Sans', 'Segoe UI', sans-serif", parity: "guaranteed", source: "google" },
+        body:    { family: "Figtree", tag: "brisk, friendly briefing", stack: "'Trebuchet MS', Tahoma, sans-serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "Geist Mono", tag: "crisp dashboard digits", stack: "Menlo, monospace", parity: "guaranteed", source: "google" } } },
+  ];
+  const EXTRA = [
+    { id: "inkwell", name: "Inkwell & Archive", vibe: "literary",
+      rationale: "For the archivist — Zodiak's ink-trap serifs over Erode's bookish text; the mono set like marginalia.",
+      roles: {
+        display: { family: "Zodiak", tag: "ink-trapped literary serif", stack: "Didot, 'Bodoni MT', Georgia, serif", parity: "best-effort", source: "fontshare" },
+        body:    { family: "Erode", tag: "bookish, gently sharp", stack: "'Palatino Linotype', Palatino, serif", parity: "guaranteed", source: "fontshare" },
+        mono:    { family: "Fragment Mono", tag: "marginalia machine", stack: "'Courier New', monospace", parity: "guaranteed", source: "google" } } },
+    { id: "studio-slant", name: "Studio Slant", vibe: "assertive",
+      rationale: "A studio poster voice — Clash Display's angles over a plainspoken body that stays out of the way.",
+      roles: {
+        display: { family: "Clash Display", tag: "poster angles, no apology", stack: "'Avenir Next', 'Arial Black', sans-serif", parity: "guaranteed", source: "fontshare" },
+        body:    { family: "Public Sans", tag: "plainspoken civic body", stack: "Verdana, Geneva, sans-serif", parity: "guaranteed", source: "google" },
+        mono:    { family: "Red Hat Mono", tag: "steady terminal voice", stack: "Monaco, monospace", parity: "guaranteed", source: "google" } } },
+  ];
+
+  /* ——— page wiring: the real mechanism in miniature. The panel owns the role variables and
+     always appends a sentinel family, so classification is ground truth, never a guess. ——— */
+  const rootEl = document.documentElement;
+  const setRoleVar = (role, stack) => rootEl.style.setProperty("--site-" + role, stack + ", " + SENT[role]);
+
+  let scanCache = null;
+  function scan() {
+    if (scanCache) return scanCache;
+    const els = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (child.closest(".harness")) continue;
+        const hasText = [...child.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+        if (hasText) {
+          const fam = getComputedStyle(child).fontFamily;
+          const role = ROLES.find(r => fam.includes(SENT[r]));
+          if (role) els.push({ el: child, role, chars: child.textContent.trim().length });
+        }
+        walk(child);
+      }
+    };
+    walk(document.getElementById("site"));
+    scanCache = els;
+    return els;
+  }
+  const invalidateScan = () => { scanCache = null; };
+  function coverage() {
+    const els = scan();
+    const chars = { display: 0, body: 0, mono: 0 }, count = { display: 0, body: 0, mono: 0 };
+    let total = 0;
+    for (const { role, chars: c } of els) { chars[role] += c; count[role]++; total += c; }
+    return { chars, count, total };
+  }
+
+  /* ——— panel state ——— */
+  let directions = DIRECTIONS.slice();
+  const CANDS = { display: [], body: [], mono: [] };
+  function rebuildCands() {
+    for (const role of ROLES) {
+      const seen = new Set(); CANDS[role] = [];
+      for (const d of directions) {
+        const c = d.roles[role];
+        if (!seen.has(c.family)) { seen.add(c.family); CANDS[role].push(c); }
+      }
+    }
+  }
+  rebuildCands();
+
+  const state = {
+    cursor: 0,                       // 0 = Current, 1..n = directions
+    sel: { display: -1, body: -1, mono: -1 },   // index into CANDS, -1 = current
+    focus: "display",
+    proof: "galley",                 // galley | before | A | B
+    pins: { A: null, B: null },      // {sel, folio}
+    conn: "agent",                   // offline | ready | agent
+    wiredDisplay: true,
+    stale: false,
+    expanded: true,
+    probing: false,
+    probeLock: null,
+    savedId: null, shipped: false, saving: false,
+    lastLedger: "", lastChanged: [],
+  };
+
+  const famOf = (role, sel = state.sel) => sel[role] < 0 ? CURRENT[role].family : CANDS[role][sel[role]].family;
+  const candOf = (role, sel = state.sel) => sel[role] < 0 ? null : CANDS[role][sel[role]];
+  const stackOf = (role, sel = state.sel) => sel[role] < 0 ? CURRENT[role].stack : CANDS[role][sel[role]].stack;
+  const trio = (sel = state.sel) => ROLES.map(r => famOf(r, sel)).join(" / ");
+  const matchedDir = (sel = state.sel) => directions.find(d => ROLES.every(r => d.roles[r].family === famOf(r, sel))) || null;
+  const onCurrent = (sel = state.sel) => ROLES.every(r => sel[r] < 0);
+  const effSel = () => state.proof === "before" ? { display: -1, body: -1, mono: -1 }
+    : (state.proof === "A" || state.proof === "B") && state.pins[state.proof] ? state.pins[state.proof].sel : state.sel;
+  const parityOf = (sel) => ROLES.some(r => { const c = candOf(r, sel); return c && c.parity !== "guaranteed"; }) ? "best-effort" : "guaranteed";
+
+  function applyToPage(prevSel, nextSel, opts = {}) {
+    const changed = [];
+    for (const role of ROLES) {
+      if (role === "display" && !state.wiredDisplay) { setRoleVar(role, CURRENT[role].stack); continue; }
+      setRoleVar(role, stackOf(role, nextSel));
+      if (prevSel && famOf(role, prevSel) !== famOf(role, nextSel)) changed.push(role);
+    }
+    if (prevSel && !opts.silent) reportChange(prevSel, nextSel, changed, opts);
+    return changed;
+  }
+
+  /* ——— the change machinery: flash, ledger, edge ticks, honesty ——— */
+  const overlay = document.getElementById("fl-overlay");
+  let tickTimer = null;
+  function reportChange(prevSel, nextSel, changedRoles, opts = {}) {
+    const parts = [];
+    for (const role of ROLES) {
+      const a = famOf(role, prevSel), b = famOf(role, nextSel);
+      if (role === "display" && !state.wiredDisplay) {
+        if (a !== b) parts.push(`<span class="led-chg">Δ display ${esc(a)} → ${esc(b)} · on ship</span>`);
+        continue;
+      }
+      parts.push(a !== b
+        ? `<span class="led-chg">Δ ${role} ${esc(a)} → ${esc(b)}</span>`
+        : `<span class="led-same">${role} unchanged</span>`);
+    }
+    const liveChanged = changedRoles.filter(r => !(r === "display" && !state.wiredDisplay));
+    let honesty = "";
+    if (liveChanged.length) {
+      const els = scan().filter(e => liveChanged.includes(e.role));
+      const vh = innerHeight;
+      const seen = els.filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < vh; });
+      const below = els.filter(({ el }) => el.getBoundingClientRect().top >= vh).length;
+      const above = els.length - seen.length - below;
+      flash(seen.map(e => e.el));
+      drawTicks(seen, els);
+      if (!seen.length && els.length) honesty = ` · <span class="led-chg">0 in view — J jumps to nearest</span>`;
+      else if (below || above) honesty = ` · ${below ? below + " below ↓" : ""}${below && above ? " · " : ""}${above ? above + " above ↑" : ""}`;
+      parts.push(`<span class="led-count">${els.length} element${els.length === 1 ? "" : "s"}${honesty}</span>`);
+    }
+    setLedger(parts.join(" · "), liveChanged);
+  }
+  function flash(els) {
+    for (const el of els) { el.classList.remove("fl-flash"); void el.offsetWidth; el.classList.add("fl-flash"); }
+    setTimeout(() => els.forEach(el => el.classList.remove("fl-flash")), REDUCED ? 1400 : 750);
+  }
+  function drawTicks(seen, all) {
+    overlay.querySelectorAll(".fl-tick").forEach(t => t.remove());
+    clearTimeout(tickTimer);
+    for (const { el } of seen) {
+      const r = el.getBoundingClientRect();
+      const t = document.createElement("div");
+      t.className = "fl-tick";
+      t.style.cssText = `position:fixed;right:0;width:14px;height:2px;background:#B7CC00;z-index:2147483646;pointer-events:auto;cursor:pointer;top:${Math.min(innerHeight - 4, Math.max(2, r.top + r.height / 2))}px`;
+      t.title = "changed here — click to scroll";
+      t.addEventListener("click", () => { el.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" }); spotlight(el); });
+      overlay.appendChild(t);
+    }
+    tickTimer = setTimeout(() => overlay.querySelectorAll(".fl-tick").forEach(t => t.remove()), 4200);
+  }
+  function spotlight(el) {
+    el.classList.remove("fl-spot"); void el.offsetWidth; el.classList.add("fl-spot");
+    setTimeout(() => el.classList.remove("fl-spot"), 1500);
+  }
+  function jumpNearest(role) {
+    const els = scan().filter(e => e.role === role);
+    if (!els.length) return;
+    const mid = innerHeight / 2;
+    els.sort((a, b) => Math.abs(a.el.getBoundingClientRect().top - mid) - Math.abs(b.el.getBoundingClientRect().top - mid));
+    const target = els.find(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom < 0 || r.top > innerHeight; }) || els[0];
+    target.el.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+    setTimeout(() => spotlight(target.el), 350);
+  }
+
+  /* ——— x-ray (panel→page) + proof mode (page→panel) ——— */
+  let xrayRole = null, xrayAll = false;
+  function setXray(role, all = false) {
+    xrayRole = role; xrayAll = all;
+    for (const { el, role: r } of scan()) {
+      el.classList.toggle("fl-xray-hit", !!role && r === role);
+      el.classList.toggle("fl-xray-other", all && r !== role);
+    }
+    overlay.querySelectorAll(".fl-xchip").forEach(c => c.remove());
+    if (all) {
+      for (const { el, role: r } of scan()) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom < 0 || rect.top > innerHeight) continue;
+        const chip = document.createElement("div");
+        chip.className = "fl-xchip";
+        chip.textContent = r[0].toUpperCase();
+        chip.style.cssText = `position:fixed;left:${Math.max(2, rect.left - 18)}px;top:${rect.top + 2}px;z-index:2147483646;` +
+          `font:600 9px ui-monospace,Menlo,monospace;padding:1px 4px;border-radius:3px;pointer-events:none;` +
+          (r === role ? "background:#E7FF3B;color:#100F0D;" : "background:rgba(16,15,13,.85);color:rgba(242,239,229,.9);border:1px solid rgba(242,239,229,.3);");
+        overlay.appendChild(chip);
+      }
+    }
+    const covTag = overlay.querySelector(".fl-covtag");
+    if (covTag) covTag.remove();
+    if (role && !all) {
+      const cov = coverage();
+      const isBody = role === "body";
+      const tag = document.createElement("div");
+      tag.className = "fl-covtag";
+      tag.textContent = isBody
+        ? `BODY — ${cov.count.body} elements · ${Math.round(cov.chars.body / cov.total * 100)}% of text on this page`
+        : `${role.toUpperCase()} — ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
+      tag.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:2147483646;background:#100F0D;color:#F2EFE5;" +
+        "font:10px ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:7px 10px;border-radius:4px;border:1px solid rgba(242,239,229,.2);pointer-events:none;";
+      overlay.appendChild(tag);
+    }
+  }
+
+  let probeTag = null, probeHover = null;
+  function enterProbe() {
+    state.probing = true; state.probeLock = null;
+    document.body.classList.add("fl-probe-cursor");
+    document.addEventListener("mousemove", onProbeMove, true);
+    document.addEventListener("click", onProbeClick, true);
+    render();
+  }
+  function exitProbe() {
+    state.probing = false; state.probeLock = null;
+    document.body.classList.remove("fl-probe-cursor");
+    document.removeEventListener("mousemove", onProbeMove, true);
+    document.removeEventListener("click", onProbeClick, true);
+    if (probeTag) { probeTag.remove(); probeTag = null; }
+    if (probeHover) { probeHover.el.classList.remove("fl-xray-hit"); probeHover = null; }
+    setXray(null); render();
+  }
+  function onProbeMove(e) {
+    const hit = scan().find(({ el }) => el.contains(e.target)) ||
+      scan().find(({ el }) => { const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+    if (probeHover && (!hit || hit.el !== probeHover.el)) probeHover.el.classList.remove("fl-xray-hit");
+    probeHover = hit || null;
+    if (!hit) { if (probeTag) probeTag.style.display = "none"; return; }
+    hit.el.classList.add("fl-xray-hit");
+    const cs = getComputedStyle(hit.el);
+    const fam = famOf(hit.role, effSel());
+    if (!probeTag) {
+      probeTag = document.createElement("div");
+      probeTag.style.cssText = "position:fixed;z-index:2147483647;background:#100F0D;color:#F2EFE5;font:10px ui-monospace,Menlo,monospace;" +
+        "letter-spacing:.06em;padding:6px 9px;border-radius:4px;border:1px solid rgba(242,239,229,.25);pointer-events:none;white-space:nowrap;";
+      overlay.appendChild(probeTag);
+    }
+    const cov = coverage();
+    probeTag.style.display = "block";
+    probeTag.innerHTML = `<b style="color:#E7FF3B;font-weight:600">${hit.role.toUpperCase()}</b> · ${esc(fam)} · ${parseFloat(cs.fontSize)}px · ${cov.count[hit.role]} on page` +
+      (state.probeLock === hit.role ? ` · <span style="color:#E7FF3B">[ ] flips this text</span>` : "");
+    const x = Math.min(innerWidth - probeTag.offsetWidth - 8, e.clientX + 14);
+    const y = Math.min(innerHeight - 34, e.clientY + 16);
+    probeTag.style.left = x + "px"; probeTag.style.top = y + "px";
+    if (state.focus !== hit.role && state.probeLock === null) { state.focus = hit.role; render(); }
+  }
+  function onProbeClick(e) {
+    if (e.target.closest("#fl-host") || e.target.closest(".harness")) return;
+    e.preventDefault(); e.stopPropagation();
+    if (probeHover) {
+      state.probeLock = probeHover.role; state.focus = probeHover.role;
+      setStatus(`${probeHover.role.toUpperCase()} locked — [ ] flips this text · X exits`);
+      render();
+    }
+  }
+
+  /* ——— the panel (shadow DOM) ——— */
+  const host = document.getElementById("fl-host");
+  host.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483647;";
+  const sh = host.attachShadow({ mode: "open" });
+  const MONO = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+  const SERIF_I = "'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif";
+  sh.innerHTML = `
+  <style>
+    :host { all: initial; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    .slip { width: 344px; background: #100F0D; color: #F2EFE5; border: 1px solid rgba(242,239,229,.14);
+      border-radius: 6px; box-shadow: 0 22px 60px rgba(8,7,4,.6); font-family: ${MONO}; position: relative; overflow: hidden; }
+    button { font-family: inherit; background: none; border: 0; color: inherit; cursor: pointer; }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #E7FF3B; outline-offset: 1px; }
+    .dim { color: rgba(242,239,229,.58); }
+    .u { text-transform: uppercase; letter-spacing: .14em; }
+
+    /* masthead */
+    .mast { display: flex; align-items: center; gap: 9px; padding: 10px 14px; height: 46px; }
+    .badge { width: 26px; height: 26px; background: #191813; border: 1px solid rgba(242,239,229,.14); border-radius: 4px;
+      display: grid; place-items: center; font-size: 14px; color: #F2EFE5; }
+    .wordmark { font-size: 11px; letter-spacing: .18em; font-weight: 600; }
+    .galley-it { font-family: ${SERIF_I}; font-style: italic; font-size: 12px; color: rgba(242,239,229,.6); letter-spacing: .02em; }
+    .presence { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 8.5px; letter-spacing: .12em; color: rgba(242,239,229,.66); }
+    .pdot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(242,239,229,.5); }
+    .presence[data-conn="ready"] .pdot { background: #F2EFE5; border-color: #F2EFE5; }
+    .presence[data-conn="agent"] .pdot { background: #6EE7A0; border-color: #6EE7A0; animation: pulse 2.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+    .dogear { position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 16px 16px 0;
+      border-color: transparent #191813 transparent transparent; cursor: pointer; filter: drop-shadow(-1px 1px 0 rgba(242,239,229,.12)); }
+    .oxford { border-top: 2px solid rgba(242,239,229,.3); border-bottom: 1px solid rgba(242,239,229,.14); height: 5px; }
+
+    /* stale notice */
+    .notice { display: none; margin: 10px 14px 0; padding: 9px 11px; border: 1px solid rgba(233,138,109,.4); border-radius: 5px; background: #191813; }
+    .notice[data-show="true"] { display: block; }
+    .notice .nh { font-size: 9.5px; letter-spacing: .14em; color: #E98A6D; font-weight: 600; }
+    .notice .nb { margin-top: 4px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.78); }
+    .notice code { background: rgba(242,239,229,.1); padding: 0 4px; border-radius: 3px; font-size: 9.5px; }
+
+    /* contents */
+    .sect { display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; }
+    .sect .lab { font-size: 9.5px; letter-spacing: .16em; color: rgba(242,239,229,.58); font-weight: 600; }
+    .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
+    .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
+    .sect .counter b { color: #E7FF3B; font-weight: 600; }
+    .probe-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18); border-radius: 4px; font-size: 12px; color: rgba(242,239,229,.75); }
+    .probe-btn[aria-pressed="true"] { background: #E7FF3B; color: #100F0D; border-color: #E7FF3B; }
+    .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
+      mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
+    .toc-row { display: flex; align-items: baseline; gap: 8px; width: 100%; height: 37px; padding: 7px 14px; text-align: left; }
+    .toc-row:hover { background: #191813; }
+    .toc-row .folio { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); width: 18px; flex: none; }
+    .toc-row[aria-current="true"] .folio { color: #E7FF3B; }
+    /* viewing BEFORE or a pin: the galley's own markers go quiet — yellow follows what the page shows */
+    .slip[data-proof="before"] .toc-row[aria-current="true"] .folio,
+    .slip[data-proof="A"] .toc-row[aria-current="true"] .folio,
+    .slip[data-proof="B"] .toc-row[aria-current="true"] .folio { color: rgba(242,239,229,.5); }
+    .slip[data-proof="before"] .toc-row[aria-current="true"] .tname::after,
+    .slip[data-proof="A"] .toc-row[aria-current="true"] .tname::after,
+    .slip[data-proof="B"] .toc-row[aria-current="true"] .tname::after { background: rgba(242,239,229,.35); }
+    .slip[data-proof="before"] .sect .counter b,
+    .slip[data-proof="A"] .sect .counter b,
+    .slip[data-proof="B"] .sect .counter b { color: rgba(242,239,229,.58); }
+    .toc-row .tname { font-size: 14.5px; color: #F2EFE5; white-space: nowrap; position: relative; padding-bottom: 2px; }
+    .toc-row[aria-current="true"] .tname::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: #E7FF3B;
+      animation: draw .16s ease-out; transform-origin: left; }
+    @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    .toc-row .leader { flex: 1; border-bottom: 1px dotted rgba(242,239,229,.28); transform: translateY(-3px); min-width: 12px; }
+    .toc-row .vibe { font-size: 9px; letter-spacing: .1em; color: rgba(242,239,229,.5); flex: none; }
+
+    /* ledger */
+    .ledger { display: none; padding: 6px 14px; font-size: 9.5px; line-height: 1.5; border-top: 1px solid rgba(242,239,229,.1); color: rgba(242,239,229,.6); }
+    .ledger[data-show="true"] { display: block; }
+    .led-chg { color: #F2EFE5; } .led-same { color: rgba(242,239,229,.45); } .led-count { color: rgba(242,239,229,.6); }
+    .ledger .replay { color: rgba(242,239,229,.5); text-decoration: underline dotted; margin-left: 4px; font-size: 9.5px; }
+
+    /* the spread (role rows) */
+    .spread { border-top: 1px solid rgba(242,239,229,.14); }
+    .row { display: grid; grid-template-columns: 22px 1fr auto; padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(242,239,229,.08); position: relative; cursor: pointer; }
+    .row:last-child { border-bottom: 0; }
+    .row .margin { display: grid; place-items: center; font-size: 9px; color: rgba(242,239,229,.4); }
+    .row[data-focus="true"] .margin { color: #100F0D; }
+    .row[data-focus="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 16px; background: #E7FF3B; }
+    .row[data-focus="true"] .margin { position: relative; z-index: 1; font-weight: 700; }
+    .row .mid { min-width: 0; padding-left: 10px; }
+    .row .labline { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .14em; color: rgba(242,239,229,.55); }
+    .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums; }
+    .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 3px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
+    .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 3px; padding: 0 4px; font-size: 8px; letter-spacing: .1em; color: rgba(242,239,229,.6); white-space: nowrap; flex: none; }
+    .row .spec { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+    .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; }
+    .row[data-role="body"] .fam { font-size: 16px; } .row[data-role="mono"] .fam { font-size: 13.5px; }
+    .row[data-unwired="true"] .fam { opacity: .55; }
+    .row .prime { color: #E7FF3B; font-size: 12px; opacity: 0; } .row .prime[data-on="true"] { opacity: 1; }
+    .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; }
+    .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
+    .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; }
+    .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 4px; font-size: 12px; color: rgba(242,239,229,.8); display: grid; place-items: center; }
+    .row .step:hover:not(:disabled) { background: #232219; }
+    .row .step:disabled { opacity: .25; cursor: not-allowed; }
+    .row[data-dimmed="true"] { opacity: .7; }
+
+    /* standfirst */
+    .standfirst { padding: 11px 14px; border-top: 1px solid rgba(242,239,229,.14); font-family: ${SERIF_I}; font-style: italic;
+      font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
+    .standfirst .q { color: rgba(242,239,229,.4); }
+
+    /* proof bar */
+    .proofbar { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border-top: 1px solid rgba(242,239,229,.14); }
+    .ptab { padding: 8px 4px 7px; text-align: center; font-size: 9px; letter-spacing: .12em; color: rgba(242,239,229,.55);
+      border-right: 1px solid rgba(242,239,229,.1); position: relative; }
+    .ptab:last-child { border-right: 0; }
+    .ptab[aria-pressed="true"] { color: #F2EFE5; }
+    .ptab[aria-pressed="true"]::after { content: ""; position: absolute; left: 16%; right: 16%; bottom: 3px; height: 3px; background: #E7FF3B; }
+    .ptab .sub { display: block; margin-top: 2px; font-size: 8.5px; letter-spacing: .04em; color: rgba(242,239,229,.4); }
+    .ptab .ag { font-size: 12px; color: rgba(242,239,229,.85); letter-spacing: 0; text-transform: none; }
+    .ptab .swatches { display: inline-flex; gap: 2px; margin-left: 3px; vertical-align: 1px; }
+    .ptab .sw { width: 5px; height: 5px; border-radius: 1px; }
+    .sw.diff { background: #E7FF3B; } .sw.same { border: 1px solid rgba(242,239,229,.4); width: 4px; height: 4px; }
+    .ptab:hover { background: #191813; }
+
+    /* fidelity + pick */
+    .fidelity { display: none; padding: 7px 14px; border-top: 1px solid rgba(242,239,229,.1); border-left: 2px solid #E98A6D;
+      font-size: 9.5px; line-height: 1.5; color: #E9A88F; }
+    .fidelity[data-show="true"] { display: block; }
+    .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); }
+    .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 5px; font-size: 11px; font-weight: 700;
+      letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .pick:hover:not(:disabled) { background: #EFFF66; }
+    .pick:disabled { background: #232219; color: rgba(242,239,229,.45); cursor: not-allowed; }
+    .pick[data-state="shipped"] { background: #100F0D; color: #E7FF3B; border: 1px solid #E7FF3B; }
+    .pick .tick { width: 14px; height: 14px; display: none; }
+    .pick[data-state="picked"] .tick, .pick[data-state="shipped"] .tick { display: block; }
+    .pick .tick path { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 20; }
+    .pick[data-just="true"] .tick path { animation: tickdraw .42s cubic-bezier(.25,1,.5,1); }
+    @keyframes tickdraw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+    .status { padding: 7px 14px 10px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.7); min-height: 30px; }
+    .status[data-tone="good"] { color: #9BE7B8; } .status[data-tone="warn"] { color: #E9A88F; }
+
+    /* colophon */
+    .colophon { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 9px 14px 11px; border-top: 1px solid rgba(242,239,229,.14);
+      font-size: 8.5px; letter-spacing: .06em; color: rgba(242,239,229,.5); }
+    kbd { border: 1px solid rgba(242,239,229,.25); border-radius: 3px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.75); }
+    .ver { margin-left: auto; font-size: 8.5px; color: rgba(242,239,229,.35); }
+
+    .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
+    .slip[data-collapsed="true"] { width: 344px; }
+    @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  </style>
+  <div class="slip" data-collapsed="false" role="group" aria-label="Font Lab">
+    <div class="mast">
+      <div class="badge" id="aa" title="the current display face">Aa</div>
+      <span class="wordmark u">FONT LAB</span>
+      <span class="galley-it">Galley</span>
+      <div class="presence" id="presence" data-conn="offline"><span class="pdot"></span><span id="presLabel">OFFLINE</span></div>
+    </div>
+    <div class="dogear" id="dogear" title="collapse"></div>
+    <div class="oxford"></div>
+    <div class="notice" id="notice" data-show="false">
+      <div class="nh u">PROOF SET BY AN OLDER PRESS</div>
+      <div class="nb">This panel was set by Font&nbsp;Lab <code>0.9.1</code>; <code>0.9.3</code> is running. Re-run <code>font_lab_init</code> to refresh it.</div>
+    </div>
+    <div class="sect">
+      <span class="lab u">DIRECTION</span><span class="rule"></span>
+      <span class="counter" id="counter"><b>00</b> / 05</span>
+      <button class="probe-btn" id="probeBtn" title="Proof mode — point at the page (X)" aria-pressed="false">⌖</button>
+    </div>
+    <div class="toc" id="toc"></div>
+    <div class="ledger" id="ledger" data-show="false"></div>
+    <div class="spread" id="spread"></div>
+    <div class="standfirst" id="standfirst"></div>
+    <div class="proofbar" id="proofbar"></div>
+    <div class="fidelity" id="fidelity" data-show="false"></div>
+    <div class="pickwrap">
+      <button class="pick" id="pick" data-state="idle">
+        <svg class="tick" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8.6 6.2 12l7-8"/></svg>
+        <span id="pickLabel">PICK</span>
+      </button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="colophon" id="colophon">
+      <span><kbd>←→</kbd> direction</span><span><kbd>↑↓</kbd> role</span><span><kbd>[ ]</kbd> face</span>
+      <span><kbd>B</kbd> before</span><span><kbd>P</kbd> pin</span><span><kbd>␣</kbd> proofs</span>
+      <span><kbd>X</kbd> proof mode</span><span><kbd>J</kbd> jump</span><span><kbd>↵</kbd> pick</span>
+      <span class="ver">v0.9.3</span>
+    </div>
+  </div>`;
+
+  const $ = (id) => sh.getElementById(id);
+  const slip = sh.querySelector(".slip");
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  let ledgerTimer = null;
+  function setLedger(html, changedRoles = []) {
+    const el = $("ledger");
+    el.innerHTML = html + (changedRoles.length ? ` <button class="replay" id="replay">↺ flash</button>` : "");
+    el.dataset.show = "true";
+    const rb = sh.getElementById("replay");
+    if (rb) rb.addEventListener("click", () => {
+      const els = scan().filter(e => changedRoles.includes(e.role) && !(e.role === "display" && !state.wiredDisplay));
+      flash(els.filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).map(e => e.el));
+    });
+    clearTimeout(ledgerTimer);
+    ledgerTimer = setTimeout(() => { el.dataset.show = "false"; }, 5200);
+    for (const role of ROLES) {
+      const row = sh.querySelector(`.row[data-role="${role}"]`);
+      if (!row) continue;
+      const changed = changedRoles.includes(role);
+      row.querySelector(".prime").dataset.on = String(changed);
+      row.dataset.dimmed = String(changedRoles.length > 0 && !changed);
+    }
+    setTimeout(() => sh.querySelectorAll(".row").forEach(r => {
+      r.dataset.dimmed = "false"; r.querySelector(".prime").dataset.on = "false";
+    }), 2600);
+  }
+  function setStatus(text, tone = "") { $("status").textContent = text; $("status").dataset.tone = tone; }
+
+  /* ——— render ——— */
+  function buildToc() {
+    const toc = $("toc"); toc.innerHTML = "";
+    const rows = [{ id: "current", name: `Current — ${CURRENT.display.family} / ${CURRENT.mono.family}`, vibe: "baseline", dir: null }]
+      .concat(directions.map(d => ({ id: d.id, name: d.name, vibe: d.vibe, dir: d })));
+    rows.forEach((r, i) => {
+      const b = document.createElement("button");
+      b.className = "toc-row"; b.dataset.idx = i;
+      const nameStyle = r.dir ? `style="font-family:${r.dir.roles.display.stack.replace(/"/g, "'")}"` : `style="font-family:${MONO};font-size:11px;color:rgba(242,239,229,.7)"`;
+      b.innerHTML = `<span class="folio">${String(i).padStart(2, "0")}</span><span class="tname" ${nameStyle}>${esc(r.name)}</span><span class="leader"></span><span class="vibe u">${esc(r.vibe)}</span>`;
+      b.addEventListener("click", () => selectEntry(i));
+      toc.appendChild(b);
+    });
+  }
+  function buildSpread() {
+    const wrap = $("spread"); wrap.innerHTML = "";
+    for (const role of ROLES) {
+      const row = document.createElement("div");
+      row.className = "row"; row.dataset.role = role;
+      row.innerHTML = `
+        <div class="margin">${role[0].toUpperCase()}</div>
+        <div class="mid">
+          <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden>WIRED ON SHIP</span><span class="cov"></span></div>
+          <div class="spec"><span class="fam"></span><span class="prime">′</span></div>
+          <div class="tagline"></div>
+        </div>
+        <div class="right"><span class="pos"></span><button class="step" data-d="-1" aria-label="previous ${role} face">‹</button><button class="step" data-d="1" aria-label="next ${role} face">›</button></div>`;
+      row.addEventListener("click", (e) => { if (e.target.closest(".step")) return; state.focus = role; render(); });
+      row.addEventListener("mouseenter", () => { if (!state.probing && !xrayAll) setXray(role); });
+      row.addEventListener("mouseleave", () => { if (!state.probing && !xrayAll) setXray(null); });
+      row.querySelectorAll(".step").forEach(btn => btn.addEventListener("click", () => cycleRole(role, +btn.dataset.d)));
+      wrap.appendChild(row);
+    }
+  }
+  function buildProofbar() {
+    const bar = $("proofbar"); bar.innerHTML = "";
+    const tabs = [
+      { key: "galley", label: "GALLEY" },
+      { key: "before", label: "BEFORE" },
+      { key: "A", label: "A" }, { key: "B", label: "B" },
+    ];
+    for (const t of tabs) {
+      const b = document.createElement("button");
+      b.className = "ptab u"; b.dataset.key = t.key;
+      b.addEventListener("click", () => showProof(t.key));
+      bar.appendChild(b);
+    }
+  }
+
+  function render() {
+    const eff = effSel();
+    const cov = coverage();
+    slip.dataset.proof = state.proof;
+    // masthead
+    $("aa").style.fontFamily = stackOf("display", state.sel);
+    const pres = $("presence"); pres.dataset.conn = state.conn;
+    $("presLabel").textContent = state.conn === "agent" ? "AGENT LISTENING" : state.conn === "ready" ? "ENDPOINT READY" : "OFFLINE · NPX FONT-LAB";
+    pres.title = state.conn === "agent" ? "An agent is blocked on your pick — it ships the moment you choose."
+      : state.conn === "ready" ? "Pick endpoint on :7777. Your pick saves the moment you make it."
+      : "No pick endpoint on :7777 — run npx font-lab in your project.";
+    $("notice").dataset.show = String(state.stale);
+    // contents
+    const md = matchedDir(state.sel);
+    const idx = onCurrent(state.sel) ? 0 : md ? directions.indexOf(md) + 1 : -1;
+    $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${String(idx).padStart(2, "0")}</b>`) + ` / ${String(directions.length).padStart(2, "0")}`;
+    sh.querySelectorAll(".toc-row").forEach((r, i) => r.setAttribute("aria-current", String(i === idx)));
+    $("probeBtn").setAttribute("aria-pressed", String(state.probing));
+    // spread
+    for (const role of ROLES) {
+      const row = sh.querySelector(`.row[data-role="${role}"]`);
+      const cand = candOf(role, eff);
+      const fam = famOf(role, eff);
+      const unwired = role === "display" && !state.wiredDisplay;
+      row.dataset.focus = String(state.focus === role);
+      row.dataset.unwired = String(unwired);
+      row.querySelector(".fam").textContent = eff[role] < 0 ? fam + " — current" : fam;
+      row.querySelector(".fam").style.fontFamily = unwired ? MONO : stackOf(role, eff);
+      row.querySelector(".fam").style.fontSize = unwired ? "12px" : "";
+      row.querySelector(".parity").hidden = !(cand && cand.parity !== "guaranteed");
+      row.querySelector(".parity").title = "best-effort — may render slightly differently once shipped";
+      row.querySelector(".wtag").hidden = !unwired;
+      row.querySelector(".cov").textContent = unwired ? "previews after ship"
+        : role === "body" ? `${Math.round(cov.chars.body / cov.total * 100)}% of page text`
+        : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
+      row.querySelector(".tagline").textContent = cand && cand.tag ? cand.tag + "." : eff[role] < 0 ? "what ships today." : "";
+      const n = CANDS[role].length;
+      row.querySelector(".pos").textContent = eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`;
+      row.querySelectorAll(".step").forEach(b => b.disabled = unwired || state.proof === "before");
+    }
+    // standfirst
+    const sf = $("standfirst");
+    if (state.proof === "before") sf.innerHTML = `<span class="q">“</span>Before — ${esc(trio({ display: -1, body: -1, mono: -1 }))}. What ships today.`;
+    else {
+      const shownSel = eff, shownDir = matchedDir(shownSel);
+      sf.innerHTML = shownDir ? `<span class="q">“</span>${esc(shownDir.rationale)}`
+        : onCurrent(shownSel) ? `<span class="q">“</span>Flip to a direction — every change is proofed on your real page.`
+        : `<span class="q">“</span>Set by hand — ${esc(trio(shownSel))}.`;
+    }
+    // proof bar
+    sh.querySelectorAll(".ptab").forEach(tab => {
+      const key = tab.dataset.key;
+      tab.setAttribute("aria-pressed", String(state.proof === key));
+      if (key === "galley") tab.innerHTML = `GALLEY<span class="sub">live</span>`;
+      else if (key === "before") tab.innerHTML = `BEFORE<span class="sub">current</span>`;
+      else {
+        const pin = state.pins[key];
+        if (!pin) { tab.innerHTML = `${key}<span class="sub dim">press P</span>`; }
+        else {
+          const other = state.pins[key === "A" ? "B" : "A"];
+          let swatches = "";
+          if (other) swatches = `<span class="swatches">` + ROLES.map(r =>
+            `<span class="sw ${famOf(r, pin.sel) === famOf(r, other.sel) ? "same" : "diff"}" title="${r}"></span>`).join("") + `</span>`;
+          const ag = `<span class="ag" style="font-family:${stackOf("display", pin.sel).replace(/"/g, "'")}">Ag</span>`;
+          tab.innerHTML = `${key} · ${ag}${swatches}<span class="sub">${esc(pin.label)}</span>`;
+          tab.title = pin.label;
+        }
+      }
+    });
+    // fidelity + pick
+    const bestEffort = parityOf(eff) === "best-effort" && !onCurrent(eff) && state.proof !== "before";
+    const fid = $("fidelity");
+    fid.dataset.show = String(bestEffort);
+    if (bestEffort) {
+      const faces = ROLES.map(r => candOf(r, eff)).filter(c => c && c.parity !== "guaranteed").map(c => c.family);
+      fid.textContent = `≈ close proof — ${faces.join(", ")} may differ slightly in press.`;
+    }
+    const pick = $("pick"), pl = $("pickLabel");
+    const pickable = state.proof !== "before" && !onCurrent(eff);
+    if (state.shipped && state.savedId === proofId(eff)) { pick.dataset.state = "shipped"; pl.textContent = "SHIPPED"; pick.disabled = true; }
+    else if (state.saving) { pick.dataset.state = "idle"; pl.textContent = "SAVING…"; pick.disabled = true; }
+    else if (state.savedId && state.savedId === proofId(eff)) { pick.dataset.state = "picked"; pl.textContent = "PICKED"; pick.disabled = false; }
+    else {
+      pick.dataset.state = "idle"; pick.dataset.just = "false";
+      pl.textContent = state.proof === "A" || state.proof === "B" ? `PICK ${state.proof}` : "PICK";
+      pick.disabled = !pickable;
+      if (!pickable && !state.saving) setStatus(state.proof === "before" ? "Viewing BEFORE — flip back to a proof to pick." : "On current — nothing to pick.");
+    }
+  }
+  const proofId = (sel) => { const d = matchedDir(sel); return onCurrent(sel) ? "current" : d ? d.id : "mixed:" + trio(sel); };
+
+  /* ——— interactions ——— */
+  function selectEntry(i, opts = {}) {
+    const prev = { ...state.sel };
+    if (i <= 0) state.sel = { display: -1, body: -1, mono: -1 };
+    else {
+      const d = directions[Math.min(i, directions.length) - 1];
+      for (const role of ROLES) state.sel[role] = Math.max(0, CANDS[role].findIndex(c => c.family === d.roles[role].family));
+    }
+    state.cursor = Math.max(0, Math.min(i, directions.length));
+    state.proof = "galley"; if (!opts.keepStatus) setStatus("");
+    applyToPage(prev, state.sel);
+    render();
+    const active = sh.querySelector(`.toc-row[data-idx="${i}"]`);
+    if (active) active.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+  }
+  function cycleRole(role, d) {
+    if (role === "display" && !state.wiredDisplay) return;
+    if (state.proof === "A" || state.proof === "B") {         // pins are immutable — edit a copy
+      const slot = state.proof;
+      state.sel = { ...state.pins[slot].sel };
+      state.proof = "galley";
+      setStatus(`Editing a copy of ${slot} in the galley — the pin is untouched.`);
+    }
+    if (state.proof === "before") state.proof = "galley";
+    state.focus = role;
+    const prev = { ...state.sel };
+    const n = CANDS[role].length;
+    if (onCurrent(state.sel)) { selectEntry(1); return; }
+    state.sel[role] = ((state.sel[role] < 0 ? 0 : state.sel[role]) + d + n) % n;
+    applyToPage(prev, state.sel);
+    render();
+  }
+  function moveFocus(d) { state.focus = ROLES[(ROLES.indexOf(state.focus) + d + 3) % 3]; render(); }
+  function showProof(key, opts = {}) {
+    if ((key === "A" || key === "B") && !state.pins[key]) { setStatus(`Nothing pinned in ${key} — press P to pin the galley.`); return; }
+    const prevEff = { ...effSel() };
+    state.proof = state.proof === key && key !== "galley" && opts.toggle ? "galley" : key;
+    const nextEff = { ...effSel() };
+    const changed = ROLES.filter(r => famOf(r, prevEff) !== famOf(r, nextEff));
+    applyToPage(null, nextEff, { silent: true });
+    if (changed.length) reportChange(prevEff, nextEff, changed);
+    setStatus(state.proof === "before" ? `Before — ${trio({ display: -1, body: -1, mono: -1 })}. B returns.`
+      : state.proof === "A" || state.proof === "B" ? `Showing ${state.proof} — ${state.pins[state.proof].label}.`
+      : "");
+    render();
+  }
+  function pin() {
+    if (onCurrent(state.sel)) { setStatus("Flip to a direction first — then pin it."); return; }
+    const slot = !state.pins.A ? "A" : !state.pins.B ? "B" : "A";
+    const d = matchedDir(state.sel);
+    state.pins[slot] = { sel: { ...state.sel }, label: d ? d.name : "mixed — " + trio(state.sel) };
+    setStatus(`Pinned ${slot} — ${state.pins[slot].label}${state.pins.A && state.pins.B ? " · ␣ compares" : ""}.`);
+    render();
+  }
+  function cycleProofs() {
+    const order = ["galley", "A", "B"].filter(k => k === "galley" || state.pins[k]);
+    if (order.length < 2) { setStatus("Pin a proof first — P pins the galley into A, then B."); return; }
+    showProof(order[(order.indexOf(state.proof === "before" ? "galley" : state.proof) + 1) % order.length]);
+  }
+
+  /* hold-B: tap toggles BEFORE, hold >400ms peeks and springs back */
+  let bDownAt = 0, bHeld = false;
+  function bDown() {
+    if (bHeld) return; bHeld = true; bDownAt = performance.now();
+    showProof(state.proof === "before" ? "galley" : "before");
+  }
+  function bUp() {
+    if (!bHeld) return; bHeld = false;
+    if (performance.now() - bDownAt > 400) showProof(state.proof === "before" ? "galley" : "before"); // spring back
+  }
+
+  async function doPick() {
+    const eff = effSel();
+    if (state.proof === "before" || onCurrent(eff)) return;
+    const d = matchedDir(eff);
+    const label = d ? d.name : "your hand-set pairing";
+    if (state.conn === "offline") { setStatus("Endpoint offline — run npx font-lab, then Pick again.", "warn"); return; }
+    state.saving = true; render();
+    await new Promise(r => setTimeout(r, 650));
+    state.saving = false; state.savedId = proofId(eff); state.shipped = false;
+    $("pick").dataset.just = "true";
+    setStatus(state.conn === "agent" ? `Saved “${label}” — your agent has it from here.` : `Saved “${label}” — tell your agent, or run npx font-lab-apply.`, "good");
+    render();
+    if (state.conn === "agent") {
+      await new Promise(r => setTimeout(r, 1700));
+      if (state.savedId !== proofId(effSel())) return;
+      state.shipped = true;
+      setStatus(parityOf(eff) === "guaranteed"
+        ? "Shipped — what you proofed is what shipped. Undo: npx font-lab-undo."
+        : "Shipped — ≈ best-effort faces may differ slightly. Undo: npx font-lab-undo.", "good");
+      render();
+    }
+  }
+
+  /* keyboard — captured only while the panel is expanded */
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
+    const k = e.key;
+    if (k === "ArrowRight") { e.preventDefault(); selectEntry(Math.min(state.cursor + 1, directions.length)); }
+    else if (k === "ArrowLeft") { e.preventDefault(); selectEntry(Math.max(state.cursor - 1, 0)); }
+    else if (k === "ArrowDown") { e.preventDefault(); moveFocus(1); }
+    else if (k === "ArrowUp") { e.preventDefault(); moveFocus(-1); }
+    else if (k === "]") { e.preventDefault(); cycleRole(state.probeLock || state.focus, 1); }
+    else if (k === "[") { e.preventDefault(); cycleRole(state.probeLock || state.focus, -1); }
+    else if (k === "b" || k === "B") { e.preventDefault(); if (!e.repeat) bDown(); }
+    else if (k === "p" || k === "P") { e.preventDefault(); pin(); }
+    else if (k === " ") { e.preventDefault(); cycleProofs(); }
+    else if (k === "x") { e.preventDefault(); state.probing ? exitProbe() : enterProbe(); }
+    else if (k === "X" && e.shiftKey) { e.preventDefault(); xrayAll ? setXray(null, false) : setXray(state.focus, true); }
+    else if (k === "j" || k === "J") { e.preventDefault(); jumpNearest(state.focus); }
+    else if (k === "Escape" && state.probing) { e.preventDefault(); exitProbe(); }
+    else if (k === "Enter") { e.preventDefault(); void doPick(); }
+    else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
+  });
+  document.addEventListener("keyup", (e) => { if (e.key === "b" || e.key === "B") bUp(); });
+
+  function toggleCollapsed() {
+    state.expanded = !state.expanded;
+    slip.dataset.collapsed = String(!state.expanded);
+    if (!state.expanded && state.probing) exitProbe();
+  }
+  $("dogear").addEventListener("click", toggleCollapsed);
+  sh.querySelector(".mast").addEventListener("click", (e) => { if (!state.expanded) toggleCollapsed(); });
+  $("probeBtn").addEventListener("click", () => state.probing ? exitProbe() : enterProbe());
+  $("pick").addEventListener("click", doPick);
+
+  /* ——— harness ——— */
+  function chip(parent, label, pressed, onClick) {
+    const b = document.createElement("button");
+    b.textContent = label; b.setAttribute("aria-pressed", String(pressed));
+    b.addEventListener("click", () => onClick(b));
+    document.getElementById(parent).appendChild(b);
+    return b;
+  }
+  const connChips = {};
+  for (const c of ["agent", "ready", "offline"]) {
+    connChips[c] = chip("hConn", c === "agent" ? "agent listening" : c === "ready" ? "endpoint ready" : "offline", state.conn === c, () => {
+      state.conn = c;
+      Object.entries(connChips).forEach(([k, b]) => b.setAttribute("aria-pressed", String(k === c)));
+      render();
+    });
+  }
+  chip("hFlags", "display unwired", false, (b) => {
+    state.wiredDisplay = b.getAttribute("aria-pressed") === "true";
+    b.setAttribute("aria-pressed", String(!state.wiredDisplay));
+    applyToPage(null, effSel(), { silent: true }); render();
+  });
+  chip("hFlags", "stale version", false, (b) => {
+    state.stale = !state.stale; b.setAttribute("aria-pressed", String(state.stale)); render();
+  });
+  let extraAdded = false;
+  chip("hMenu", "+2 directions arrive", false, (b) => {
+    if (extraAdded) return;
+    extraAdded = true; b.setAttribute("aria-pressed", "true");
+    directions = directions.concat(EXTRA); rebuildCands(); buildToc();
+    setLedger(`<span class="led-chg">+2 directions arrived — the menu is open-ended.</span>`);
+    render();
+  });
+  chip("hMenu", "reset pick", false, () => {
+    state.savedId = null; state.shipped = false; state.saving = false; setStatus(""); render();
+  });
+
+  /* ——— boot ——— */
+  for (const role of ROLES) setRoleVar(role, CURRENT[role].stack);
+  invalidateScan();
+  buildToc(); buildSpread(); buildProofbar();
+  selectEntry(1, { keepStatus: true });   // open on the first direction so the demo lands mid-story
+  setStatus("");
+  addEventListener("resize", invalidateScan);
+})();
+</script>
+</body></html>
