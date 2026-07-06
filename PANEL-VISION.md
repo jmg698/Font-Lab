@@ -104,17 +104,18 @@ re-stamped by a debounced MutationObserver.
 Every flip (face, direction, or proof switch) fires four redundant layers:
 
 1. **The flash** — only elements whose resolved family actually changed run a ~600ms marker
-   sweep (reduced motion: static tint, one-step removal). Absence is information: unchanged
-   text does not flash.
+   sweep, staggered by role and softened to a light wash when most of the page changes at
+   once, so a full-direction flip reads as extent, not an explosion (reduced motion: static
+   tint, one-step removal). Absence is information: unchanged text does not flash.
 2. **The delta ledger** — a line under the TOC states the diff in words, and asserts
    non-change as loudly as change: `Δ display Inter → Fraunces · body unchanged · mono
    unchanged · 13 elements · 3 below ↓ · ↺ flash`. The zero case is honest: `0 in view — J
    jumps to nearest`.
 3. **Edge ticks** — 2×14px marker ticks on the right viewport edge at each changed element's
    position, clickable to scroll, ~4s. Changes below the fold are never silent.
-4. **Row verdicts** — changed rows carry a prime mark `′` and crossfade; unchanged rows dim
-   briefly. One glance at the spread shows which of the three moved. The masthead `Aa`
-   flipping (or not) is the peripheral fourth signal for display.
+4. **Row verdicts** — changed rows' family names take the marker color for a beat and fade
+   back; unchanged rows dim briefly. One glance at the spread shows which of the three moved.
+   The masthead `Aa` flipping (or not) is the peripheral fourth signal for display.
 
 ## Compare — one object, one lit source
 
@@ -127,8 +128,9 @@ answer.
   the blink-comparator, the fastest diff the eye has. Both directions fire the change
   machinery.
 - `P` pins the galley into A then B. Pinned tabs are micro-specimens: `A · Ag` set in the
-  pinned display face, plus **three diff swatches** (solid = differs from the other pin,
-  hollow = same) so "these differ only on display" is readable at rest.
+  pinned display face, plus **diff dots** — one per role that differs from the live galley
+  (lit only on the shown/hovered tab) — so "this pin differs on display" is readable at rest
+  without yellow decaying into decoration.
 - Pins are immutable snapshots: cycling a face while viewing A copies A into the galley first
   (`Editing a copy of A in the galley — the pin is untouched.`).
 - **Guarded pick**: viewing a pin relabels the button `PICK A`; viewing BEFORE disables it
@@ -140,14 +142,18 @@ answer.
 - Presence: `OFFLINE · NPX FONT-LAB` (hollow dot) / `ENDPOINT READY` (paper dot) /
   `AGENT LISTENING` (wire-green pulse) + the existing narrated tooltips.
 - `≈` best-effort: coral hairline tag on the row + a coral fidelity line **directly above
-  Pick** (prominent at the pick moment, per REDESIGN.md).
+  Pick** (prominent at the pick moment, per REDESIGN.md). The line shows fully for ~4s per
+  new best-effort mix, then quiets to the inline `≈`; hovering Pick revives it — honest at
+  the moment it matters, not a permanent nag.
 - Unwired role: mono (never a fake specimen), boxed `WIRED ON SHIP` tag, steppers off,
   coverage reads `previews after ship`.
-- Stale panel: the 4280f2c card restyled — headline `PROOF SET BY AN OLDER PRESS`.
+- Stale panel: the 4280f2c card restyled — plain language leads (`STALE PANEL — 0.9.1 SET ·
+  0.9.3 RUNNING`), the press flavor is the subhead.
 - Pick narrative: `PICK → SAVING… → PICKED ✓ (drawn check, the only celebration) → SHIPPED`
   with the undo line. Status strings stay concrete and unhedged.
 - Keyboard is captured **only while expanded**; collapsed (dog-ear) leaves a 344×44 masthead
-  bar where the presence dot and living `Aa` stay visible.
+  bar that still carries the presence dot, the living `Aa`, the current folio + direction
+  name, and an unsaved-changes tick — loop state is never hidden.
 
 ## What we take from v0, and what we reject
 
@@ -176,6 +182,11 @@ React shell:
 4. **State model**: `proof: 'galley'|'before'|'A'|'B'` replaces `comparing`/`showingPin`;
    pick guard derives from it. Everything else is a restyle of existing state.
 5. The endpoint protocol, persistence, and DCE guard are untouched.
+
+The prototype survived a two-critic adversarial pass (design-craft lens + founder lens);
+their must-fixes — proof-mode chip never occluding the sampled glyphs, the contents list and
+counter always agreeing with the shown proof (`A·01` while viewing pin A), face-labeled
+per-role pagers, tiered flash, and the yellow-discipline fixes above — are already in.
 
 Prototype: `spike/panel-galley/prototype.html` — open it in a browser. The demo harness
 (top-left) switches connection/honesty states; candidate faces render as local stand-ins

@@ -48,7 +48,10 @@
   .fl-xray-other { box-shadow: inset 0 0 0 1px rgba(34,32,27,.25); border-radius: 2px; }
   .fl-flash { position: relative; }
   .fl-flash::after { content: ""; position: absolute; inset: -3px -5px; border-radius: 3px; pointer-events: none;
-    background: rgba(231,255,59,.32); box-shadow: 0 0 0 1px rgba(183,204,0,.55); opacity: 0; animation: fl-flash-decay 700ms ease-out; }
+    background: rgba(231,255,59,.28); box-shadow: 0 0 0 1px rgba(183,204,0,.5); opacity: 0; animation: fl-flash-decay 700ms ease-out; }
+  .fl-flash-soft { position: relative; }
+  .fl-flash-soft::after { content: ""; position: absolute; inset: -3px -5px; border-radius: 3px; pointer-events: none;
+    background: rgba(231,255,59,.12); opacity: 0; animation: fl-flash-decay 700ms ease-out; }
   @keyframes fl-flash-decay { 0% { opacity: 1; } 100% { opacity: 0; } }
   .fl-spot { position: relative; }
   .fl-spot::after { content: ""; position: absolute; inset: -5px -8px; border-radius: 4px; pointer-events: none;
@@ -275,13 +278,20 @@ font-family: var(--mono);     /* this block */</code></pre>
       drawTicks(seen, els);
       if (!seen.length && els.length) honesty = ` · <span class="led-chg">0 in view — J jumps to nearest</span>`;
       else if (below || above) honesty = ` · ${below ? below + " below ↓" : ""}${below && above ? " · " : ""}${above ? above + " above ↑" : ""}`;
-      parts.push(`<span class="led-count">${els.length} element${els.length === 1 ? "" : "s"}${honesty}</span>`);
+      parts.push(`<span class="led-count" style="white-space:nowrap">${els.length} element${els.length === 1 ? "" : "s"}${honesty}</span>`);
     }
     setLedger(parts.join(" · "), liveChanged);
   }
   function flash(els) {
-    for (const el of els) { el.classList.remove("fl-flash"); void el.offsetWidth; el.classList.add("fl-flash"); }
-    setTimeout(() => els.forEach(el => el.classList.remove("fl-flash")), REDUCED ? 1400 : 750);
+    // Mass changes get a soft wash (extent legible, not an explosion); staggered by role.
+    const visible = scan().filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).length;
+    const cls = visible && els.length / visible > 0.6 ? "fl-flash-soft" : "fl-flash";
+    const byRole = new Map(scan().map(e => [e.el, e.role]));
+    els.forEach((el) => {
+      const delay = REDUCED ? 0 : Math.max(0, ROLES.indexOf(byRole.get(el))) * 80;
+      setTimeout(() => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }, delay);
+    });
+    setTimeout(() => els.forEach(el => { el.classList.remove("fl-flash"); el.classList.remove("fl-flash-soft"); }), (REDUCED ? 1400 : 780) + 200);
   }
   function drawTicks(seen, all) {
     overlay.querySelectorAll(".fl-tick").forEach(t => t.remove());
@@ -323,11 +333,11 @@ font-family: var(--mono);     /* this block */</code></pre>
     if (all) {
       for (const { el, role: r } of scan()) {
         const rect = el.getBoundingClientRect();
-        if (rect.bottom < 0 || rect.top > innerHeight) continue;
+        if (rect.bottom < 0 || rect.top > innerHeight || rect.height < 16) continue;
         const chip = document.createElement("div");
         chip.className = "fl-xchip";
         chip.textContent = r[0].toUpperCase();
-        chip.style.cssText = `position:fixed;left:${Math.max(2, rect.left - 18)}px;top:${rect.top + 2}px;z-index:2147483646;` +
+        chip.style.cssText = `position:fixed;left:${Math.max(16, rect.left - 6)}px;top:${Math.max(8, rect.top)}px;transform:translate(-100%,-40%);z-index:2147483646;` +
           `font:600 9px ui-monospace,Menlo,monospace;padding:1px 4px;border-radius:3px;pointer-events:none;` +
           (r === role ? "background:#E7FF3B;color:#100F0D;" : "background:rgba(16,15,13,.85);color:rgba(242,239,229,.9);border:1px solid rgba(242,239,229,.3);");
         overlay.appendChild(chip);
@@ -343,8 +353,11 @@ font-family: var(--mono);     /* this block */</code></pre>
       tag.textContent = isBody
         ? `BODY — ${cov.count.body} elements · ${Math.round(cov.chars.body / cov.total * 100)}% of text on this page`
         : `${role.toUpperCase()} — ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
-      tag.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:2147483646;background:#100F0D;color:#F2EFE5;" +
-        "font:10px ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:7px 10px;border-radius:4px;border:1px solid rgba(242,239,229,.2);pointer-events:none;";
+      let top = innerHeight - 60;
+      const rowEl = sh && sh.querySelector(`.row[data-role="${role}"]`);
+      if (rowEl) top = Math.max(8, rowEl.getBoundingClientRect().top + 6);
+      tag.style.cssText = `position:fixed;right:376px;top:${top}px;z-index:2147483646;background:#100F0D;color:#F2EFE5;` +
+        "font:10px ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:7px 10px;border-radius:3px;border:1px solid rgba(242,239,229,.2);pointer-events:none;white-space:nowrap;";
       overlay.appendChild(tag);
     }
   }
@@ -385,8 +398,10 @@ font-family: var(--mono);     /* this block */</code></pre>
     probeTag.style.display = "block";
     probeTag.innerHTML = `<b style="color:#E7FF3B;font-weight:600">${hit.role.toUpperCase()}</b> · ${esc(fam)} · ${parseFloat(cs.fontSize)}px · ${cov.count[hit.role]} on page` +
       (state.probeLock === hit.role ? ` · <span style="color:#E7FF3B">[ ] flips this text</span>` : "");
-    const x = Math.min(innerWidth - probeTag.offsetWidth - 8, e.clientX + 14);
-    const y = Math.min(innerHeight - 34, e.clientY + 16);
+    const r = hit.el.getBoundingClientRect();
+    const x = Math.max(8, Math.min(innerWidth - probeTag.offsetWidth - 8, e.clientX - 20));
+    let y = r.top - probeTag.offsetHeight - 6;                    // above the block…
+    if (y < 8) y = Math.min(innerHeight - 34, r.bottom + 6);      // …or below if clipped
     probeTag.style.left = x + "px"; probeTag.style.top = y + "px";
     if (state.focus !== hit.role && state.probeLock === null) { state.focus = hit.role; render(); }
   }
@@ -445,25 +460,15 @@ font-family: var(--mono);     /* this block */</code></pre>
     .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
     .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
     .sect .counter b { color: #E7FF3B; font-weight: 600; }
-    .probe-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18); border-radius: 4px; font-size: 12px; color: rgba(242,239,229,.75); }
+    .probe-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18); border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.75); }
     .probe-btn[aria-pressed="true"] { background: #E7FF3B; color: #100F0D; border-color: #E7FF3B; }
     .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
       -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
       mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
     .toc-row { display: flex; align-items: baseline; gap: 8px; width: 100%; height: 37px; padding: 7px 14px; text-align: left; }
     .toc-row:hover { background: #191813; }
-    .toc-row .folio { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); width: 18px; flex: none; }
+    .toc-row .folio { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); min-width: 18px; flex: none; }
     .toc-row[aria-current="true"] .folio { color: #E7FF3B; }
-    /* viewing BEFORE or a pin: the galley's own markers go quiet — yellow follows what the page shows */
-    .slip[data-proof="before"] .toc-row[aria-current="true"] .folio,
-    .slip[data-proof="A"] .toc-row[aria-current="true"] .folio,
-    .slip[data-proof="B"] .toc-row[aria-current="true"] .folio { color: rgba(242,239,229,.5); }
-    .slip[data-proof="before"] .toc-row[aria-current="true"] .tname::after,
-    .slip[data-proof="A"] .toc-row[aria-current="true"] .tname::after,
-    .slip[data-proof="B"] .toc-row[aria-current="true"] .tname::after { background: rgba(242,239,229,.35); }
-    .slip[data-proof="before"] .sect .counter b,
-    .slip[data-proof="A"] .sect .counter b,
-    .slip[data-proof="B"] .sect .counter b { color: rgba(242,239,229,.58); }
     .toc-row .tname { font-size: 14.5px; color: #F2EFE5; white-space: nowrap; position: relative; padding-bottom: 2px; }
     .toc-row[aria-current="true"] .tname::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: #E7FF3B;
       animation: draw .16s ease-out; transform-origin: left; }
@@ -487,19 +492,19 @@ font-family: var(--mono);     /* this block */</code></pre>
     .row[data-focus="true"] .margin { position: relative; z-index: 1; font-weight: 700; }
     .row .mid { min-width: 0; padding-left: 10px; }
     .row .labline { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .14em; color: rgba(242,239,229,.55); }
-    .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums; }
-    .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 3px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
-    .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 3px; padding: 0 4px; font-size: 8px; letter-spacing: .1em; color: rgba(242,239,229,.6); white-space: nowrap; flex: none; }
+    .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 2px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
+    .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 2px; padding: 0 4px; font-size: 8px; letter-spacing: .1em; color: rgba(242,239,229,.6); white-space: nowrap; flex: none; }
     .row .spec { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
-    .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; }
+    .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; transition: color 1.6s ease; }
+    .row .fam[data-just="true"] { color: #E7FF3B; transition: color .05s; }
     .row[data-role="body"] .fam { font-size: 16px; } .row[data-role="mono"] .fam { font-size: 13.5px; }
     .row[data-unwired="true"] .fam { opacity: .55; }
-    .row .prime { color: #E7FF3B; font-size: 12px; opacity: 0; } .row .prime[data-on="true"] { opacity: 1; }
     .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; }
     .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
     .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; }
-    .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 4px; font-size: 12px; color: rgba(242,239,229,.8); display: grid; place-items: center; }
+    .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.8); display: grid; place-items: center; }
     .row .step:hover:not(:disabled) { background: #232219; }
     .row .step:disabled { opacity: .25; cursor: not-allowed; }
     .row[data-dimmed="true"] { opacity: .7; }
@@ -520,15 +525,22 @@ font-family: var(--mono);     /* this block */</code></pre>
     .ptab .ag { font-size: 12px; color: rgba(242,239,229,.85); letter-spacing: 0; text-transform: none; }
     .ptab .swatches { display: inline-flex; gap: 2px; margin-left: 3px; vertical-align: 1px; }
     .ptab .sw { width: 5px; height: 5px; border-radius: 1px; }
-    .sw.diff { background: #E7FF3B; } .sw.same { border: 1px solid rgba(242,239,229,.4); width: 4px; height: 4px; }
+    .sw.diff { background: #8a877c; } .ptab[aria-pressed="true"] .sw.diff, .ptab:hover .sw.diff { background: #E7FF3B; }
     .ptab:hover { background: #191813; }
 
     /* fidelity + pick */
     .fidelity { display: none; padding: 7px 14px; border-top: 1px solid rgba(242,239,229,.1); border-left: 2px solid #E98A6D;
       font-size: 9.5px; line-height: 1.5; color: #E9A88F; }
     .fidelity[data-show="true"] { display: block; }
+    .fidelity[data-quiet="true"] { display: none; }
+    .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
+    .toc-cue[data-show="true"] { display: block; }
+    .collapsed-info { display: none; margin-left: 4px; font-size: 9.5px; color: rgba(242,239,229,.6); letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+    .collapsed-info .tick { color: #E7FF3B; }
+    .slip[data-collapsed="true"] .collapsed-info { display: inline; }
+    .slip[data-collapsed="true"] .galley-it { display: none; }
     .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); }
-    .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 5px; font-size: 11px; font-weight: 700;
+    .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 3px; font-size: 11px; font-weight: 700;
       letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
     .pick:hover:not(:disabled) { background: #EFFF66; }
     .pick:disabled { background: #232219; color: rgba(242,239,229,.45); cursor: not-allowed; }
@@ -543,8 +555,8 @@ font-family: var(--mono);     /* this block */</code></pre>
 
     /* colophon */
     .colophon { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 9px 14px 11px; border-top: 1px solid rgba(242,239,229,.14);
-      font-size: 8.5px; letter-spacing: .06em; color: rgba(242,239,229,.5); }
-    kbd { border: 1px solid rgba(242,239,229,.25); border-radius: 3px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.75); }
+      font-size: 8.5px; letter-spacing: .06em; color: rgba(242,239,229,.62); }
+    kbd { border: 1px solid rgba(242,239,229,.28); border-radius: 2px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.8); }
     .ver { margin-left: auto; font-size: 8.5px; color: rgba(242,239,229,.35); }
 
     .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
@@ -555,21 +567,21 @@ font-family: var(--mono);     /* this block */</code></pre>
     <div class="mast">
       <div class="badge" id="aa" title="the current display face">Aa</div>
       <span class="wordmark u">FONT LAB</span>
-      <span class="galley-it">Galley</span>
+      <span class="galley-it">Galley</span><span class="collapsed-info" id="collapsedInfo"></span>
       <div class="presence" id="presence" data-conn="offline"><span class="pdot"></span><span id="presLabel">OFFLINE</span></div>
     </div>
     <div class="dogear" id="dogear" title="collapse"></div>
     <div class="oxford"></div>
     <div class="notice" id="notice" data-show="false">
-      <div class="nh u">PROOF SET BY AN OLDER PRESS</div>
-      <div class="nb">This panel was set by Font&nbsp;Lab <code>0.9.1</code>; <code>0.9.3</code> is running. Re-run <code>font_lab_init</code> to refresh it.</div>
+      <div class="nh u">STALE PANEL — <code>0.9.1</code> SET · <code>0.9.3</code> RUNNING</div>
+      <div class="nb">This proof was set by an older press. Re-run <code>font_lab_init</code> to refresh it.</div>
     </div>
     <div class="sect">
       <span class="lab u">DIRECTION</span><span class="rule"></span>
       <span class="counter" id="counter"><b>00</b> / 05</span>
       <button class="probe-btn" id="probeBtn" title="Proof mode — point at the page (X)" aria-pressed="false">⌖</button>
     </div>
-    <div class="toc" id="toc"></div>
+    <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
     <div class="ledger" id="ledger" data-show="false"></div>
     <div class="spread" id="spread"></div>
     <div class="standfirst" id="standfirst"></div>
@@ -585,7 +597,7 @@ font-family: var(--mono);     /* this block */</code></pre>
     <div class="colophon" id="colophon">
       <span><kbd>←→</kbd> direction</span><span><kbd>↑↓</kbd> role</span><span><kbd>[ ]</kbd> face</span>
       <span><kbd>B</kbd> before</span><span><kbd>P</kbd> pin</span><span><kbd>␣</kbd> proofs</span>
-      <span><kbd>X</kbd> proof mode</span><span><kbd>J</kbd> jump</span><span><kbd>↵</kbd> pick</span>
+      <span><kbd>X</kbd> proof mode</span><span><kbd>⇧X</kbd> map</span><span><kbd>J</kbd> jump</span><span><kbd>↵</kbd> pick</span>
       <span class="ver">v0.9.3</span>
     </div>
   </div>`;
@@ -610,14 +622,21 @@ font-family: var(--mono);     /* this block */</code></pre>
       const row = sh.querySelector(`.row[data-role="${role}"]`);
       if (!row) continue;
       const changed = changedRoles.includes(role);
-      row.querySelector(".prime").dataset.on = String(changed);
+      row.querySelector(".fam").dataset.just = String(changed);
       row.dataset.dimmed = String(changedRoles.length > 0 && !changed);
     }
     setTimeout(() => sh.querySelectorAll(".row").forEach(r => {
-      r.dataset.dimmed = "false"; r.querySelector(".prime").dataset.on = "false";
-    }), 2600);
+      r.dataset.dimmed = "false"; r.querySelector(".fam").dataset.just = "false";
+    }), 900);
   }
   function setStatus(text, tone = "") { $("status").textContent = text; $("status").dataset.tone = tone; }
+  function updateTocCue() {
+    const toc = $("toc"), cue = $("tocCue");
+    const hidden = Math.max(0, Math.round((toc.scrollHeight - toc.scrollTop - toc.clientHeight) / 37));
+    cue.dataset.show = String(hidden > 0);
+    if (hidden > 0) cue.textContent = `+${hidden} more ↓`;
+  }
+  let fidTimer = null, fidKey = "";
 
   /* ——— render ——— */
   function buildToc() {
@@ -642,12 +661,12 @@ font-family: var(--mono);     /* this block */</code></pre>
         <div class="margin">${role[0].toUpperCase()}</div>
         <div class="mid">
           <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden>WIRED ON SHIP</span><span class="cov"></span></div>
-          <div class="spec"><span class="fam"></span><span class="prime">′</span></div>
+          <div class="spec"><span class="fam"></span></div>
           <div class="tagline"></div>
         </div>
         <div class="right"><span class="pos"></span><button class="step" data-d="-1" aria-label="previous ${role} face">‹</button><button class="step" data-d="1" aria-label="next ${role} face">›</button></div>`;
       row.addEventListener("click", (e) => { if (e.target.closest(".step")) return; state.focus = role; render(); });
-      row.addEventListener("mouseenter", () => { if (!state.probing && !xrayAll) setXray(role); });
+      row.addEventListener("mouseenter", () => { if (!state.probing && !xrayAll) { state.focus = role; setXray(role); render(); } });
       row.addEventListener("mouseleave", () => { if (!state.probing && !xrayAll) setXray(null); });
       row.querySelectorAll(".step").forEach(btn => btn.addEventListener("click", () => cycleRole(role, +btn.dataset.d)));
       wrap.appendChild(row);
@@ -680,11 +699,21 @@ font-family: var(--mono);     /* this block */</code></pre>
       : state.conn === "ready" ? "Pick endpoint on :7777. Your pick saves the moment you make it."
       : "No pick endpoint on :7777 — run npx font-lab in your project.";
     $("notice").dataset.show = String(state.stale);
+    const gd0 = matchedDir(state.sel);
+    const gFol = onCurrent(state.sel) ? "00 Current" : gd0 ? `${String(directions.indexOf(gd0) + 1).padStart(2, "0")} ${gd0.name}` : "mix — set by hand";
+    const unsaved = !onCurrent(state.sel) && state.savedId !== proofId(state.sel);
+    $("collapsedInfo").innerHTML = `· ${esc(gFol)}${unsaved ? ' <span class="tick">′</span>' : ""} <span style="opacity:.55">· \` opens</span>`;
     // contents
-    const md = matchedDir(state.sel);
-    const idx = onCurrent(state.sel) ? 0 : md ? directions.indexOf(md) + 1 : -1;
-    $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${String(idx).padStart(2, "0")}</b>`) + ` / ${String(directions.length).padStart(2, "0")}`;
-    sh.querySelectorAll(".toc-row").forEach((r, i) => r.setAttribute("aria-current", String(i === idx)));
+    const shownDirM = matchedDir(eff);
+    const idx = onCurrent(eff) ? 0 : shownDirM ? directions.indexOf(shownDirM) + 1 : -1;
+    const pinKey = state.proof === "A" || state.proof === "B" ? state.proof : null;
+    $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${pinKey ? pinKey + "·" : ""}${String(idx).padStart(2, "0")}</b>`) + ` / ${String(directions.length).padStart(2, "0")}`;
+    sh.querySelectorAll(".toc-row").forEach((r, i) => {
+      r.setAttribute("aria-current", String(i === idx));
+      const folio = r.querySelector(".folio");
+      folio.textContent = i === idx && pinKey ? pinKey + "·" + String(i).padStart(2, "0") : String(i).padStart(2, "0");
+    });
+    updateTocCue();
     $("probeBtn").setAttribute("aria-pressed", String(state.probing));
     // spread
     for (const role of ROLES) {
@@ -694,46 +723,50 @@ font-family: var(--mono);     /* this block */</code></pre>
       const unwired = role === "display" && !state.wiredDisplay;
       row.dataset.focus = String(state.focus === role);
       row.dataset.unwired = String(unwired);
-      row.querySelector(".fam").textContent = eff[role] < 0 ? fam + " — current" : fam;
+      row.querySelector(".fam").textContent = fam;
       row.querySelector(".fam").style.fontFamily = unwired ? MONO : stackOf(role, eff);
       row.querySelector(".fam").style.fontSize = unwired ? "12px" : "";
       row.querySelector(".parity").hidden = !(cand && cand.parity !== "guaranteed");
       row.querySelector(".parity").title = "best-effort — may render slightly differently once shipped";
       row.querySelector(".wtag").hidden = !unwired;
-      row.querySelector(".cov").textContent = unwired ? "previews after ship"
+      row.querySelector(".cov").textContent = unwired ? ""
         : role === "body" ? `${Math.round(cov.chars.body / cov.total * 100)}% of page text`
         : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
-      row.querySelector(".tagline").textContent = cand && cand.tag ? cand.tag + "." : eff[role] < 0 ? "what ships today." : "";
+      row.querySelector(".tagline").textContent = unwired ? "previews after ship · pick records."
+        : cand && cand.tag ? cand.tag + "." : eff[role] < 0 && role === "display" ? "what ships today." : eff[role] < 0 ? "" : "";
       const n = CANDS[role].length;
-      row.querySelector(".pos").textContent = eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`;
+      row.querySelector(".pos").textContent = "face " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
       row.querySelectorAll(".step").forEach(b => b.disabled = unwired || state.proof === "before");
     }
     // standfirst
     const sf = $("standfirst");
-    if (state.proof === "before") sf.innerHTML = `<span class="q">“</span>Before — ${esc(trio({ display: -1, body: -1, mono: -1 }))}. What ships today.`;
+    if (state.proof === "before") sf.textContent = `Before — ${trio({ display: -1, body: -1, mono: -1 })}. What ships today.`;
     else {
       const shownSel = eff, shownDir = matchedDir(shownSel);
-      sf.innerHTML = shownDir ? `<span class="q">“</span>${esc(shownDir.rationale)}`
-        : onCurrent(shownSel) ? `<span class="q">“</span>Flip to a direction — every change is proofed on your real page.`
-        : `<span class="q">“</span>Set by hand — ${esc(trio(shownSel))}.`;
+      sf.textContent = shownDir ? shownDir.rationale
+        : onCurrent(shownSel) ? "Flip to a direction — every change is proofed on your real page."
+        : `Set by hand — ${trio(shownSel)}.`;
     }
     // proof bar
     sh.querySelectorAll(".ptab").forEach(tab => {
       const key = tab.dataset.key;
       tab.setAttribute("aria-pressed", String(state.proof === key));
-      if (key === "galley") tab.innerHTML = `GALLEY<span class="sub">live</span>`;
+      if (key === "galley") {
+        const gd = matchedDir(state.sel);
+        const gIdx = onCurrent(state.sel) ? "00" : gd ? String(directions.indexOf(gd) + 1).padStart(2, "0") : "MIX";
+        tab.innerHTML = `GALLEY<span class="sub">live · ${gIdx}</span>`;
+      }
       else if (key === "before") tab.innerHTML = `BEFORE<span class="sub">current</span>`;
       else {
         const pin = state.pins[key];
         if (!pin) { tab.innerHTML = `${key}<span class="sub dim">press P</span>`; }
         else {
-          const other = state.pins[key === "A" ? "B" : "A"];
-          let swatches = "";
-          if (other) swatches = `<span class="swatches">` + ROLES.map(r =>
-            `<span class="sw ${famOf(r, pin.sel) === famOf(r, other.sel) ? "same" : "diff"}" title="${r}"></span>`).join("") + `</span>`;
+          const diffRoles = ROLES.filter(r => famOf(r, pin.sel) !== famOf(r, state.sel));
+          const swatches = diffRoles.length ? `<span class="swatches">` + diffRoles.map(r =>
+            `<span class="sw diff" title="${r} differs from the live galley"></span>`).join("") + `</span>` : "";
           const ag = `<span class="ag" style="font-family:${stackOf("display", pin.sel).replace(/"/g, "'")}">Ag</span>`;
           tab.innerHTML = `${key} · ${ag}${swatches}<span class="sub">${esc(pin.label)}</span>`;
-          tab.title = pin.label;
+          tab.title = pin.label + (diffRoles.length ? ` — differs from live on ${diffRoles.join(", ")}` : " — matches the live galley");
         }
       }
     });
@@ -744,7 +777,13 @@ font-family: var(--mono);     /* this block */</code></pre>
     if (bestEffort) {
       const faces = ROLES.map(r => candOf(r, eff)).filter(c => c && c.parity !== "guaranteed").map(c => c.family);
       fid.textContent = `≈ close proof — ${faces.join(", ")} may differ slightly in press.`;
-    }
+      const key = faces.join("|");
+      if (key !== fidKey) {
+        fidKey = key; fid.dataset.quiet = "false";
+        clearTimeout(fidTimer);
+        fidTimer = setTimeout(() => { fid.dataset.quiet = "true"; }, 4500);
+      }
+    } else { fidKey = ""; fid.dataset.quiet = "false"; }
     const pick = $("pick"), pl = $("pickLabel");
     const pickable = state.proof !== "before" && !onCurrent(eff);
     if (state.shipped && state.savedId === proofId(eff)) { pick.dataset.state = "shipped"; pl.textContent = "SHIPPED"; pick.disabled = true; }
@@ -886,6 +925,9 @@ font-family: var(--mono);     /* this block */</code></pre>
   sh.querySelector(".mast").addEventListener("click", (e) => { if (!state.expanded) toggleCollapsed(); });
   $("probeBtn").addEventListener("click", () => state.probing ? exitProbe() : enterProbe());
   $("pick").addEventListener("click", doPick);
+  $("pick").addEventListener("mouseenter", () => { const f = $("fidelity"); if (f.dataset.show === "true") f.dataset.quiet = "false"; });
+  $("toc").addEventListener("scroll", updateTocCue);
+  $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
 
   /* ——— harness ——— */
   function chip(parent, label, pressed, onClick) {
