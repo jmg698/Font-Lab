@@ -242,6 +242,7 @@ const server = http.createServer((req, res) => {
           return send(200, { ok: true, ...u });
         }
         const { frame, oldText, newText } = JSON.parse(body || "{}");
+        const seed = Date.now().toString(36);
         let loc = null;
         if (frame && frame.url) {
           try {
@@ -250,27 +251,34 @@ const server = http.createServer((req, res) => {
             loc = null; // source map unavailable — fall through to the string path
           }
         }
-        if (!loc) {
-          // Zero-introspection fallback: unique-phrase search across app/src. Refuse
-          // duplicates with the candidate list rather than guessing (soft-degrade).
-          const hits = oldText ? findPhrase(PROJECT, oldText) : [];
-          if (hits.length !== 1) {
+        // Two attempts, in priority order — each reversible on its own:
+        //   1) the resolved call-site file (exact: the only thing that disambiguates duplicates)
+        //   2) a project-wide UNIQUE-phrase match — rescues source-map drift, a mis-resolved
+        //      file, or no frame at all. We only ever commit to an unambiguous target, so a
+        //      duplicate phrase is refused (not silently mis-edited), matching soft-degrade.
+        let r = null;
+        if (loc) {
+          try {
+            r = applyEdit(PROJECT, { file: loc.file, line: loc.line, col: loc.col, oldText, newText, runIdSeed: seed });
+          } catch (e) {
+            r = { ok: false, error: `couldn't open ${loc.file}: ${e.message || e}` };
+          }
+        }
+        if ((!r || !r.ok) && oldText) {
+          const hits = findPhrase(PROJECT, oldText);
+          if (hits.length === 1) {
+            r = applyEdit(PROJECT, { file: hits[0].file, oldText, newText, runIdSeed: seed });
+          } else if (!r) {
+            // No resolvable frame AND not uniquely locatable by text — say why, actionably, so
+            // the revert in the panel reads as an explained boundary, not a silent snap-back.
             const why = hits.length === 0
-              ? "could not trace these words to a source literal"
-              : `"${String(oldText).slice(0, 40)}…" appears ${hits.length}× — need a resolvable location`;
+              ? `couldn't find these words as a text literal in ${path.basename(PROJECT)}/ — they may come from data (a DB/CMS/props), or \`npx font-lab\` may be pointed at a different folder than your site`
+              : `"${String(oldText).slice(0, 40)}…" appears ${hits.length}× — retype from the exact spot so the call-site pins which one`;
             console.log(`  ⚠ copy edit refused: ${why}`);
             return send(409, { ok: false, error: why, candidates: hits });
           }
-          loc = { file: hits[0].file, line: undefined, col: undefined };
         }
-        const r = applyEdit(PROJECT, {
-          file: loc.file,
-          line: loc.line,
-          col: loc.col,
-          oldText,
-          newText,
-          runIdSeed: Date.now().toString(36),
-        });
+        if (!r) return send(409, { ok: false, error: "need a resolvable frame or the original text" });
         console.log(r.ok ? `  ✎ ${r.file}:${r.line}  "${r.before}" → "${r.after}"` : `  ⚠ copy edit refused: ${r.error}`);
         return send(r.ok ? 200 : 409, r);
       } catch (e) {
@@ -296,10 +304,11 @@ async function resolveFrame({ url, line, column }) {
   if (!consumer) throw new Error(`no source map for ${url}`);
   const orig = consumer.originalPositionFor({ line, column });
   if (!orig.source) throw new Error(`could not resolve ${url}:${line}:${column}`);
-  let file = orig.source.replace(/^file:\/\//, "");
-  // Turbopack emits [project]/-prefixed sources; strip to a project-relative path.
-  file = file.replace(/^\[project\]\//, "").replace(/^\/+/, "/");
-  return { file, line: orig.line, col: orig.column };
+  // normalizeSourcePath lives in copyedit.mjs (pure + unit-tested) — a source map's `source` is
+  // a bundler-emitted URL whose shape varies by stack, and Font Lab injects into repos we don't
+  // control, so path normalization is the field-robustness seam worth testing on its own.
+  const { normalizeSourcePath } = await import("./copyedit.mjs");
+  return { file: normalizeSourcePath(orig.source), line: orig.line, col: orig.column };
 }
 
   server.listen(PORT, HOST, () => {

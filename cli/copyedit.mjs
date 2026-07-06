@@ -110,6 +110,29 @@ function restore(projectDir, backupDir) {
   for (const f of manifest.files) copyFileSync(path.join(backupDir, f.path), path.join(projectDir, f.path));
 }
 
+// ---- source-path normalization ---------------------------------------------
+
+// A source map's `source` is a URL emitted by whatever bundler served it, so its shape varies
+// by stack — and Font Lab injects into repos we don't control. Normalize the shapes we know to a
+// real filesystem path. Anything we don't recognize still falls through to the project-wide
+// phrase search in POST /edit, so an unfamiliar bundler degrades gracefully instead of failing.
+export function normalizeSourcePath(source) {
+  let f = String(source);
+  // URLs percent-encode spaces / non-ASCII: ".../Artificial%20Insight/..." — the exact bug that
+  // made existsSync() miss and the panel snap words back. Decode to a real path first.
+  try { f = decodeURIComponent(f); } catch {}
+  f = f
+    .replace(/^file:\/\//, "")                              // file:///Users/... -> /Users/...
+    .replace(/^webpack-internal:\/\/\/(\([^)]*\)\/)?/, "")  // Next/webpack dev (app|pages) chunks
+    .replace(/^webpack:\/\/[^/]*\//, "")                    // webpack://_N_E/./app/... -> ./app/...
+    .replace(/^(turbopack|rsc):\/\/(\[project\]\/)?/, "")   // turbopack:// / rsc:// prefixes
+    .replace(/^\[project\]\//, "")                          // Turbopack project-relative
+    .replace(/^\/@fs\//, "/")                               // Vite absolute (/@fs/Users/...)
+    .replace(/^\.\//, "")                                   // leading ./
+    .replace(/^\/{2,}/, "/");                               // collapse doubled leading slashes
+  return f;
+}
+
 // ---- public API ------------------------------------------------------------
 
 // Resolve the single text node an edit refers to. Returns { hit } or { error, candidates }.
@@ -117,27 +140,35 @@ export function resolveTarget(sf, { line, col, oldText }) {
   const all = editableTextNodes(sf);
   const want = oldText != null ? norm(oldText) : null;
 
+  // Precise-first: a resolved call-site frame ({line,col}) pins the exact element — the only
+  // way to safely disambiguate a phrase that appears more than once. Try it before anything.
   if (line != null) {
     const el = elementAt(sf, line, col ?? 0);
-    if (!el) return { error: `no JSX element at ${line}:${col}` };
-    let kids = textChildrenOf(el, all);
-    if (want != null) kids = kids.filter((k) => k.text === want);
-    if (kids.length === 1) return { hit: kids[0] };
-    if (kids.length === 0) return { error: `element at ${line}:${col} has no editable text matching "${want ?? "(any)"}"` };
-    return { error: `ambiguous: ${kids.length} text children at ${line}:${col}`, candidates: kids.map((k) => k.text) };
+    if (el) {
+      const kids = textChildrenOf(el, all);
+      const byText = want != null ? kids.filter((k) => k.text === want) : kids;
+      if (byText.length === 1) return { hit: byText[0] };
+      if (want == null && kids.length > 1)
+        return { error: `ambiguous: ${kids.length} text children at ${line}:${col}`, candidates: kids.map((k) => k.text) };
+    }
+    // Element missing, or found but its text didn't line up (dev source maps drift a column or
+    // a line, and React 19 JSX call-site frames can point a tag off). Rather than hard-refuse a
+    // good edit — which is what makes the panel snap the words back — fall through to the
+    // unique-phrase match below. It still refuses genuine ambiguity, so we degrade, never guess.
   }
 
   if (want != null) {
     const matches = all.filter((k) => k.text === want);
     if (matches.length === 1) return { hit: matches[0] };
-    if (matches.length === 0) return { error: `no editable text matches "${want}"` };
+    if (matches.length === 0)
+      return { error: line != null ? `no editable text matching "${want}" at or near ${line}:${col ?? 0}` : `no editable text matches "${want}"` };
     return {
       error: `ambiguous: "${want}" appears ${matches.length}× — need a location to disambiguate`,
       candidates: matches.map((k) => `line ${k.line}`),
     };
   }
 
-  return { error: "need {line} or {oldText}" };
+  return { error: line != null ? `no JSX element at ${line}:${col ?? 0}` : "need {line} or {oldText}" };
 }
 
 // Apply one text edit to one file. backup-first, verify, restore-on-failure.
@@ -192,8 +223,10 @@ export function undoEdit(projectDir) {
 }
 
 // Convenience for the string-search fallback: scan a project's .tsx/.jsx for a phrase, so
-// the browser side can ask "is this phrase uniquely locatable?" before committing.
-export function findPhrase(projectDir, phrase, dirs = ["app", "src"]) {
+// the browser side can ask "is this phrase uniquely locatable?" before committing. The default
+// roots cover App Router (app), Pages Router (pages), and the usual src/component layouts — an
+// absent one is skipped, so widening the net costs nothing where it doesn't apply.
+export function findPhrase(projectDir, phrase, dirs = ["app", "src", "pages", "components"]) {
   const want = norm(phrase);
   const hits = [];
   const walk = (d) => {
