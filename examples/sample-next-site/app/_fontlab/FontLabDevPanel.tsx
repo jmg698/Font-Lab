@@ -607,7 +607,7 @@ export function FontLabDevPanel() {
       const specimen = canSwap(role) ? (stackOf(role, effSel()) || MONO) : MONO;
       hoverChip.style.display = "block";
       hoverChip.innerHTML =
-        `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")}">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
+        `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")};font-size:13px;line-height:1">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
         `<br><span style="color:rgba(242,239,229,.55)">${editable ? "[ or ] to flip fonts · double-click retypes it" : "[ or ] to flip fonts · words come from data / markup — not retypable"}</span>`;
       const r = hoverHit.el.getBoundingClientRect();
       const x = Math.max(8, Math.min(innerWidth - hoverChip.offsetWidth - 8, e.clientX - 20));
