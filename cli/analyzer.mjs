@@ -325,9 +325,11 @@ function collectCssVars(css) {
 // variables (resolved) or run out of indirection (unresolved). Cycle-guarded.
 function resolveToFontVar(startVar, cssVars, fontVarSet) {
   const seen = new Set();
+  const chain = []; // roleVar → … → next/font leaf, in consumption order
   let cur = startVar;
   while (cur && !seen.has(cur)) {
-    if (fontVarSet.has(cur)) return cur;
+    chain.push(cur);
+    if (fontVarSet.has(cur)) return { hit: cur, chain };
     seen.add(cur);
     const val = cssVars.get(cur);
     if (!val) return null;
@@ -558,8 +560,8 @@ export function analyzeProject(projectDir) {
   const roles = {};
   let resolvedAny = false;
   for (const role of ROLES) {
-    const hit = resolveToFontVar(ROLE_VARS[role], cssVars, fontVarSet);
-    const font = hit ? fontByVar.get(hit) : null;
+    const res = resolveToFontVar(ROLE_VARS[role], cssVars, fontVarSet);
+    const font = res ? fontByVar.get(res.hit) : null;
     if (font) {
       resolvedAny = true;
       roles[role] = {
@@ -570,6 +572,7 @@ export function analyzeProject(projectDir) {
         nextFontVar: font.variable,
         roleVar: ROLE_VARS[role],
         leafVar: font.variable,
+        varChain: res.chain,
         fromModule: font.fromModule ?? null,
       };
     } else {
@@ -763,9 +766,24 @@ export function analyzeProject(projectDir) {
 export function wiringFor(a) {
   const el = a.classNameTarget || "html";
   const w = {};
+  // Count how many roles share each next/font leaf var. Overriding a SHARED leaf cannot
+  // preview roles independently (the classic all-Inter site: display and body both trace to
+  // --font-inter, so swapping display would drag body along). For those roles we override at
+  // the deepest var in the role's own chain BEFORE the shared leaf — per-role by construction,
+  // and still the variable ship rewires for that role (apply adopts the role's own var, never
+  // the shared leaf, for exactly the same reason).
+  const leafCount = {};
+  for (const role of ROLES) {
+    const v = a.roles[role]?.nextFontVar;
+    if (v) leafCount[v] = (leafCount[v] || 0) + 1;
+  }
   for (const role of ROLES) {
     const r = a.roles[role];
-    w[role] = r && r.nextFontVar ? { var: r.nextFontVar, el } : null;
+    if (!r || !r.nextFontVar) { w[role] = null; continue; }
+    const shared = leafCount[r.nextFontVar] > 1;
+    const chain = r.varChain || [];
+    const perRole = chain.length >= 2 ? chain[chain.length - 2] : r.roleVar;
+    w[role] = { var: shared && perRole ? perRole : r.nextFontVar, el };
   }
   return w;
 }

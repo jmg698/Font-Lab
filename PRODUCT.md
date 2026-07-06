@@ -39,7 +39,7 @@ brief.
 ## Key surfaces
 
 - **The dev panel** (`cli/templates/font-lab-panel.tsx`) — Shadow-DOM overlay on the user's
-  dev site: direction chips, per-role mixing, before/after, pin-compare, live handoff state
+  dev site: the direction list, per-role mixing, before/after + snap-back compare, inspect (hover-identify + role x-ray + change receipts), inline copy editing, live handoff state
   (endpoint / agent-listening / saved / shipped), parity honesty badges.
 - **The specimen sheet** (`font_lab_preview`) — self-contained HTML choosing sheet.
 - **CLI / MCP output** — the agent-facing contract; discoverability lives in tool descriptions.

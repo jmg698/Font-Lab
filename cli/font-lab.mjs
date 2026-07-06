@@ -220,13 +220,91 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  // ---- copy edits: the panel's double-click-to-retype lands here -------------------------
+  // POST /edit { frame:{url,line,column}, oldText, newText } — resolve the React 19
+  // _debugStack call-site frame to original source via the dev server's own source map,
+  // then apply a reversible ts-morph edit. POST /undo restores the last edit byte-exactly.
+  // Refusals (dynamic text, duplicate phrases, unmappable frames) come back as 409 with a
+  // reason — the panel shows them honestly instead of editing the wrong thing.
+  if (req.method === "POST" && (req.url === "/edit" || req.url === "/undo")) {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "content-type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      try {
+        const { applyEdit, undoEdit, findPhrase } = await import("./copyedit.mjs");
+        if (req.url === "/undo") {
+          const u = undoEdit(PROJECT);
+          console.log(`  ↩ copy edit undone (${u.runId})`);
+          return send(200, { ok: true, ...u });
+        }
+        const { frame, oldText, newText } = JSON.parse(body || "{}");
+        let loc = null;
+        if (frame && frame.url) {
+          try {
+            loc = await resolveFrame(frame);
+          } catch {
+            loc = null; // source map unavailable — fall through to the string path
+          }
+        }
+        if (!loc) {
+          // Zero-introspection fallback: unique-phrase search across app/src. Refuse
+          // duplicates with the candidate list rather than guessing (soft-degrade).
+          const hits = oldText ? findPhrase(PROJECT, oldText) : [];
+          if (hits.length !== 1) {
+            const why = hits.length === 0
+              ? "could not trace these words to a source literal"
+              : `"${String(oldText).slice(0, 40)}…" appears ${hits.length}× — need a resolvable location`;
+            console.log(`  ⚠ copy edit refused: ${why}`);
+            return send(409, { ok: false, error: why, candidates: hits });
+          }
+          loc = { file: hits[0].file, line: undefined, col: undefined };
+        }
+        const r = applyEdit(PROJECT, {
+          file: loc.file,
+          line: loc.line,
+          col: loc.col,
+          oldText,
+          newText,
+          runIdSeed: Date.now().toString(36),
+        });
+        console.log(r.ok ? `  ✎ ${r.file}:${r.line}  "${r.before}" → "${r.after}"` : `  ⚠ copy edit refused: ${r.error}`);
+        return send(r.ok ? 200 : 409, r);
+      } catch (e) {
+        return send(400, { ok: false, error: String(e.message || e) });
+      }
+    });
+    return;
+  }
   res.writeHead(404);
   res.end();
 });
 
+// Resolve a bundled call-site frame ({url,line,column} inside the dev bundle) to original
+// source using the dev server's own source map. Cached per bundle URL; no bundler plugin.
+const sourceMapCache = new Map();
+async function resolveFrame({ url, line, column }) {
+  if (!sourceMapCache.has(url)) {
+    const { SourceMapConsumer } = await import("source-map");
+    const resp = await fetch(url + ".map");
+    sourceMapCache.set(url, resp.ok ? await new SourceMapConsumer(await resp.json()) : null);
+  }
+  const consumer = sourceMapCache.get(url);
+  if (!consumer) throw new Error(`no source map for ${url}`);
+  const orig = consumer.originalPositionFor({ line, column });
+  if (!orig.source) throw new Error(`could not resolve ${url}:${line}:${column}`);
+  let file = orig.source.replace(/^file:\/\//, "");
+  // Turbopack emits [project]/-prefixed sources; strip to a project-relative path.
+  file = file.replace(/^\[project\]\//, "").replace(/^\/+/, "/");
+  return { file, line: orig.line, col: orig.column };
+}
+
   server.listen(PORT, HOST, () => {
     console.log(`Font Lab — pick endpoint`);
-    console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select · GET /selection /status /events)`);
+    console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select /edit /undo · GET /selection /status /events)`);
     console.log(`  project   ${PROJECT}`);
     if (HOST !== "127.0.0.1") console.log(`  binding   ${HOST} (non-loopback — anything on your network can post a pick)`);
     if (ONCE) console.log(`  mode      --once: exits after the first pick (the exit is your wake-up signal)`);

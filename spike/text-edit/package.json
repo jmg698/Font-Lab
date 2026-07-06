@@ -1,0 +1,15 @@
+{
+  "name": "font-lab-text-edit-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: de-risk click-to-edit copy on agentic Next sites (node->source mapping + reversible write-back).",
+  "scripts": {
+    "test": "node edit-codegen.test.mjs",
+    "verify-mapping": "node verify-mapping.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.56.1",
+    "source-map": "^0.7.4",
+    "ts-morph": "^24.0.0"
+  }
+}

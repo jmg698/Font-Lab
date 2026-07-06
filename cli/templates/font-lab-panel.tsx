@@ -1,6 +1,7 @@
 "use client";
 
-// Font Lab dev panel — portable build, installed by `font-lab init` into a real project.
+// Font Lab dev panel — "Galley", the editor's proof slip. Portable build, installed by
+// `font-lab init` into a real project. Design spec: PANEL-VISION.md (repo root).
 //
 // The swap applies through the analyzer's `wiring`: for each role it overrides the project's
 // OWN leaf next/font variable (e.g. --font-bricolage) on the element next/font uses (<html>
@@ -8,9 +9,21 @@
 // variable that ship rewrites. A role with no wiring is shown as not-previewable (its pick
 // still records; apply wires it).
 //
-// The panel is also the handoff's face. It keeps a live SSE line to the pick endpoint
-// (GET /events on :7777) so the human can SEE the loop: endpoint offline / ready / agent
-// listening → Pick → saved → shipped (with undo). Pick = save; the agent ships separately.
+// THE SENTINEL SCAN (the primitive both centerpieces ride on): every value this panel writes
+// into a role variable carries a trailing, nonexistent fallback family ("__fl_display" etc.).
+// Rendering is untouched — the sentinel is last in the stack and no such font exists — but
+// getComputedStyle(el).fontFamily now names, for ANY element, which role variable it actually
+// consumes. Ground truth, zero deps. It powers: inspect (hover the page → the chip names the
+// role/font), the role x-ray, the all-roles map, per-flip change flashes + edge ticks +
+// row verdicts ("what changed AND what didn't"), coverage stats, and J-jump.
+//
+// Copy edits ride the same slip: double-click any all-text element, retype, Enter. The panel
+// reads the React 19 fiber `_debugStack` call-site frame and POSTs it to the endpoint's
+// /edit, which resolves it via the dev source map and rewrites the JSX literal reversibly
+// (cli/copyedit.mjs). Refusals (dynamic text, duplicates) surface honestly; nothing guesses.
+//
+// The panel keeps a live SSE line to the pick endpoint (GET /events on :7777) so the human
+// can SEE the loop: offline / ready / agent listening → Pick → saved → shipped (with undo).
 //
 // Dev-only (mounted behind a NODE_ENV guard in layout). Shadow-DOM isolated. Zero deps.
 
@@ -20,8 +33,7 @@ import { catalogFontFaceCss, directions, replaces, target, wiring, type Directio
 const ENDPOINT = "http://localhost:7777";
 const STORE_KEY = "fontlab.working.v1";
 // Stamped by `font_lab_init` with the tool version that installed this panel (left as the
-// literal placeholder in the repo template; replaced on copy). The panel compares it against
-// the running tool reported over the pick endpoint to surface a stale-panel notice.
+// literal placeholder in the repo template; replaced on copy).
 const PANEL_VERSION = "__FONTLAB_VERSION__";
 const isRealVersion = (v: string) => /^\d+\.\d+\.\d+/.test(v || "");
 const cmpVersions = (a: string, b: string) => {
@@ -32,24 +44,13 @@ const cmpVersions = (a: string, b: string) => {
 };
 const ROLES = ["display", "body", "mono"] as const;
 type Role = (typeof ROLES)[number];
-const LABEL: Record<Role, string> = { display: "Display", body: "Body", mono: "Mono" };
+const SENTINEL: Record<Role, string> = { display: "__fl_display", body: "__fl_body", mono: "__fl_mono" };
 
-type Cand = { family: string; stack: string; weights: number[]; source: string; parity: string };
+type Cand = { family: string; stack: string; weights: number[]; source: string; parity: string; tag?: string };
 type Conn = "offline" | "ready" | "agent";
+type Dir = { id: string; name: string; vibe: string; rationale: string; roles: Record<Role, Cand> };
 const wir = (wiring || {}) as Partial<Record<Role, { var: string; el: string } | null>>;
 
-function candidatesFor(role: Role): Cand[] {
-  const seen = new Set<string>();
-  const out: Cand[] = [];
-  for (const d of directions) {
-    const r = d.roles[role] as Cand & { parity?: string; source?: string };
-    if (!seen.has(r.family)) {
-      seen.add(r.family);
-      out.push({ family: r.family, stack: r.stack, weights: r.weights, source: r.source ?? "google", parity: r.parity ?? "guaranteed" });
-    }
-  }
-  return out;
-}
 function currentLabel(): string {
   const fams = [replaces?.display, replaces?.body].filter(Boolean) as string[];
   const uniq = [...new Set(fams)];
@@ -59,9 +60,40 @@ function currentLabel(): string {
 export function FontLabDevPanel() {
   useEffect(() => {
     const root = document.documentElement;
-    const CANDS: Record<Role, Cand[]> = { display: candidatesFor("display"), body: candidatesFor("body"), mono: candidatesFor("mono") };
+    const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const MONO = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+    // The editorial voice. Local serif-italic stack for now; PANEL-VISION.md specs embedded
+    // Instrument Serif subsets as the build-step upgrade — this stack is its fallback either way.
+    const SERIF_I = "'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif";
+
+    // ---- data --------------------------------------------------------------------------
+    let dirs: Dir[] = (directions as unknown as Dir[]).slice();
+    const CANDS: Record<Role, Cand[]> = { display: [], body: [], mono: [] };
+    const rebuildCands = () => {
+      for (const role of ROLES) {
+        const seen = new Set<string>();
+        CANDS[role] = [];
+        for (const d of dirs) {
+          const c = d.roles[role];
+          if (!seen.has(c.family)) {
+            seen.add(c.family);
+            CANDS[role].push({ ...c, source: c.source ?? "google", parity: c.parity ?? "guaranteed" });
+          }
+        }
+      }
+    };
+    rebuildCands();
+
     const elFor = (role: Role) => (wir[role]?.el === "body" ? document.body : document.documentElement);
     const canSwap = (role: Role) => !!wir[role];
+    // Capture each wired role's project-default stack BEFORE we ever touch the variable, so
+    // "Current" re-sets the identical value (plus sentinel) instead of guessing.
+    const defaultStack: Partial<Record<Role, string>> = {};
+    for (const role of ROLES) {
+      if (!canSwap(role)) continue;
+      const v = getComputedStyle(elFor(role)).getPropertyValue(wir[role]!.var).trim();
+      if (v) defaultStack[role] = v;
+    }
 
     const FACE_ID = "fontlab-catalog-faces";
     if (!document.getElementById(FACE_ID)) {
@@ -70,40 +102,129 @@ export function FontLabDevPanel() {
       styleEl.textContent = catalogFontFaceCss;
       document.head.appendChild(styleEl);
     }
+    // Page-side FX classes (x-ray, flash, spotlight, edit outline). Element-level classes so
+    // highlights are scroll-proof; __fl_ prefix to stay clear of host-site CSS.
+    const FX_ID = "fontlab-page-fx";
+    if (!document.getElementById(FX_ID)) {
+      const fx = document.createElement("style");
+      fx.id = FX_ID;
+      fx.textContent = `
+        .__fl_hover { box-shadow: inset 0 -2px 0 0 #B7CC00 !important; border-radius: 2px; }
+        .__fl_hit { box-shadow: inset 0 -2px 0 0 #B7CC00, inset 0 0 0 200vmax rgba(231,255,59,.13) !important; border-radius: 2px; }
+        .__fl_other { box-shadow: inset 0 0 0 1px rgba(120,120,110,.45) !important; border-radius: 2px; }
+        .__fl_flash { position: relative; }
+        .__fl_flash::after { content: ""; position: absolute; inset: -3px -5px; border-radius: 3px; pointer-events: none;
+          background: rgba(231,255,59,.28); box-shadow: 0 0 0 1px rgba(183,204,0,.5); opacity: 0; animation: __fl_decay 700ms ease-out; }
+        .__fl_flash_soft { position: relative; }
+        .__fl_flash_soft::after { content: ""; position: absolute; inset: -3px -5px; border-radius: 3px; pointer-events: none;
+          background: rgba(231,255,59,.12); opacity: 0; animation: __fl_decay 700ms ease-out; }
+        @keyframes __fl_decay { 0% { opacity: 1; } 100% { opacity: 0; } }
+        .__fl_spot { position: relative; }
+        .__fl_spot::after { content: ""; position: absolute; inset: -5px -8px; border-radius: 4px; pointer-events: none;
+          box-shadow: 0 0 0 2px #B7CC00; opacity: 0; animation: __fl_pulse 1.4s ease-out; }
+        @keyframes __fl_pulse { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+        .__fl_editing { outline: 2px solid #B7CC00 !important; outline-offset: 3px; border-radius: 2px;
+          background: rgba(231,255,59,.07) !important; cursor: text; }
+        @media (prefers-reduced-motion: reduce) {
+          .__fl_flash::after, .__fl_flash_soft::after { animation: none; opacity: 1; transition: opacity .2s linear 1.1s; }
+          .__fl_spot::after { animation: none; opacity: 1; }
+        }`;
+      document.head.appendChild(fx);
+    }
 
-    const entries = [{ id: "current", dir: null as Direction | null }, ...directions.map((d) => ({ id: d.id, dir: d }))];
-    const roleSel: Record<Role, number> = { display: -1, body: -1, mono: -1 };
-    let cursor = 0;
-    let focus: Role = "display";
-    let comparing = false;
-    const pins: (Record<Role, number> | null)[] = [null, null];
-    let showingPin: 0 | 1 | null = null;
-
-    // Handoff state, fed by the endpoint's SSE stream (and the Pick ack).
-    let conn: Conn = "offline";
-    let savedId: string | null = null; // direction id (or "mixed") the last pick saved
-    let shipped: { current: boolean } | null = null;
-
-    const setRolesFromEntry = (i: number) => {
-      const e = entries[i];
-      for (const role of ROLES) {
-        if (!e.dir) roleSel[role] = -1;
-        else roleSel[role] = Math.max(0, CANDS[role].findIndex((c) => c.family === e.dir!.roles[role].family));
-      }
+    // ---- state -------------------------------------------------------------------------
+    const state = {
+      cursor: 0, // 0 = Current, 1..n = dirs
+      sel: { display: -1, body: -1, mono: -1 } as Record<Role, number>,
+      focus: "display" as Role,
+      beforeView: false,
+      lastView: null as null | { sel: Record<Role, number>; cursor: number },
+      inspect: true,
+      expanded: true,
+      mixCount: 0,
+      conn: "offline" as Conn,
+      savedId: null as string | null,
+      shipped: null as { current: boolean } | null,
+      saving: false,
     };
+    const BEFORE_SEL: Record<Role, number> = { display: -1, body: -1, mono: -1 };
 
-    let restored = false;
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null");
-      if (saved && saved.roles && ROLES.some((role) => saved.roles[role])) {
-        for (const role of ROLES) {
-          const idx = saved.roles[role] ? CANDS[role].findIndex((c) => c.family === saved.roles[role]) : -1;
-          roleSel[role] = idx;
-        }
-        cursor = Math.max(0, entries.findIndex((e) => e.id === saved.cursorId));
-        restored = true;
+    const famOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (replaces?.[role] ?? "current") : CANDS[role][sel[role]].family);
+    const candOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? null : CANDS[role][sel[role]]);
+    const stackOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (defaultStack[role] ?? "") : CANDS[role][sel[role]].stack);
+    const trio = (sel = state.sel) => ROLES.map((r) => famOf(r, sel)).join(" / ");
+    const onCurrent = (sel = state.sel) => ROLES.every((r) => sel[r] < 0);
+    const matchedDir = (sel = state.sel): Dir | null =>
+      onCurrent(sel) ? null : dirs.find((d) => ROLES.every((r) => d.roles[r].family === famOf(r, sel))) || null;
+    const effSel = () => (state.beforeView ? BEFORE_SEL : state.sel);
+    const activeId = () => {
+      const eff = effSel();
+      if (onCurrent(eff)) return "current";
+      return matchedDir(eff)?.id ?? "mixed";
+    };
+    const workingParity = (sel = effSel()): "guaranteed" | "best-effort" =>
+      ROLES.some((r) => { const c = candOf(r, sel); return !!c && c.parity !== "guaranteed"; }) ? "best-effort" : "guaranteed";
+
+    // ---- page wiring + sentinel scan -----------------------------------------------------
+    function setRoleVar(role: Role, sel: Record<Role, number>) {
+      if (!canSwap(role)) return;
+      const v = wir[role]!.var;
+      if (sel[role] < 0) {
+        if (defaultStack[role]) elFor(role).style.setProperty(v, defaultStack[role] + ", " + SENTINEL[role]);
+        else elFor(role).style.removeProperty(v); // no readable default → behave exactly like before
+      } else {
+        elFor(role).style.setProperty(v, CANDS[role][sel[role]].stack + ", " + SENTINEL[role]);
       }
-    } catch {}
+    }
+
+    type ScanHit = { el: HTMLElement; role: Role; chars: number };
+    let scanCache: ScanHit[] | null = null;
+    const OURS = (el: Element) => !!(el.closest("#fontlab-panel-host") || el.closest("#fontlab-overlay-host"));
+    function scan(): ScanHit[] {
+      if (scanCache) return scanCache;
+      const out: ScanHit[] = [];
+      const walk = (node: Element) => {
+        for (const child of Array.from(node.children)) {
+          if (OURS(child) || child.tagName === "SCRIPT" || child.tagName === "STYLE") continue;
+          const hasText = Array.from(child.childNodes).some((n) => n.nodeType === 3 && n.textContent!.trim());
+          if (hasText) {
+            const fam = getComputedStyle(child).fontFamily;
+            const role = ROLES.find((r) => fam.includes(SENTINEL[r]));
+            if (role) out.push({ el: child as HTMLElement, role, chars: child.textContent!.trim().length });
+          }
+          walk(child);
+        }
+      };
+      walk(document.body);
+      scanCache = out;
+      return out;
+    }
+    const invalidateScan = () => { scanCache = null; };
+    let moDebounce: ReturnType<typeof setTimeout> | null = null;
+    const inOurs = (n: Node) => {
+      const el = n.nodeType === 1 ? (n as Element) : n.parentElement;
+      return el ? OURS(el) : false;
+    };
+    const mo = new MutationObserver((muts) => {
+      if (muts.every((m) => inOurs(m.target))) return;
+      if (moDebounce) clearTimeout(moDebounce);
+      moDebounce = setTimeout(invalidateScan, 300);
+    });
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+    function coverage() {
+      const chars: Record<Role, number> = { display: 0, body: 0, mono: 0 };
+      const count: Record<Role, number> = { display: 0, body: 0, mono: 0 };
+      let total = 0;
+      for (const { role, chars: c } of scan()) { chars[role] += c; count[role]++; total += c; }
+      return { chars, count, total };
+    }
+
+    // ---- hosts -------------------------------------------------------------------------
+    const overlay = document.createElement("div");
+    overlay.id = "fontlab-overlay-host";
+    overlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;";
+    document.body.appendChild(overlay);
 
     const host = document.createElement("div");
     host.id = "fontlab-panel-host";
@@ -113,379 +234,803 @@ export function FontLabDevPanel() {
     shadow.innerHTML = `
       <style>
         :host { all: initial; }
-        * { box-sizing: border-box; }
-        .panel {
-          font-family: ui-sans-serif, system-ui, sans-serif;
-          background: #101014; color: #f4f4f5;
-          border: 1px solid rgba(244,244,245,.08);
-          border-radius: 14px; padding: 14px; width: 308px;
-          box-shadow: 0 16px 48px rgba(0,0,0,.5);
-        }
-        button { transition: background .15s ease-out, border-color .15s ease-out, transform .15s ease-out; }
-        button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .slip { width: 344px; background: #100F0D; color: #F2EFE5; border: 1px solid rgba(242,239,229,.14);
+          border-radius: 6px; box-shadow: 0 22px 60px rgba(8,7,4,.6); font-family: ${MONO}; position: relative; overflow: hidden; }
+        button { font-family: inherit; background: none; border: 0; color: inherit; cursor: pointer; }
+        button:focus-visible { outline: 2px solid #E7FF3B; outline-offset: 1px; }
+        .u { text-transform: uppercase; letter-spacing: .14em; }
+        .linkish { color: rgba(242,239,229,.8); text-decoration: underline dotted; font-size: inherit; padding: 0; }
 
-        .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-        .title { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: rgba(244,244,245,.82); }
-        .conn { display: flex; align-items: center; gap: 5px; font-size: 11px; color: rgba(244,244,245,.72); }
-        .dot { width: 7px; height: 7px; border-radius: 50%; background: #52525b; }
-        .conn[data-state="ready"] .dot { background: #f59e0b; }
-        .conn[data-state="agent"] .dot { background: #4ade80; animation: fl-pulse 2s ease-out infinite; }
+        .mast { display: flex; align-items: center; gap: 9px; padding: 10px 14px; height: 46px; }
+        .badge { width: 26px; height: 26px; background: #191813; border: 1px solid rgba(242,239,229,.14); border-radius: 3px;
+          display: grid; place-items: center; font-size: 14px; color: #F2EFE5; flex: none; }
+        .wordmark { font-size: 11px; letter-spacing: .18em; font-weight: 600; white-space: nowrap; }
+        .collapsed-info { display: none; margin-left: 2px; font-size: 9.5px; color: rgba(242,239,229,.6); letter-spacing: .06em;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .collapsed-info .tick { color: #E7FF3B; }
+        .slip[data-collapsed="true"] .collapsed-info { display: inline; }
+        .inspect-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18);
+          border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.75); margin-left: auto; flex: none; }
+        .inspect-btn[aria-pressed="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
+        .presence { display: flex; align-items: center; gap: 6px; font-size: 8.5px; letter-spacing: .12em; color: rgba(242,239,229,.66); flex: none; }
+        .pdot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid rgba(242,239,229,.5); }
+        .presence[data-conn="ready"] .pdot { background: #F2EFE5; border-color: #F2EFE5; }
+        .presence[data-conn="agent"] .pdot { background: #6EE7A0; border-color: #6EE7A0; animation: fl-pulse 2.4s ease-in-out infinite; }
+        @keyframes fl-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+        .dogear { position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 16px 16px 0;
+          border-color: transparent #191813 transparent transparent; cursor: pointer; filter: drop-shadow(-1px 1px 0 rgba(242,239,229,.12)); }
+        .oxford { border-top: 2px solid rgba(242,239,229,.3); border-bottom: 1px solid rgba(242,239,229,.14); height: 5px; }
 
-        .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
-        .chip {
-          min-height: 26px; padding: 4px 9px; border: 1px solid transparent; border-radius: 8px;
-          background: #26262e; color: #f4f4f5; font-size: 12px; cursor: pointer;
-        }
-        .chip:hover { background: #32323c; }
-        .chip[aria-pressed="true"] { background: #2563eb; }
-        .chip.cur { background: transparent; border-color: rgba(244,244,245,.22); }
-        .chip.cur:hover { border-color: rgba(244,244,245,.4); }
-        .chip.cur[aria-pressed="true"] { background: #3f3f46; border-color: transparent; }
+        .notice { display: none; margin: 10px 14px 0; padding: 9px 11px; border: 1px solid rgba(233,138,109,.4); border-radius: 3px; background: #191813; }
+        .notice[data-show="true"] { display: block; animation: fl-notice .24s cubic-bezier(.25,1,.5,1); }
+        .notice .nh { font-size: 9.5px; letter-spacing: .14em; color: #E98A6D; font-weight: 600; }
+        .notice .nb { margin-top: 4px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.78); }
+        .notice code { background: rgba(242,239,229,.1); padding: 0 4px; border-radius: 3px; font-family: inherit; font-size: 9.5px; }
+        @keyframes fl-notice { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
 
-        .roles { display: flex; flex-direction: column; gap: 5px; margin-bottom: 9px; }
-        .role { display: flex; align-items: center; gap: 7px; background: #1b1b21; border-radius: 9px; padding: 5px 7px; min-height: 34px; }
-        .role[data-focus="true"] { box-shadow: inset 0 0 0 2px #2563eb; }
-        .role .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: rgba(244,244,245,.66); width: 46px; }
-        .role .fam { flex: 1; font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .role[data-off="true"] .fam { color: rgba(244,244,245,.72); font-weight: 400; }
-        .role .tag { font-size: 9.5px; padding: 2px 5px; border-radius: 5px; background: #26262e; color: rgba(244,244,245,.78); white-space: nowrap; }
-        .role button {
-          border: 0; background: #26262e; color: #f4f4f5; border-radius: 7px;
-          width: 26px; height: 26px; cursor: pointer; font-size: 14px; line-height: 1;
-        }
-        .role button:hover { background: #3a3a45; }
-        .role button:active { transform: translateY(1px); }
-        .role button:disabled { opacity: .3; cursor: not-allowed; background: #26262e; transform: none; }
+        .sect { display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; }
+        .sect .lab { font-size: 9.5px; letter-spacing: .16em; color: rgba(242,239,229,.58); font-weight: 600; }
+        .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
+        .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
+        .sect .counter b { color: #E7FF3B; font-weight: 600; }
+        .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
+          -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
+        .toc-row { display: flex; align-items: baseline; gap: 8px; width: 100%; height: 37px; padding: 7px 14px; text-align: left; }
+        .toc-row:hover { background: #191813; }
+        .toc-row .folio { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); min-width: 18px; flex: none; }
+        .toc-row[aria-current="true"] .folio { color: #E7FF3B; }
+        .toc-row .tname { font-size: 14.5px; color: #F2EFE5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          position: relative; padding-bottom: 2px; max-width: 200px; }
+        .toc-row[aria-current="true"] .tname::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+          background: #E7FF3B; animation: fl-draw .16s ease-out; transform-origin: left; }
+        @keyframes fl-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+        .toc-row .leader { flex: 1; border-bottom: 1px dotted rgba(242,239,229,.28); transform: translateY(-3px); min-width: 12px; }
+        .toc-row .vibe { font-size: 9px; letter-spacing: .1em; color: rgba(242,239,229,.5); flex: none; }
+        .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
+        .toc-cue[data-show="true"] { display: block; }
 
-        .rationale { font-size: 11.5px; line-height: 1.5; color: rgba(244,244,245,.78); min-height: 32px; margin: 2px 2px 4px; }
-        .fidelity { font-size: 10.5px; line-height: 1.45; color: rgba(244,244,245,.66); margin: 0 2px 8px; min-height: 13px; }
+        .standfirst { padding: 10px 14px 12px; border-top: 1px solid rgba(242,239,229,.1); font-family: ${SERIF_I}; font-style: italic;
+          font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
 
-        .row { display: flex; gap: 6px; align-items: stretch; }
-        .pick {
-          flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-          min-height: 36px; padding: 8px 11px; border: 0; border-radius: 10px;
-          background: #15803d; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
-        }
-        .pick:hover { background: #166534; }
-        .pick:active { transform: translateY(1px); }
-        .pick[disabled] { background: #34343e; color: #b5b5bd; cursor: not-allowed; transform: none; }
-        .pick[data-done="true"] { background: #14532d; color: #d7f5e2; }
+        .spread { border-top: 1px solid rgba(242,239,229,.14); }
+        .row { display: grid; grid-template-columns: 22px 1fr auto; padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(242,239,229,.08);
+          position: relative; cursor: pointer; }
+        .row:last-child { border-bottom: 0; }
+        .row .margin { display: grid; place-items: center; font-size: 9px; color: rgba(242,239,229,.4); }
+        .row[data-focus="true"] .margin { color: #100F0D; position: relative; z-index: 1; font-weight: 700; }
+        .row[data-focus="true"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 16px; background: #E7FF3B; }
+        .row .mid { min-width: 0; padding-left: 10px; }
+        .row .labline { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .14em; color: rgba(242,239,229,.55); }
+        .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .row .cov[data-verdict="changed"] { color: #F2EFE5; }
+        .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 2px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
+        .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 2px; padding: 0 4px; font-size: 8px; letter-spacing: .1em;
+          color: rgba(242,239,229,.6); white-space: nowrap; flex: none; }
+        .row .spec { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+        .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; transition: color 1.6s ease; }
+        .row .fam[data-just="true"] { color: #E7FF3B; transition: color .05s; }
+        .row[data-role="body"] .fam { font-size: 16px; } .row[data-role="mono"] .fam { font-size: 13.5px; }
+        .row[data-unwired="true"] .fam { opacity: .55; }
+        .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; min-height: 0; }
+        .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
+        .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; white-space: nowrap; }
+        .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 2px; font-size: 12px;
+          color: rgba(242,239,229,.8); display: grid; place-items: center; }
+        .row .step:hover:not(:disabled) { background: #232219; }
+        .row .step:disabled { opacity: .25; cursor: not-allowed; }
+        .row[data-dimmed="true"] { opacity: .7; }
+
+        .fidelity { display: none; padding: 7px 14px; border-top: 1px solid rgba(242,239,229,.1); border-left: 2px solid #E98A6D;
+          font-size: 9.5px; line-height: 1.5; color: #E9A88F; }
+        .fidelity[data-show="true"] { display: block; }
+        .fidelity[data-quiet="true"] { display: none; }
+        .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); }
+        .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 3px; font-size: 11px; font-weight: 700;
+          letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        .pick:hover:not(:disabled) { background: #EFFF66; }
+        .pick:disabled { background: #232219; color: rgba(242,239,229,.45); cursor: not-allowed; }
+        .pick[data-state="shipped"] { background: #100F0D; color: #E7FF3B; border: 1px solid #E7FF3B; }
         .pick .tick { width: 14px; height: 14px; display: none; }
-        .pick[data-done="true"] .tick { display: block; }
-        .pick .tick path {
-          fill: none; stroke: #86efac; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
-          stroke-dasharray: 20; stroke-dashoffset: 0;
-        }
-        .pick[data-just="true"] .tick path { animation: fl-draw .35s cubic-bezier(.25, 1, .5, 1); }
-        .mini { min-height: 36px; padding: 8px 10px; border: 0; border-radius: 10px; background: #26262e; color: #f4f4f5; font-size: 12px; cursor: pointer; white-space: nowrap; }
-        .mini:hover { background: #32323c; }
-        .mini[aria-pressed="true"] { background: #a16207; }
+        .pick[data-state="picked"] .tick, .pick[data-state="shipped"] .tick { display: block; }
+        .pick .tick path { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 20; }
+        .pick[data-just="true"] .tick path { animation: fl-tickdraw .42s cubic-bezier(.25,1,.5,1); }
+        @keyframes fl-tickdraw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+        .status { padding: 7px 14px 10px; font-size: 10px; line-height: 1.55; color: rgba(242,239,229,.7); min-height: 30px; }
+        .status b { color: #F2EFE5; font-weight: 600; }
+        .status[data-tone="good"] { color: #9BE7B8; } .status[data-tone="warn"] { color: #E9A88F; }
 
-        .status { font-size: 12px; line-height: 1.5; color: rgba(244,244,245,.82); margin-top: 9px; min-height: 17px; }
-        .status[data-tone="good"] { color: #86efac; }
-        .status[data-tone="warn"] { color: #fcd34d; }
+        .colophon { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 9px 14px 11px;
+          border-top: 1px solid rgba(242,239,229,.14); font-size: 8.5px; letter-spacing: .06em; color: rgba(242,239,229,.62); }
+        .colophon button { letter-spacing: inherit; font-size: inherit; color: inherit; display: inline-flex; align-items: center; gap: 4px; }
+        .colophon button:hover kbd { border-color: rgba(242,239,229,.6); }
+        kbd { border: 1px solid rgba(242,239,229,.28); border-radius: 2px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.8); }
+        .ver { margin-left: auto; font-size: 8.5px; color: rgba(242,239,229,.35); }
 
-        /* Stale-panel notice: appears ONLY when the running tool is newer than this panel.
-           A full-bordered inset card (no side-stripe), warm red at low chroma so it reads as
-           "heads up" not "on fire", contrast-checked, and it eases open rather than snapping. */
-        .notice { display: none; margin-top: 10px; padding: 9px 11px; border-radius: 10px;
-          background: rgba(248,113,113,.11); border: 1px solid rgba(248,113,113,.34); overflow: hidden; }
-        .notice[data-show="true"] { display: block; animation: fl-notice .24s cubic-bezier(.25, 1, .5, 1); }
-        .notice .n-head { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #fca5a5; }
-        .notice .n-glyph { display: inline-flex; width: 15px; height: 15px; }
-        .notice .n-glyph svg { width: 15px; height: 15px; fill: none; stroke: #fca5a5; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-        .notice .n-body { margin-top: 4px; font-size: 11px; line-height: 1.55; color: rgba(244,244,245,.85); }
-        .notice .n-body code { background: rgba(255,255,255,.09); border-radius: 4px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: 10.5px; color: #fecaca; }
-
-        .hint { font-size: 11px; color: rgba(244,244,245,.62); margin-top: 7px; line-height: 1.7; }
-        @keyframes fl-notice { from { opacity: 0; transform: translateY(-5px); max-height: 0; } to { opacity: 1; transform: none; max-height: 140px; } }
-        kbd { background: #26262e; border-radius: 4px; padding: 0 4px; font-size: 10px; font-family: ui-monospace, monospace; }
-
-        @keyframes fl-pulse { 0% { opacity: 1; } 50% { opacity: .35; } 100% { opacity: 1; } }
-        @keyframes fl-draw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
-        @media (prefers-reduced-motion: reduce) {
-          * { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
-        }
+        .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
+        .slip[data-collapsed="true"] .inspect-btn { display: none; }
+        @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
       </style>
-      <div class="panel" role="group" aria-label="Font Lab">
-        <div class="head">
-          <div class="title">Font Lab</div>
-          <div class="conn" id="conn" data-state="offline"><span class="dot"></span><span id="connLabel">connecting…</span></div>
+      <div class="slip" data-collapsed="false" role="group" aria-label="Font Lab">
+        <div class="mast">
+          <div class="badge" id="aa" title="the current display font">Aa</div>
+          <span class="wordmark u">FONT LAB</span>
+          <span class="collapsed-info" id="collapsedInfo"></span>
+          <button class="inspect-btn" id="inspectBtn" aria-pressed="true" title="Inspect — hover the page to identify text (X toggles)">⌖</button>
+          <div class="presence" id="presence" data-conn="offline"><span class="pdot"></span><span id="presLabel">CONNECTING…</span></div>
         </div>
-        <div class="chips" id="chips"></div>
-        <div class="roles" id="roles"></div>
-        <div class="rationale" id="rationale"></div>
-        <div class="fidelity" id="fidelity"></div>
-        <div class="row">
-          <button class="pick" data-fl-action="pick">
+        <div class="dogear" id="dogear" title="collapse"></div>
+        <div class="oxford"></div>
+        <div class="notice" id="notice" data-show="false">
+          <div class="nh u" id="noticeHead"></div>
+          <div class="nb" id="noticeBody"></div>
+        </div>
+        <div class="sect">
+          <span class="lab u">DIRECTION</span><span class="rule"></span>
+          <span class="counter" id="counter"></span>
+        </div>
+        <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
+        <div class="standfirst" id="standfirst"></div>
+        <div class="spread" id="spread"></div>
+        <div class="fidelity" id="fidelity" data-show="false"></div>
+        <div class="pickwrap">
+          <button class="pick" id="pick" data-state="idle" data-fl-action="pick">
             <svg class="tick" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8.6 6.2 12l7-8"/></svg>
-            <span id="pickLabel">Pick</span>
+            <span id="pickLabel">PICK</span>
           </button>
-          <button class="mini" data-fl-action="compare" title="Before / after (B)">⇄</button>
-          <button class="mini" data-fl-action="pin" title="Pin to compare (P)">📌</button>
         </div>
         <div class="status" id="status"></div>
-        <div class="notice" id="notice" data-show="false">
-          <div class="n-head"><span class="n-glyph"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5V5H11"/></svg></span><span>Update available</span></div>
-          <div class="n-body" id="noticeBody"></div>
+        <div class="colophon">
+          <span title="previous / next direction"><kbd>←→</kbd> direction</span>
+          <span title="move between the three roles"><kbd>↑↓</kbd> role</span>
+          <span title="previous / next font for the focused role (or the text you're pointing at)"><kbd>[ ]</kbd> font</span>
+          <span title="snap back to the direction you viewed last — tap repeatedly to compare two finalists"><kbd>space</kbd> snap back</span>
+          <button data-fl-action="compare" title="tap: toggle the site's current fonts · hold the key to peek"><kbd>B</kbd> before</button>
+          <button data-fl-action="pin" title="save a hand-mixed set as a direction in the list"><kbd>S</kbd> save mix</button>
+          <span title="hover-identify text on the page (on by default) · double-click retypes words"><kbd>X</kbd> inspect</span>
+          <span title="tag every element on the page with its role at once"><kbd>⇧X</kbd> map</span>
+          <span title="scroll to the nearest element of the focused role"><kbd>J</kbd> jump</span>
+          <span title="save your pick — same as the PICK button"><kbd>↵</kbd> pick</span>
+          <span class="ver">v${PANEL_VERSION}</span>
         </div>
-        <div class="hint"><kbd>← →</kbd> direction · <kbd>↑↓</kbd> role · <kbd>[ ]</kbd> swap · <kbd>B</kbd> before/after · <kbd>P</kbd>/<kbd>Space</kbd> pin · <kbd>↵</kbd> pick</div>
       </div>`;
 
-    const chipsEl = shadow.getElementById("chips")!;
-    const rolesEl = shadow.getElementById("roles")!;
-    const rationaleEl = shadow.getElementById("rationale")!;
-    const fidelityEl = shadow.getElementById("fidelity")!;
-    const statusEl = shadow.getElementById("status")!;
-    const connEl = shadow.getElementById("conn")!;
-    const connLabelEl = shadow.getElementById("connLabel")!;
-    const noticeEl = shadow.getElementById("notice")!;
-    const noticeBodyEl = shadow.getElementById("noticeBody")!;
-    const pickBtn = shadow.querySelector<HTMLButtonElement>('[data-fl-action="pick"]')!;
-    const pickLabelEl = shadow.getElementById("pickLabel")!;
-    const cmpBtn = shadow.querySelector<HTMLButtonElement>('[data-fl-action="compare"]')!;
-    const pinBtn = shadow.querySelector<HTMLButtonElement>('[data-fl-action="pin"]')!;
+    const $ = <T extends HTMLElement = HTMLElement>(id: string) => shadow.getElementById(id) as unknown as T;
+    const slip = shadow.querySelector(".slip") as HTMLElement;
+    const esc = (s: unknown) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
-    const setStatus = (text: string, tone: "" | "good" | "warn" = "") => {
-      statusEl.textContent = text;
-      statusEl.setAttribute("data-tone", tone);
+    // Pick-guard hints must never stomp a real message (save acks, edit acks, receipts).
+    let statusKind: "" | "guard" | "msg" = "";
+    const setStatus = (text: string, tone: "" | "good" | "warn" = "", kind: "guard" | "msg" = "msg") => {
+      $("status").textContent = text;
+      $("status").dataset.tone = tone;
+      statusKind = text ? kind : "";
     };
+    const setStatusHTML = (html: string, tone: "" | "good" | "warn" = "") => {
+      $("status").innerHTML = html;
+      $("status").dataset.tone = tone;
+      statusKind = "msg";
+    };
+    const guardStatus = (text: string) => { if (statusKind === "" || statusKind === "guard") setStatus(text, "", "guard"); };
 
-    entries.forEach((e, i) => {
-      const b = document.createElement("button");
-      b.className = "chip" + (e.dir ? "" : " cur");
-      b.dataset.flId = e.id;
-      b.textContent = e.dir ? e.dir.name : "Current";
-      b.addEventListener("click", () => selectPreset(i));
-      chipsEl.appendChild(b);
-    });
+    function updateTocCue() {
+      const toc = $("toc"), cue = $("tocCue");
+      const hidden = Math.max(0, Math.round((toc.scrollHeight - toc.scrollTop - toc.clientHeight) / 37));
+      cue.dataset.show = String(hidden > 0);
+      if (hidden > 0) cue.textContent = `+${hidden} more ↓`;
+    }
+    let fidTimer: ReturnType<typeof setTimeout> | null = null, fidKey = "";
 
-    const roleFamEls: Record<Role, HTMLElement> = {} as any;
-    const roleRowEls: Record<Role, HTMLElement> = {} as any;
-    const roleTagEls: Record<Role, HTMLElement> = {} as any;
-    for (const role of ROLES) {
-      const row = document.createElement("div");
-      row.className = "role";
-      row.dataset.role = role;
-      row.dataset.off = String(!canSwap(role));
-      row.innerHTML = `<span class="lab">${LABEL[role]}</span><span class="fam" data-fl-fam="${role}"></span><span class="tag" data-fl-tag="${role}" hidden></span>
-        <button data-fl-dec="${role}" aria-label="previous ${role} font">‹</button><button data-fl-inc="${role}" aria-label="next ${role} font">›</button>`;
-      row.addEventListener("click", () => { focus = role; render(); });
-      row.querySelector(`[data-fl-dec="${role}"]`)!.addEventListener("click", (ev) => { ev.stopPropagation(); cycleRole(role, -1); });
-      row.querySelector(`[data-fl-inc="${role}"]`)!.addEventListener("click", (ev) => { ev.stopPropagation(); cycleRole(role, +1); });
-      rolesEl.appendChild(row);
-      roleFamEls[role] = row.querySelector(`[data-fl-fam="${role}"]`)!;
-      roleTagEls[role] = row.querySelector(`[data-fl-tag="${role}"]`)!;
-      roleRowEls[role] = row;
+    // ---- change receipt: flash + ticks + row verdicts + status line ----------------------
+    let tickTimer: ReturnType<typeof setTimeout> | null = null;
+    let verdictTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastChangedRoles: Role[] = [];
+    let verdictActive = false;
+
+    function flash(els: HTMLElement[]) {
+      const visible = scan().filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).length;
+      const cls = visible && els.length / visible > 0.6 ? "__fl_flash_soft" : "__fl_flash";
+      const byRole = new Map(scan().map((e) => [e.el, e.role]));
+      els.forEach((el) => {
+        const delay = REDUCED ? 0 : Math.max(0, ROLES.indexOf(byRole.get(el) as Role)) * 80;
+        setTimeout(() => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }, delay);
+      });
+      setTimeout(() => els.forEach((el) => { el.classList.remove("__fl_flash"); el.classList.remove("__fl_flash_soft"); }), (REDUCED ? 1400 : 780) + 200);
+    }
+    function drawTicks(seen: ScanHit[]) {
+      overlay.querySelectorAll(".fl-tick").forEach((t) => t.remove());
+      if (tickTimer) clearTimeout(tickTimer);
+      for (const { el } of seen) {
+        const r = el.getBoundingClientRect();
+        const t = document.createElement("div");
+        t.className = "fl-tick";
+        t.style.cssText = `position:fixed;right:0;width:14px;height:2px;background:#B7CC00;z-index:2147483646;pointer-events:auto;cursor:pointer;top:${Math.min(innerHeight - 4, Math.max(2, r.top + r.height / 2))}px`;
+        t.title = "changed here — click to scroll";
+        t.addEventListener("click", () => { el.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" }); spotlight(el); });
+        overlay.appendChild(t);
+      }
+      tickTimer = setTimeout(() => overlay.querySelectorAll(".fl-tick").forEach((t) => t.remove()), 4200);
+    }
+    function spotlight(el: HTMLElement) {
+      el.classList.remove("__fl_spot"); void el.offsetWidth; el.classList.add("__fl_spot");
+      setTimeout(() => el.classList.remove("__fl_spot"), 1500);
+    }
+    function jumpNearest(role: Role) {
+      const els = scan().filter((e) => e.role === role);
+      if (!els.length) return;
+      const mid = innerHeight / 2;
+      els.sort((a, b) => Math.abs(a.el.getBoundingClientRect().top - mid) - Math.abs(b.el.getBoundingClientRect().top - mid));
+      const target2 = els.find(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom < 0 || r.top > innerHeight; }) || els[0];
+      target2.el.scrollIntoView({ block: "center", behavior: REDUCED ? "auto" : "smooth" });
+      setTimeout(() => spotlight(target2.el), 350);
     }
 
-    const effRoles = (): Record<Role, number> => (showingPin !== null && pins[showingPin] ? pins[showingPin]! : roleSel);
-
-    function applyToPage() {
-      const er = effRoles();
+    function reportChange(prevSel: Record<Role, number>, nextSel: Record<Role, number>, changedRoles: Role[]) {
+      const liveChanged = changedRoles.filter((r) => canSwap(r));
+      lastChangedRoles = liveChanged;
+      const cov = coverage();
       for (const role of ROLES) {
-        if (!canSwap(role)) continue;
-        const idx = comparing ? -1 : er[role];
-        if (idx < 0) elFor(role).style.removeProperty(wir[role]!.var);
-        else elFor(role).style.setProperty(wir[role]!.var, CANDS[role][idx].stack);
+        const row = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement | null;
+        if (!row) continue;
+        const a = famOf(role, prevSel), b = famOf(role, nextSel);
+        const v = row.querySelector(".cov") as HTMLElement;
+        if (a !== b) {
+          v.textContent = !canSwap(role) ? "→ applies on ship"
+            : role === "body" ? `→ ${cov.count.body} elements changed`
+            : `→ ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} changed`;
+          v.dataset.verdict = "changed";
+          (row.querySelector(".fam") as HTMLElement).dataset.just = "true";
+          row.dataset.dimmed = "false";
+        } else {
+          v.textContent = "unchanged";
+          v.dataset.verdict = "same";
+          row.dataset.dimmed = String(changedRoles.length > 0);
+        }
+      }
+      verdictActive = true;
+      if (verdictTimer) clearTimeout(verdictTimer);
+      verdictTimer = setTimeout(() => {
+        verdictActive = false;
+        shadow.querySelectorAll(".row").forEach((r) => {
+          (r as HTMLElement).dataset.dimmed = "false";
+          ((r as HTMLElement).querySelector(".fam") as HTMLElement).dataset.just = "false";
+        });
+        render();
+      }, 2600);
+      if (liveChanged.length) {
+        const els = scan().filter((e) => liveChanged.includes(e.role));
+        const vh = innerHeight;
+        const seen = els.filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < vh; });
+        const below = els.filter(({ el }) => el.getBoundingClientRect().top >= vh).length;
+        const above = els.length - seen.length - below;
+        flash(seen.map((e) => e.el));
+        drawTicks(seen);
+        let msg = `${els.length} element${els.length === 1 ? "" : "s"} changed`;
+        if (!seen.length && els.length) msg += ` · <b>0 in view — J jumps to nearest</b>`;
+        else if (below || above) msg += `${below ? ` · ${below} below ↓` : ""}${above ? ` · ${above} above ↑` : ""}`;
+        setStatusHTML(`${msg} · <button class="linkish" id="replay">↺ replay</button>`);
+        const rb = shadow.getElementById("replay");
+        if (rb) rb.addEventListener("click", () => {
+          const now = scan().filter((e) => lastChangedRoles.includes(e.role))
+            .filter(({ el }) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+          flash(now.map((e) => e.el));
+        });
       }
     }
-    const trioFamilies = (er = roleSel) => ROLES.map((role) => (er[role] < 0 ? null : CANDS[role][er[role]].family));
-    function matchedDirection(er = roleSel): Direction | null {
-      const fams = trioFamilies(er);
-      if (fams.some((f) => f === null)) return null;
-      return directions.find((d) => ROLES.every((role, i) => d.roles[role].family === fams[i])) || null;
+
+    function applyToPage(prevSel: Record<Role, number> | null, nextSel: Record<Role, number>, opts: { silent?: boolean } = {}) {
+      const changed: Role[] = [];
+      for (const role of ROLES) {
+        setRoleVar(role, nextSel);
+        if (prevSel && famOf(role, prevSel) !== famOf(role, nextSel)) changed.push(role);
+      }
+      invalidateScan();
+      if (prevSel && !opts.silent) reportChange(prevSel, nextSel, changed);
+      return changed;
     }
-    function activeId(): string {
-      if (comparing) return "current";
-      const er = effRoles();
-      if (ROLES.every((role) => er[role] < 0)) return "current";
-      return matchedDirection(er)?.id ?? "mixed";
+
+    // ---- x-ray + map + keyboard pulse ---------------------------------------------------
+    let xrayRole: Role | null = null, xrayAll = false;
+    let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+    function setXray(role: Role | null, all = false) {
+      xrayRole = role; xrayAll = all;
+      for (const { el, role: r } of scan()) {
+        el.classList.toggle("__fl_hit", !!role && r === role);
+        el.classList.toggle("__fl_other", all && r !== role);
+      }
+      overlay.querySelectorAll(".fl-xchip").forEach((c) => c.remove());
+      if (all) {
+        for (const { el, role: r } of scan()) {
+          const rect = el.getBoundingClientRect();
+          if (rect.bottom < 0 || rect.top > innerHeight || rect.height < 16) continue;
+          const chip = document.createElement("div");
+          chip.className = "fl-xchip";
+          chip.textContent = r[0].toUpperCase();
+          chip.style.cssText = `position:fixed;left:${Math.max(16, rect.left - 6)}px;top:${Math.max(8, rect.top)}px;transform:translate(-100%,-40%);z-index:2147483646;` +
+            `font:600 9px ${MONO};padding:1px 4px;border-radius:3px;pointer-events:none;` +
+            (r === role ? "background:#E7FF3B;color:#100F0D;" : "background:rgba(16,15,13,.85);color:rgba(242,239,229,.9);border:1px solid rgba(242,239,229,.3);");
+          overlay.appendChild(chip);
+        }
+      }
+      const covTag = overlay.querySelector(".fl-covtag");
+      if (covTag) covTag.remove();
+      if (role && !all) {
+        const cov = coverage();
+        const tag = document.createElement("div");
+        tag.className = "fl-covtag";
+        tag.textContent = role === "body"
+          ? `BODY — ${cov.count.body} elements · ${cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0}% of text on this page`
+          : `${role.toUpperCase()} — ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on this page`;
+        let top = innerHeight - 60;
+        const rowEl = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement | null;
+        if (rowEl) top = Math.max(8, rowEl.getBoundingClientRect().top + 6);
+        tag.style.cssText = `position:fixed;right:376px;top:${top}px;z-index:2147483646;background:#100F0D;color:#F2EFE5;` +
+          `font:10px ${MONO};letter-spacing:.08em;padding:7px 10px;border-radius:3px;border:1px solid rgba(242,239,229,.2);pointer-events:none;white-space:nowrap;`;
+        overlay.appendChild(tag);
+      }
     }
-    function persist() {
+    function pulseXray(role: Role) {
+      if (pulseTimer) clearTimeout(pulseTimer);
+      setXray(role);
+      pulseTimer = setTimeout(() => { if (xrayRole === role && !xrayAll) setXray(null); }, 800);
+    }
+
+    // ---- inspect: always-on hover layer, no click interception ---------------------------
+    let hoverHit: ScanHit | null = null;
+    let hoverChip: HTMLElement | null = null;
+    let dwellTimer: ReturnType<typeof setTimeout> | null = null;
+    let chipVisible = false;
+    function inspectClear() {
+      if (hoverHit) { hoverHit.el.classList.remove("__fl_hover"); hoverHit = null; }
+      if (hoverChip) hoverChip.style.display = "none";
+      if (dwellTimer) clearTimeout(dwellTimer);
+      chipVisible = false;
+    }
+    function positionChip(e: MouseEvent) {
+      if (!hoverHit) return;
+      if (!hoverChip) {
+        hoverChip = document.createElement("div");
+        hoverChip.style.cssText = `position:fixed;z-index:2147483647;background:#100F0D;color:#F2EFE5;font:10px ${MONO};` +
+          "letter-spacing:.06em;padding:6px 9px;border-radius:3px;border:1px solid rgba(242,239,229,.25);pointer-events:none;white-space:nowrap;line-height:1.6;";
+        overlay.appendChild(hoverChip);
+      }
+      const cs = getComputedStyle(hoverHit.el);
+      const cov = coverage();
+      const editable = isEditableText(hoverHit.el);
+      hoverChip.style.display = "block";
+      hoverChip.innerHTML =
+        `<b style="color:#E7FF3B;font-weight:600">${hoverHit.role.toUpperCase()}</b> · ${esc(famOf(hoverHit.role, effSel()))} · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[hoverHit.role]} on page` +
+        `<br><span style="color:rgba(242,239,229,.55)">${editable ? "[ ] flips this text · double-click retypes it" : "[ ] flips this text · words come from data / markup — not retypable"}</span>`;
+      const r = hoverHit.el.getBoundingClientRect();
+      const x = Math.max(8, Math.min(innerWidth - hoverChip.offsetWidth - 8, e.clientX - 20));
+      let y = r.top - hoverChip.offsetHeight - 6;
+      if (y < 8) y = Math.min(innerHeight - hoverChip.offsetHeight - 8, r.bottom + 6);
+      hoverChip.style.left = x + "px";
+      hoverChip.style.top = y + "px";
+    }
+    const inspectMove = (e: MouseEvent) => {
+      if (!state.inspect || !state.expanded || editingEl) return;
+      const t = e.target as Element | null;
+      if (!t || OURS(t)) { inspectClear(); return; }
+      const hit = scan().find(({ el }) => el.contains(t));
+      if (!hit) { inspectClear(); return; }
+      if (!hoverHit || hoverHit.el !== hit.el) {
+        if (hoverHit) hoverHit.el.classList.remove("__fl_hover");
+        hoverHit = hit;
+        hit.el.classList.add("__fl_hover");
+        if (state.focus !== hit.role) { state.focus = hit.role; render(); }
+        if (!chipVisible) { // dwell before the first chip; instant once visible
+          if (dwellTimer) clearTimeout(dwellTimer);
+          dwellTimer = setTimeout(() => { chipVisible = true; positionChip(e); }, 160);
+          return;
+        }
+      }
+      if (chipVisible) positionChip(e);
+    };
+    document.addEventListener("mousemove", inspectMove, true);
+
+    // ---- copy edit: double-click any words, retype, Enter saves to source ----------------
+    // Locator (React 19): the JSX call site is the first app frame in the fiber's _debugStack.
+    function fiberOf(el: Element): any {
+      const k = Object.keys(el).find((k2) => k2.startsWith("__reactFiber$"));
+      return k ? (el as any)[k] : null;
+    }
+    function callSite(el: Element): { url: string; line: number; column: number } | null {
+      const f = fiberOf(el);
+      const stack = f && f._debugStack && (f._debugStack.stack || "" + f._debugStack);
+      if (!stack) return null;
+      for (const ln of String(stack).split("\n")) {
+        if (/react-stack-top-frame|jsxDEV/.test(ln)) continue;
+        const m = ln.match(/(https?:\/\/[^\s)]+):(\d+):(\d+)/);
+        if (m) return { url: m[1], line: +m[2], column: +m[3] };
+      }
+      return null;
+    }
+    // The clean, unambiguous case: an element whose children are all text nodes.
+    function isEditableText(el: Element): boolean {
+      if (!el || el.nodeType !== 1 || OURS(el)) return false;
+      if (!el.childNodes.length) return false;
+      for (const n of Array.from(el.childNodes)) if (n.nodeType !== 3) return false;
+      return el.textContent!.trim().length > 0;
+    }
+    let editingEl: HTMLElement | null = null;
+    let editingOriginal = "";
+    const onDblClick = (e: MouseEvent) => {
+      if (!state.expanded || editingEl) return;
+      const t = e.target as Element | null;
+      if (!t || OURS(t)) return;
+      const el = (scan().find(({ el: se }) => se.contains(t))?.el ?? (t as HTMLElement)) as HTMLElement;
+      if (!isEditableText(el)) return;
+      e.preventDefault();
+      startEdit(el);
+    };
+    document.addEventListener("dblclick", onDblClick, true);
+    function editKeys(e: KeyboardEvent) {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEdit(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+    }
+    const onEditBlur = () => { void saveEdit(); };
+    function startEdit(el: HTMLElement) {
+      inspectClear();
+      editingEl = el;
+      editingOriginal = el.textContent || "";
+      el.classList.add("__fl_editing");
+      el.setAttribute("contenteditable", "plaintext-only");
+      el.focus();
+      setStatus("Retype in place — ⏎ saves to source · esc cancels.");
+      el.addEventListener("keydown", editKeys);
+      el.addEventListener("blur", onEditBlur);
+    }
+    function endEdit(): HTMLElement | null {
+      const el = editingEl;
+      if (!el) return null;
+      el.removeEventListener("keydown", editKeys);
+      el.removeEventListener("blur", onEditBlur);
+      el.removeAttribute("contenteditable");
+      el.classList.remove("__fl_editing");
+      editingEl = null;
+      return el;
+    }
+    async function saveEdit() {
+      const el = endEdit();
+      if (!el) return;
+      const before = editingOriginal;
+      const after = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (after === before.replace(/\s+/g, " ").trim()) { setStatus(""); return; }
+      invalidateScan();
+      setStatus("Saving words to source…");
       try {
-        const fams = trioFamilies(roleSel);
-        sessionStorage.setItem(STORE_KEY, JSON.stringify({ cursorId: entries[cursor]?.id, roles: { display: fams[0], body: fams[1], mono: fams[2] } }));
-      } catch {}
+        const res = await fetch(ENDPOINT + "/edit", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ frame: callSite(el), oldText: before, newText: after }),
+        });
+        const j = await res.json().catch(() => ({}) as any);
+        if (res.ok && j.ok) {
+          setStatusHTML(`Saved ✓ <b>${esc(j.file)}:${esc(j.line)}</b> — words are in your source. <button class="linkish" id="undoEdit">undo</button>`, "good");
+          const ub = shadow.getElementById("undoEdit");
+          if (ub) ub.addEventListener("click", async () => {
+            try {
+              const u = await fetch(ENDPOINT + "/undo", { method: "POST" });
+              if (u.ok) { setStatus("Restored — byte-exact undo.", "good"); }
+              else setStatus("Undo failed — npx font-lab-undo from the terminal.", "warn");
+            } catch { setStatus("Endpoint offline — npx font-lab, then undo.", "warn"); }
+          });
+        } else {
+          // Refused (dynamic text, duplicate phrase, unmappable) — revert the DOM so the page
+          // never lies about what's in source, and say why.
+          el.textContent = before;
+          setStatus(`Not saved — ${j.error || `endpoint said ${res.status}`}.`, "warn");
+        }
+      } catch {
+        el.textContent = before;
+        setStatus("Endpoint offline — run npx font-lab, then retype.", "warn");
+      }
+    }
+    function cancelEdit() {
+      const el = endEdit();
+      if (!el) return;
+      el.textContent = editingOriginal;
+      setStatus("Edit cancelled — nothing written.");
     }
 
-    // Working-set parity: "exact" only when every chosen role is a guaranteed face.
-    const workingParity = (er = effRoles()): "guaranteed" | "best-effort" => {
+    // ---- build -------------------------------------------------------------------------
+    function buildToc() {
+      const toc = $("toc");
+      toc.innerHTML = "";
+      const rows = [{ id: "current", name: currentLabel(), vibe: "baseline", dir: null as Dir | null }]
+        .concat(dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe, dir: d as Dir | null })));
+      rows.forEach((r, i) => {
+        const b = document.createElement("button");
+        b.className = "toc-row";
+        b.dataset.idx = String(i);
+        b.dataset.flId = r.id;
+        const nameStyle = r.dir
+          ? `style="font-family:${r.dir.roles.display.stack.replace(/"/g, "'")}"`
+          : `style="font-family:${MONO};font-size:11px;color:rgba(242,239,229,.7)"`;
+        b.innerHTML = `<span class="folio">${String(i).padStart(2, "0")}</span><span class="tname" ${nameStyle}>${esc(r.name)}</span><span class="leader"></span><span class="vibe u">${esc(r.vibe)}</span>`;
+        b.addEventListener("click", () => selectEntry(i));
+        toc.appendChild(b);
+      });
+    }
+    function buildSpread() {
+      const wrap = $("spread");
+      wrap.innerHTML = "";
       for (const role of ROLES) {
-        const idx = er[role];
-        if (idx >= 0 && CANDS[role][idx].parity !== "guaranteed") return "best-effort";
+        const row = document.createElement("div");
+        row.className = "row";
+        row.dataset.role = role;
+        row.innerHTML = `
+          <div class="margin">${role[0].toUpperCase()}</div>
+          <div class="mid">
+            <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden>WIRED ON SHIP</span><span class="cov"></span></div>
+            <div class="spec"><span class="fam" data-fl-fam="${role}"></span></div>
+            <div class="tagline"></div>
+          </div>
+          <div class="right"><span class="pos"></span><button class="step" data-fl-dec="${role}" aria-label="previous ${role} font">‹</button><button class="step" data-fl-inc="${role}" aria-label="next ${role} font">›</button></div>`;
+        row.addEventListener("click", (e) => { if ((e.target as Element).closest(".step")) return; state.focus = role; render(); });
+        row.addEventListener("mouseenter", () => { if (!xrayAll) { state.focus = role; setXray(role); render(); } });
+        row.addEventListener("mouseleave", () => { if (!xrayAll) setXray(null); });
+        row.querySelector(`[data-fl-dec="${role}"]`)!.addEventListener("click", (ev) => { ev.stopPropagation(); cycleRole(role, -1); });
+        row.querySelector(`[data-fl-inc="${role}"]`)!.addEventListener("click", (ev) => { ev.stopPropagation(); cycleRole(role, +1); });
+        wrap.appendChild(row);
       }
-      return "guaranteed";
-    };
+    }
 
+    // ---- render ------------------------------------------------------------------------
     function render() {
-      applyToPage();
+      const eff = effSel();
+      const cov = coverage();
       const id = activeId();
       root.setAttribute("data-fontlab-active", id);
-      const onCurrent = ROLES.every((role) => roleSel[role] < 0);
-      chipsEl.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String((c as HTMLElement).dataset.flId === id)));
-      const er = effRoles();
-      for (const role of ROLES) {
-        const idx = roleSel[role];
-        const cand = idx < 0 ? null : CANDS[role][idx];
-        const famEl = roleFamEls[role];
-        const tagEl = roleTagEls[role];
-        if (!canSwap(role)) {
-          // Not previewable here — but the choice still records, and apply wires it.
-          famEl.textContent = cand ? cand.family : "— not wired —";
-          famEl.style.fontFamily = "";
-          tagEl.hidden = !cand;
-          tagEl.textContent = "wired on ship";
-        } else {
-          famEl.textContent = cand ? cand.family : "— current —";
-          // The living-specimen touch: the family name set in its own face (already loaded
-          // for the preview, so this costs nothing).
-          famEl.style.fontFamily = cand ? cand.stack : "";
-          const be = !!cand && cand.parity !== "guaranteed";
-          tagEl.hidden = !be;
-          tagEl.textContent = "≈";
-          tagEl.title = "best-effort: may render slightly differently once shipped";
-        }
-        roleRowEls[role].dataset.focus = String(role === focus);
-        roleRowEls[role].querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = onCurrent || !canSwap(role)));
-      }
-      const md = matchedDirection();
-      rationaleEl.textContent = comparing
-        ? `Before: ${currentLabel().replace(/^Current — /, "")}. Press B to flip back.`
-        : onCurrent
-          ? "Flip to a direction (→), then cycle any role to mix. Renders on your real site."
-          : md
-            ? md.rationale
-            : `Mixed — ${trioFamilies().filter(Boolean).join(" / ")}.`;
-      fidelityEl.textContent = !onCurrent && !comparing && workingParity() === "best-effort"
-        ? "≈ close preview — this mix includes a face that may differ slightly when shipped"
-        : "";
-      cmpBtn.setAttribute("aria-pressed", String(comparing));
-      const pinned = pins.filter(Boolean).length;
-      pinBtn.textContent = pinned ? `📌${pinned}` : "📌";
-      pinBtn.setAttribute("aria-pressed", String(showingPin !== null));
+      ($("aa") as HTMLElement).style.fontFamily = stackOf("display", state.sel) || "";
+      const pres = $("presence");
+      pres.dataset.conn = state.conn;
+      $("presLabel").textContent = state.conn === "agent" ? "AGENT LISTENING" : state.conn === "ready" ? "ENDPOINT READY" : "OFFLINE · NPX FONT-LAB";
+      pres.title = state.conn === "agent"
+        ? "An agent is blocked on your pick — it ships the moment you choose."
+        : state.conn === "ready"
+          ? "Pick endpoint on :7777. Your pick saves the moment you make it."
+          : "No pick endpoint on :7777 — run `npx font-lab` in your project.";
+      $("inspectBtn").setAttribute("aria-pressed", String(state.inspect));
+      const gd0 = matchedDir(state.sel);
+      const gFol = onCurrent(state.sel) ? "00 Current" : gd0 ? `${String(dirs.indexOf(gd0) + 1).padStart(2, "0")} ${gd0.name}` : "mix — set by hand";
+      const unsaved = !onCurrent(state.sel) && state.savedId !== pickIdOf(state.sel);
+      $("collapsedInfo").innerHTML = `· ${esc(gFol)}${unsaved ? ' <span class="tick">′</span>' : ""} <span style="opacity:.55">· \` opens</span>`;
 
-      // Pick button narrates the handoff: Pick → Picked ✓ (saved) → Shipped ✓.
-      const workingId = comparing ? "current" : ROLES.every((r) => er[r] < 0) ? "current" : (matchedDirection(er)?.id ?? "mixed");
-      const savedIsWorking = savedId !== null && savedId === workingId;
-      if (savedIsWorking && shipped?.current) {
-        pickBtn.dataset.done = "true";
-        pickLabelEl.textContent = "Shipped";
-        pickBtn.disabled = true;
-      } else if (savedIsWorking) {
-        pickBtn.dataset.done = "true";
-        pickLabelEl.textContent = "Picked";
-        pickBtn.disabled = false; // picking again is a harmless no-op save
+      const shownDirM = matchedDir(eff);
+      const idx = onCurrent(eff) ? 0 : shownDirM ? dirs.indexOf(shownDirM) + 1 : -1;
+      $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${String(idx).padStart(2, "0")}</b>`) + ` / ${String(dirs.length).padStart(2, "0")}`;
+      shadow.querySelectorAll(".toc-row").forEach((r, i) => r.setAttribute("aria-current", String(i === idx)));
+      updateTocCue();
+
+      const sf = $("standfirst");
+      sf.textContent = state.beforeView
+        ? `Before — ${trio(BEFORE_SEL)}. What ships today.`
+        : shownDirM ? shownDirM.rationale
+        : onCurrent(eff) ? "Flip to a direction (→) — every change is shown on your real page."
+        : `Set by hand — ${trio(eff)}. S saves this mix as a direction.`;
+
+      for (const role of ROLES) {
+        const row = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement;
+        const cand = candOf(role, eff);
+        const unwired = !canSwap(role);
+        row.dataset.focus = String(state.focus === role);
+        row.dataset.unwired = String(unwired);
+        const famEl = row.querySelector(".fam") as HTMLElement;
+        famEl.textContent = famOf(role, eff);
+        famEl.style.fontFamily = unwired ? MONO : stackOf(role, eff) || "";
+        famEl.style.fontSize = unwired ? "12px" : "";
+        (row.querySelector(".parity") as HTMLElement).hidden = !(cand && cand.parity !== "guaranteed");
+        (row.querySelector(".parity") as HTMLElement).title = "best-effort — may render slightly differently once shipped";
+        (row.querySelector(".wtag") as HTMLElement).hidden = !unwired;
+        if (!verdictActive) {
+          const covEl = row.querySelector(".cov") as HTMLElement;
+          covEl.dataset.verdict = "";
+          covEl.textContent = unwired ? ""
+            : role === "body" ? `${cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0}% of page text`
+            : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on page`;
+        }
+        (row.querySelector(".tagline") as HTMLElement).textContent = unwired
+          ? "previews after ship · pick records."
+          : cand?.tag ? cand.tag + "." : "";
+        const n = CANDS[role].length;
+        (row.querySelector(".pos") as HTMLElement).textContent =
+          "font " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
+        row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = unwired || state.beforeView));
+      }
+
+      const bestEffort = workingParity(eff) === "best-effort" && !onCurrent(eff) && !state.beforeView;
+      const fid = $("fidelity");
+      fid.dataset.show = String(bestEffort);
+      if (bestEffort) {
+        const faces = ROLES.map((r) => candOf(r, eff)).filter((c): c is Cand => !!c && c.parity !== "guaranteed").map((c) => c.family);
+        fid.textContent = `≈ close preview — ${faces.join(", ")} may differ slightly once shipped.`;
+        const key = faces.join("|");
+        if (key !== fidKey) {
+          fidKey = key;
+          fid.dataset.quiet = "false";
+          if (fidTimer) clearTimeout(fidTimer);
+          fidTimer = setTimeout(() => { fid.dataset.quiet = "true"; }, 4500);
+        }
+      } else { fidKey = ""; fid.dataset.quiet = "false"; }
+
+      const pick = $<HTMLButtonElement>("pick"), pl = $("pickLabel");
+      const pickable = !state.beforeView && !onCurrent(eff);
+      const savedIsShown = state.savedId !== null && state.savedId === pickIdOf(eff);
+      if (savedIsShown && state.shipped?.current) {
+        pick.dataset.state = "shipped"; pl.textContent = "SHIPPED"; pick.disabled = true;
+      } else if (state.saving) {
+        pick.dataset.state = "idle"; pl.textContent = "SAVING…"; pick.disabled = true;
+      } else if (savedIsShown) {
+        pick.dataset.state = "picked"; pl.textContent = "PICKED"; pick.disabled = false; // re-pick is a harmless no-op save
       } else {
-        pickBtn.dataset.done = "false";
-        pickBtn.dataset.just = "false";
-        pickLabelEl.textContent = "Pick";
-        pickBtn.disabled = onCurrent && showingPin === null;
+        pick.dataset.state = "idle"; pick.dataset.just = "false"; pl.textContent = "PICK";
+        pick.disabled = !pickable;
+        if (!pickable && !state.saving && !editingEl)
+          guardStatus(state.beforeView ? "Viewing before — flip back to pick." : "On current — nothing to pick.");
       }
       persist();
     }
+    const pickIdOf = (sel: Record<Role, number>) => (onCurrent(sel) ? "current" : matchedDir(sel)?.id ?? "mixed");
 
-    function selectPreset(i: number) { cursor = Math.max(0, Math.min(entries.length - 1, i)); comparing = false; showingPin = null; setRolesFromEntry(cursor); setStatus(""); render(); }
-    function cycleRole(role: Role, dir: number) {
-      if (!canSwap(role) || ROLES.every((r) => roleSel[r] < 0)) return;
-      focus = role; comparing = false; showingPin = null;
+    function persist() {
+      try {
+        sessionStorage.setItem(STORE_KEY, JSON.stringify({
+          cursorId: state.cursor === 0 ? "current" : dirs[state.cursor - 1]?.id,
+          roles: { display: candOf("display")?.family ?? null, body: candOf("body")?.family ?? null, mono: candOf("mono")?.family ?? null },
+        }));
+      } catch {}
+    }
+
+    // ---- interactions --------------------------------------------------------------------
+    function rememberView() { state.lastView = { sel: { ...state.sel }, cursor: state.cursor }; }
+    function selectEntry(i: number, opts: { keepStatus?: boolean } = {}) {
+      const prev = { ...effSel() };
+      const target2 = Math.max(0, Math.min(i, dirs.length));
+      if (target2 !== state.cursor || matchedDir(state.sel) === null) rememberView();
+      state.beforeView = false;
+      if (target2 <= 0) state.sel = { display: -1, body: -1, mono: -1 };
+      else {
+        const d = dirs[target2 - 1];
+        for (const role of ROLES) state.sel[role] = Math.max(0, CANDS[role].findIndex((c) => c.family === d.roles[role].family));
+      }
+      state.cursor = target2;
+      if (!opts.keepStatus) setStatus("");
+      applyToPage(prev, state.sel);
+      render();
+      const active = shadow.querySelector(`.toc-row[data-idx="${target2}"]`);
+      if (active) active.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    }
+    function cycleRole(role: Role, d: number) {
+      if (!canSwap(role)) return;
+      if (state.beforeView) state.beforeView = false;
+      state.focus = role;
+      if (onCurrent(state.sel)) { selectEntry(1); return; }
+      const prev = { ...state.sel };
       const n = CANDS[role].length;
-      roleSel[role] = ((roleSel[role] < 0 ? 0 : roleSel[role]) + dir + n) % n;
-      setStatus(""); render();
+      state.sel[role] = ((state.sel[role] < 0 ? 0 : state.sel[role]) + d + n) % n;
+      setStatus("");
+      applyToPage(prev, state.sel);
+      render();
     }
-    function moveFocus(dir: number) { focus = ROLES[(ROLES.indexOf(focus) + dir + ROLES.length) % ROLES.length]; render(); }
-    function toggleCompare() { if (ROLES.every((r) => roleSel[r] < 0)) return; comparing = !comparing; render(); }
-    function pin() {
-      if (ROLES.every((r) => roleSel[r] < 0)) return;
-      const slot = pins[0] === null ? 0 : pins[1] === null ? 1 : 0;
-      pins[slot] = { ...roleSel };
-      setStatus(`Pinned ${slot === 0 ? "A" : "B"}${pins[0] && pins[1] ? " — Space to compare" : ""}`); render();
+    function moveFocus(d: number) {
+      state.focus = ROLES[(ROLES.indexOf(state.focus) + d + 3) % 3];
+      pulseXray(state.focus);
+      render();
     }
-    function togglePins() { if (!(pins[0] && pins[1])) return; showingPin = showingPin === 0 ? 1 : 0; comparing = false; setStatus(`Showing ${showingPin === 0 ? "A" : "B"}`); render(); }
+    function snapBack() {
+      if (!state.lastView) { setStatus("Nothing to snap back to yet — view another direction first."); return; }
+      const prevEff = { ...effSel() };
+      const to = state.lastView;
+      state.lastView = { sel: { ...state.sel }, cursor: state.cursor };
+      state.sel = { ...to.sel };
+      state.cursor = to.cursor;
+      state.beforeView = false;
+      applyToPage(prevEff, state.sel);
+      const d = matchedDir(state.sel);
+      setStatus(`Snapped back to ${d ? d.name : onCurrent(state.sel) ? "Current" : "your mix"} — space returns.`);
+      render();
+    }
+    function toggleBefore() {
+      const prevEff = { ...effSel() };
+      state.beforeView = !state.beforeView;
+      applyToPage(prevEff, effSel());
+      if (state.beforeView) {
+        setStatus(`Before — ${trio(BEFORE_SEL)}. B returns.`);
+        const r0 = shadow.querySelector('.toc-row[data-idx="0"]');
+        if (r0) r0.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+      } else setStatus("");
+      render();
+    }
+    function saveMix() {
+      if (state.beforeView || onCurrent(state.sel) || matchedDir(state.sel)) {
+        setStatus("Nothing to save — mix a set by hand first ([ ] flips a font).");
+        return;
+      }
+      state.mixCount++;
+      const name = `Mix ${String(state.mixCount).padStart(2, "0")}`;
+      const roles = {} as Record<Role, Cand>;
+      for (const role of ROLES) roles[role] = { ...CANDS[role][Math.max(0, state.sel[role])] };
+      dirs = dirs.concat([{ id: `mix-${state.mixCount}`, name, vibe: "your mix", rationale: `Set by hand — ${trio()}.`, roles }]);
+      buildToc();
+      state.cursor = dirs.length;
+      setStatus(`Saved as direction ${String(dirs.length).padStart(2, "0")} — it's in the list now.`, "good");
+      render();
+      const newRow = shadow.querySelector(`.toc-row[data-idx="${dirs.length}"]`);
+      if (newRow) newRow.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    }
+    let bDownAt = 0, bHeld = false;
+    const bDown = () => { if (bHeld) return; bHeld = true; bDownAt = performance.now(); toggleBefore(); };
+    const bUp = () => { if (!bHeld) return; bHeld = false; if (performance.now() - bDownAt > 400) toggleBefore(); };
 
-    async function pick() {
-      const er = effRoles();
-      if (ROLES.every((role) => er[role] < 0)) { setStatus("Flip to a direction first."); return; }
+    async function doPick() {
+      const eff = effSel();
+      if (state.beforeView || onCurrent(eff)) { guardStatus(state.beforeView ? "Viewing before — flip back to pick." : "Flip to a direction first."); return; }
       const roleObj = (role: Role) => {
-        const idx = er[role];
-        const c = idx < 0 ? null : CANDS[role][idx];
+        const c = candOf(role, eff);
         return c
           ? { family: c.family, source: c.source, parity: c.parity, weights: c.weights }
-          : { family: replaces?.[role] ?? null, source: "current", weights: [] };
+          : { family: replaces?.[role] ?? null, source: "current", weights: [] as number[] };
       };
-      const md = matchedDirection(er);
+      const md = matchedDir(eff);
       const fams = ROLES.map((r) => roleObj(r).family);
       const direction = md
         ? { id: md.id, name: md.name, vibe: md.vibe, rationale: md.rationale }
         : { id: "mixed", name: "Mixed", vibe: "mixed", rationale: `Custom pairing — ${fams.filter(Boolean).join(" / ")}.` };
       const selection = { version: 1, pickedAt: new Date().toISOString(), direction, roles: { display: roleObj("display"), body: roleObj("body"), mono: roleObj("mono") }, replaces, target };
-      pickBtn.disabled = true;
-      pickLabelEl.textContent = "Saving…";
+      state.saving = true;
+      render();
       try {
         const res = await fetch(ENDPOINT + "/select", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selection) });
-        if (!res.ok) {
-          setStatus(`Endpoint error ${res.status} — try again`, "warn");
-          render();
-          return;
-        }
+        state.saving = false;
+        if (!res.ok) { setStatus(`Endpoint error ${res.status} — try again.`, "warn"); render(); return; }
         let ack: { agentWaiting?: boolean; autoApply?: boolean } = {};
         try { ack = await res.json(); } catch {}
-        savedId = direction.id;
-        shipped = null;
+        state.savedId = md ? md.id : "mixed";
+        state.shipped = null;
         root.setAttribute("data-fontlab-picked", direction.id);
-        pickBtn.dataset.just = "true"; // one checkmark draw, then settle
+        $("pick").dataset.just = "true"; // one checkmark draw, then settle
         setStatus(
-          ack.autoApply
-            ? `Saved — shipping “${direction.name}” now…`
-            : ack.agentWaiting
-              ? `Saved — your agent has “${direction.name}” from here.`
-              : `Saved “${direction.name}” — tell your agent, or run npx font-lab-apply.`,
+          ack.autoApply ? `Saved — shipping “${direction.name}” now…`
+            : ack.agentWaiting ? `Saved — your agent has “${direction.name}” from here.`
+            : `Saved “${direction.name}” — tell your agent, or run npx font-lab-apply.`,
           "good",
         );
         render();
       } catch {
+        state.saving = false;
         setStatus("Endpoint offline — run `npx font-lab`, then Pick again.", "warn");
         render();
       }
     }
 
-    // ---- live handoff state (SSE) ------------------------------------------------
-    const setConn = (next: Conn) => {
-      if (conn === next) return;
-      conn = next;
-      connEl.dataset.state = next;
-      connLabelEl.textContent = next === "agent" ? "agent listening" : next === "ready" ? "endpoint ready" : "offline · npx font-lab";
-      connEl.title =
-        next === "agent"
-          ? "An agent is waiting for your pick — it ships the moment you choose."
-          : next === "ready"
-            ? "Pick endpoint is up on :7777. Picks save; hand them to your agent to ship."
-            : "No pick endpoint on :7777 — run `npx font-lab` in your project.";
-    };
-    // Only warns when the running tool is strictly newer than what installed this panel — so a
-    // current panel never nags, and a stale one (the exact npx-cache trap) says exactly what to do.
+    // ---- live handoff state (SSE) --------------------------------------------------------
+    const setConn = (next: Conn) => { if (state.conn === next) return; state.conn = next; render(); };
     const ver = (v: string) => String(v || "").replace(/[^0-9A-Za-z.\-]/g, "");
     const checkVersion = (running: string) => {
       const stale = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
-      noticeEl.dataset.show = String(stale);
-      if (stale)
-        noticeBodyEl.innerHTML =
-          `This panel was installed by Font&nbsp;Lab <code>${ver(PANEL_VERSION)}</code>, but <code>${ver(running)}</code> is running. ` +
-          `Re-run <code>font_lab_init</code> to refresh it.`;
+      $("notice").dataset.show = String(stale);
+      if (stale) {
+        $("noticeHead").innerHTML = `STALE PANEL — <code>${ver(PANEL_VERSION)}</code> SET · <code>${ver(running)}</code> RUNNING`;
+        $("noticeBody").innerHTML = `This panel was set by an older version. Re-run <code>font_lab_init</code> to refresh it.`;
+      }
     };
-
     let es: EventSource | null = null;
     const handleStatus = (s: any) => {
       if (s.version) checkVersion(s.version);
       setConn(s.agentWaiting ? "agent" : "ready");
-      if (s.selection?.direction?.id && !savedId) savedId = s.selection.direction.id; // survive reloads
-      shipped = s.applied ? { current: !!s.applied.current } : null;
-      if (shipped?.current && savedId) {
-        const exact = workingParity(roleSel) === "guaranteed";
+      if (s.selection?.direction?.id && !state.savedId) state.savedId = s.selection.direction.id; // survive reloads
+      state.shipped = s.applied ? { current: !!s.applied.current } : null;
+      if (state.shipped?.current && state.savedId) {
         setStatus(
-          exact
+          workingParity(state.sel) === "guaranteed"
             ? "Shipped ✓ — what you previewed is exactly what shipped. Undo: npx font-lab-undo"
-            : "Shipped ✓ — best-effort faces may differ slightly. Undo: npx font-lab-undo",
+            : "Shipped ✓ — best-effort fonts may differ slightly. Undo: npx font-lab-undo",
           "good",
         );
       }
@@ -494,35 +1039,99 @@ export function FontLabDevPanel() {
     try {
       es = new EventSource(ENDPOINT + "/events");
       es.addEventListener("status", (ev) => { try { handleStatus(JSON.parse((ev as MessageEvent).data)); } catch {} });
-      es.addEventListener("applied", () => { shipped = { current: true }; handleStatus({ agentWaiting: conn === "agent", applied: { current: true }, selection: null }); });
+      es.addEventListener("applied", () => { handleStatus({ agentWaiting: state.conn === "agent", applied: { current: true }, selection: null }); });
       es.onerror = () => setConn("offline"); // EventSource auto-reconnects; we just narrate
-    } catch {
-      setConn("offline");
-    }
+    } catch { setConn("offline"); }
 
-    pickBtn.addEventListener("click", pick);
-    cmpBtn.addEventListener("click", toggleCompare);
-    pinBtn.addEventListener("click", pin);
+    // ---- keyboard — captured only while expanded; suspended while retyping ---------------
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
       const k = e.key;
-      if (k === "ArrowRight") { e.preventDefault(); selectPreset(cursor + 1); }
-      else if (k === "ArrowLeft") { e.preventDefault(); selectPreset(cursor - 1); }
+      if (k === "ArrowRight") { e.preventDefault(); selectEntry(Math.min(state.cursor + 1, dirs.length)); }
+      else if (k === "ArrowLeft") { e.preventDefault(); selectEntry(Math.max(state.cursor - 1, 0)); }
       else if (k === "ArrowDown") { e.preventDefault(); moveFocus(1); }
       else if (k === "ArrowUp") { e.preventDefault(); moveFocus(-1); }
-      else if (k === "]") { e.preventDefault(); cycleRole(focus, 1); }
-      else if (k === "[") { e.preventDefault(); cycleRole(focus, -1); }
-      else if (k === "b" || k === "B") { e.preventDefault(); toggleCompare(); }
-      else if (k === "p" || k === "P") { e.preventDefault(); pin(); }
-      else if (k === " ") { e.preventDefault(); togglePins(); }
-      else if (k === "Enter") { e.preventDefault(); void pick(); }
+      else if (k === "]") { e.preventDefault(); cycleRole(hoverHit ? hoverHit.role : state.focus, 1); }
+      else if (k === "[") { e.preventDefault(); cycleRole(hoverHit ? hoverHit.role : state.focus, -1); }
+      else if (k === "b" || k === "B") { e.preventDefault(); if (!e.repeat) bDown(); }
+      else if (k === " ") { e.preventDefault(); snapBack(); }
+      else if (k === "s" || k === "S") { e.preventDefault(); saveMix(); }
+      else if (k === "X" && e.shiftKey) { e.preventDefault(); xrayAll ? setXray(null, false) : setXray(state.focus, true); }
+      else if (k === "x") { e.preventDefault(); toggleInspect(); }
+      else if (k === "j" || k === "J") { e.preventDefault(); jumpNearest(state.focus); }
+      else if (k === "Escape" && xrayAll) { e.preventDefault(); setXray(null, false); }
+      else if (k === "Enter") { e.preventDefault(); void doPick(); }
+      else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
     };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === "b" || e.key === "B") bUp(); };
     document.addEventListener("keydown", onKey);
+    document.addEventListener("keyup", onKeyUp);
 
-    if (restored) render();
-    else selectPreset(0);
-    return () => { document.removeEventListener("keydown", onKey); es?.close(); host.remove(); };
+    function toggleInspect() {
+      state.inspect = !state.inspect;
+      if (!state.inspect) inspectClear();
+      setStatus(state.inspect ? "Inspect on — hover the page to identify text." : "Inspect off — X turns it back on.");
+      render();
+    }
+    function toggleCollapsed() {
+      state.expanded = !state.expanded;
+      slip.dataset.collapsed = String(!state.expanded);
+      if (!state.expanded) { inspectClear(); setXray(null, false); }
+      render();
+    }
+    $("dogear").addEventListener("click", toggleCollapsed);
+    (shadow.querySelector(".mast") as HTMLElement).addEventListener("click", (e) => {
+      if (!state.expanded && !(e.target as Element).closest(".inspect-btn")) toggleCollapsed();
+    });
+    $("inspectBtn").addEventListener("click", toggleInspect);
+    $("pick").addEventListener("click", () => void doPick());
+    $("pick").addEventListener("mouseenter", () => { const f = $("fidelity"); if (f.dataset.show === "true") f.dataset.quiet = "false"; });
+    (shadow.querySelector('[data-fl-action="compare"]') as HTMLElement).addEventListener("click", toggleBefore);
+    (shadow.querySelector('[data-fl-action="pin"]') as HTMLElement).addEventListener("click", saveMix);
+    $("toc").addEventListener("scroll", updateTocCue);
+    $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
+    const onResize = () => invalidateScan();
+    addEventListener("resize", onResize);
+
+    // ---- boot -------------------------------------------------------------------------
+    buildToc();
+    buildSpread();
+    let restored = false;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null");
+      if (saved && saved.roles && ROLES.some((role) => saved.roles[role])) {
+        for (const role of ROLES) {
+          const idx = saved.roles[role] ? CANDS[role].findIndex((c) => c.family === saved.roles[role]) : -1;
+          state.sel[role] = idx;
+        }
+        const ci = saved.cursorId === "current" ? 0 : dirs.findIndex((d) => d.id === saved.cursorId) + 1;
+        state.cursor = Math.max(0, ci);
+        restored = true;
+      }
+    } catch {}
+    if (restored) { applyToPage(null, state.sel, { silent: true }); render(); }
+    else { applyToPage(null, state.sel, { silent: true }); render(); } // land on Current; ← → flips
+    setStatus("");
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("mousemove", inspectMove, true);
+      document.removeEventListener("dblclick", onDblClick, true);
+      removeEventListener("resize", onResize);
+      mo.disconnect();
+      es?.close();
+      // leave the page exactly as found
+      for (const role of ROLES) if (canSwap(role)) {
+        if (defaultStack[role]) elFor(role).style.setProperty(wir[role]!.var, defaultStack[role]!);
+        else elFor(role).style.removeProperty(wir[role]!.var);
+      }
+      for (const { el } of scanCache ?? []) el.classList.remove("__fl_hit", "__fl_other", "__fl_hover", "__fl_flash", "__fl_flash_soft", "__fl_spot");
+      overlay.remove();
+      host.remove();
+    };
   }, []);
 
   return null;
