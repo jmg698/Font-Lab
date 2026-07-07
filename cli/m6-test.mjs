@@ -78,11 +78,13 @@ try {
   await settle();
   assert("before/after restores the build", (await activeId()) === "mixed");
 
-  // ---- Pin two to compare ----
-  await click('[data-fl-action="pin"]'); // pin A (the mix)
-  await click('button[data-fl-id="clean-geometric"]'); // build B
+  // ---- Save the mix, then compare two finalists with space (snap back) ----
+  // The save-mix control lives on the standfirst sentence and exists only while a hand-mix
+  // is showing; clean-geometric is already a direction, so there is nothing to save there
+  // (the old always-present footer button made that second click a scolded no-op).
+  await click('[data-fl-action="pin"]'); // save A (the mix) — joins the list as a direction
+  await click('button[data-fl-id="clean-geometric"]'); // view B
   await settle();
-  await click('[data-fl-action="pin"]'); // pin B
   await blur();
   await page.keyboard.press(" ");
   await settle();

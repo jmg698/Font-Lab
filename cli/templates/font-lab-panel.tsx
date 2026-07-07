@@ -141,6 +141,7 @@ export function FontLabDevPanel() {
       lastView: null as null | { sel: Record<Role, number>; cursor: number },
       inspect: true,
       expanded: true,
+      keysOpen: false,
       mixCount: 0,
       conn: "offline" as Conn,
       savedId: null as string | null,
@@ -220,6 +221,30 @@ export function FontLabDevPanel() {
       return { chars, count, total };
     }
 
+    // ---- keymap: single source of truth for every painted key hint ------------------------
+    // The resting colophon spine, the "? keys" back page, and their tooltips all render from
+    // this table. `keys` lists the exact e.key values each entry covers; panel-keys-test.mjs
+    // asserts this table and the onKey handler below never drift apart.
+    type KeyDef = { kbd: string; label: string; title: string; group: string; keys: string[]; spine?: boolean };
+    const KEYMAP: KeyDef[] = [
+      { kbd: "←→", label: "direction", group: "navigate", keys: ["ArrowLeft", "ArrowRight"], spine: true, title: "previous / next direction" },
+      { kbd: "↑↓", label: "role", group: "navigate", keys: ["ArrowUp", "ArrowDown"], spine: true, title: "move between the three roles" },
+      { kbd: "[ ]", label: "font", group: "navigate", keys: ["[", "]"], spine: true, title: "previous / next font for the focused role (or the text you're pointing at)" },
+      { kbd: "space", label: "snap back", group: "proof", keys: [" "], title: "snap back to the direction you viewed last — tap repeatedly to compare two finalists" },
+      { kbd: "B", label: "before", group: "proof", keys: ["b", "B"], title: "tap: toggle the site's current fonts · hold the key to peek" },
+      { kbd: "S", label: "save mix", group: "record", keys: ["s", "S"], title: "save a hand-mixed set as a direction in the list" },
+      { kbd: "↵", label: "pick", group: "record", keys: ["Enter"], title: "save your pick — same as the PICK button" },
+      { kbd: "X", label: "inspect", group: "inspect", keys: ["x"], title: "hover-identify text on the page (on by default) · double-click retypes words" },
+      { kbd: "⇧X", label: "map", group: "inspect", keys: ["X"], title: "tag every element on the page with its role at once" },
+      { kbd: "J", label: "jump", group: "inspect", keys: ["j", "J"], title: "scroll to the nearest element of the focused role" },
+      { kbd: "`", label: "collapse", group: "panel", keys: ["`"], title: "tuck the panel to its masthead bar — ` reopens" },
+      { kbd: "?", label: "keys", group: "panel", keys: ["?", "Escape"], title: "this back page — ? opens · esc closes" },
+    ];
+    const keyHint = (k: KeyDef) => `<span title="${k.title}"><kbd>${k.kbd}</kbd> ${k.label}</span>`;
+    const spineHTML = KEYMAP.filter((k) => k.spine).map(keyHint).join("");
+    const keysPageHTML = [...new Set(KEYMAP.map((k) => k.group))].map((g) =>
+      `<div class="kgrp"><span class="kgl u">${g}</span><span class="kks">${KEYMAP.filter((k) => k.group === g).map(keyHint).join("")}</span></div>`).join("");
+
     // ---- hosts -------------------------------------------------------------------------
     const overlay = document.createElement("div");
     overlay.id = "fontlab-overlay-host";
@@ -246,10 +271,17 @@ export function FontLabDevPanel() {
         .badge { width: 26px; height: 26px; background: #191813; border: 1px solid rgba(242,239,229,.14); border-radius: 3px;
           display: grid; place-items: center; font-size: 14px; color: #F2EFE5; flex: none; }
         .wordmark { font-size: 11px; letter-spacing: .18em; font-weight: 600; white-space: nowrap; }
-        .collapsed-info { display: none; margin-left: 2px; font-size: 9.5px; color: rgba(242,239,229,.6); letter-spacing: .06em;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .collapsed-info .tick { color: #E7FF3B; }
-        .slip[data-collapsed="true"] .collapsed-info { display: inline; }
+        .collapsed-info { display: none; align-items: baseline; gap: 6px; margin-left: 2px; font-size: 9.5px;
+          color: rgba(242,239,229,.6); letter-spacing: .06em; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+        /* the unsaved marker is STATE — it never truncates; under pressure the \` hint gives
+           way first, then the direction name, and the marker keeps its full width */
+        .collapsed-info .ciname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+        .collapsed-info .ciunsaved { color: #E7FF3B; flex: none; white-space: nowrap; }
+        .collapsed-info .ciopen { opacity: .55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 999 auto; }
+        .slip[data-collapsed="true"] .collapsed-info { display: inline-flex; }
+        /* collapsed, the presence keeps its dot (the state) and cedes the label's width */
+        .slip[data-collapsed="true"] #presLabel { display: none; }
+        .slip[data-collapsed="true"] .presence { margin-left: auto; }
         .inspect-btn { width: 26px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(242,239,229,.18);
           border-radius: 2px; font-size: 12px; color: rgba(242,239,229,.75); margin-left: auto; flex: none; }
         .inspect-btn[aria-pressed="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
@@ -293,6 +325,10 @@ export function FontLabDevPanel() {
 
         .standfirst { padding: 10px 14px 12px; border-top: 1px solid rgba(242,239,229,.1); font-family: ${SERIF_I}; font-style: italic;
           font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
+        /* save-mix lives on the sentence that names it — shown only when there is a mix to save */
+        .standfirst .savelink { font: inherit; color: #F2EFE5; text-decoration: underline dotted; text-underline-offset: 3px;
+          text-decoration-color: rgba(242,239,229,.5); padding: 0; }
+        .standfirst .savelink:hover { text-decoration-color: #F2EFE5; }
 
         .spread { border-top: 1px solid rgba(242,239,229,.14); }
         .row { display: grid; grid-template-columns: 22px 1fr auto; padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(242,239,229,.08);
@@ -304,7 +340,11 @@ export function FontLabDevPanel() {
         .row .mid { min-width: 0; padding-left: 10px; }
         .row .labline { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: .14em; color: rgba(242,239,229,.55); }
         .row .cov { margin-left: auto; letter-spacing: .04em; font-size: 8.5px; color: rgba(242,239,229,.42); font-variant-numeric: tabular-nums;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; visibility: hidden; }
+        /* routine coverage reveals under the hand; the honesty edges stay pinned — a zero
+           ("0 spots" = an invisible pick) and the post-flip verdicts are always shown */
+        .row:hover .cov, .row[data-focus="true"] .cov, .row .cov[data-pin="true"],
+        .row .cov[data-verdict="changed"], .row .cov[data-verdict="same"] { visibility: visible; }
         .row .cov[data-verdict="changed"] { color: #F2EFE5; }
         .row .parity { border: 1px solid rgba(233,138,109,.5); color: #E98A6D; border-radius: 2px; padding: 0 3px; font-size: 8.5px; letter-spacing: 0; }
         .row .wtag { border: 1px solid rgba(242,239,229,.3); border-radius: 2px; padding: 0 4px; font-size: 8px; letter-spacing: .1em;
@@ -318,19 +358,29 @@ export function FontLabDevPanel() {
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; min-height: 0; }
         .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
         .row .pos { font-size: 9.5px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.5); margin-right: 3px; white-space: nowrap; }
+        /* steppers rest quiet and appear under the hand — the same gesture that lights the
+           margin bar. visibility (not opacity) so a hidden step is never tabbable/clickable.
+           The counter stays: "font 03/04" is state, the buttons are only affordance. */
         .row .step { width: 24px; height: 24px; border: 1px solid rgba(242,239,229,.16); border-radius: 2px; font-size: 12px;
-          color: rgba(242,239,229,.8); display: grid; place-items: center; }
+          color: rgba(242,239,229,.8); display: grid; place-items: center; visibility: hidden; }
+        .row:hover .step, .row[data-focus="true"] .step { visibility: visible; }
         .row .step:hover:not(:disabled) { background: #232219; }
         .row .step:disabled { opacity: .25; cursor: not-allowed; }
+        .row .bkt { visibility: hidden; font-size: 8.5px; letter-spacing: .04em; color: rgba(242,239,229,.4); margin-right: 2px; }
+        .row[data-focus="true"]:not([data-unwired="true"]) .bkt { visibility: visible; }
         .row[data-dimmed="true"] { opacity: .7; }
 
-        .fidelity { display: none; padding: 7px 14px; border-top: 1px solid rgba(242,239,229,.1); border-left: 2px solid #E98A6D;
-          font-size: 9.5px; line-height: 1.5; color: #E9A88F; }
-        .fidelity[data-show="true"] { display: block; }
-        .fidelity[data-quiet="true"] { display: none; }
-        .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); }
-        .pick { width: 100%; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 3px; font-size: 11px; font-weight: 700;
-          letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); display: flex; gap: 8px; }
+        /* compare-the-proof sits beside pass-the-proof. PAPER when pressed (like the inspect
+           toggle), never yellow — compare is neither the editor's hand nor a caution. */
+        .beforetog { flex: none; height: 40px; padding: 0 12px; border: 1px solid rgba(242,239,229,.25); border-radius: 3px;
+          font-size: 9.5px; letter-spacing: .1em; color: rgba(242,239,229,.8); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+        .beforetog:hover { background: #232219; }
+        .beforetog[aria-pressed="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
+        .pick { flex: 1; height: 40px; background: #E7FF3B; color: #100F0D; border-radius: 3px; font-size: 11px; font-weight: 700;
+          letter-spacing: .12em; display: inline-flex; align-items: center; justify-content: center; gap: 8px; position: relative; }
+        .pick .enterhint { position: absolute; right: 12px; font-size: 9.5px; font-weight: 400; opacity: .5; letter-spacing: 0; }
+        .pick:disabled .enterhint { display: none; }
         .pick:hover:not(:disabled) { background: #EFFF66; }
         .pick:disabled { background: #232219; color: rgba(242,239,229,.45); cursor: not-allowed; }
         .pick[data-state="shipped"] { background: #100F0D; color: #E7FF3B; border: 1px solid #E7FF3B; }
@@ -345,10 +395,29 @@ export function FontLabDevPanel() {
 
         .colophon { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 9px 14px 11px;
           border-top: 1px solid rgba(242,239,229,.14); font-size: 8.5px; letter-spacing: .06em; color: rgba(242,239,229,.62); }
-        .colophon button { letter-spacing: inherit; font-size: inherit; color: inherit; display: inline-flex; align-items: center; gap: 4px; }
-        .colophon button:hover kbd { border-color: rgba(242,239,229,.6); }
+        /* the one interactive element in the colophon — boxed so it LOOKS interactive at rest */
+        .keysdoor { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; flex: none;
+          border: 1px solid rgba(242,239,229,.3); border-radius: 3px; color: rgba(242,239,229,.85); letter-spacing: inherit; font-size: inherit; }
+        .keysdoor:hover { border-color: rgba(242,239,229,.6); }
+        .keysdoor[aria-expanded="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
+        .keysdoor[aria-expanded="true"] kbd { color: #100F0D; border-color: rgba(16,15,13,.4); }
         kbd { border: 1px solid rgba(242,239,229,.28); border-radius: 2px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.8); }
-        .ver { margin-left: auto; font-size: 8.5px; color: rgba(242,239,229,.35); }
+        .ver { font-size: 8.5px; color: rgba(242,239,229,.35); }
+
+        /* the back page — the full key reference, flipped to via "? keys". An overlay over the
+           slip body (Pick never moves) that never covers the masthead's presence/unsaved state. */
+        .keys { display: none; position: absolute; left: 0; right: 0; top: 51px; bottom: 0; z-index: 5; background: #191813;
+          border-top: 1px solid rgba(242,239,229,.2); padding: 12px 14px; overflow-y: auto; flex-direction: column; }
+        .keys[data-open="true"] { display: flex; }
+        .keys .kmsub { font-family: ${SERIF_I}; font-style: italic; font-size: 12.5px; color: rgba(242,239,229,.7); padding-bottom: 8px; }
+        .keys .kgrp { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(242,239,229,.12); align-items: baseline; }
+        .keys .kgl { font-size: 8.5px; letter-spacing: .2em; color: rgba(242,239,229,.5); }
+        .keys .kks { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 9.5px; color: rgba(242,239,229,.75); letter-spacing: .04em; }
+        .keys .kks span { display: inline-flex; align-items: center; gap: 4px; }
+        .keys .kmfoot { margin-top: auto; padding-top: 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+          font-size: 8.5px; color: rgba(242,239,229,.45); }
+        .keys .kmfoot button { color: rgba(242,239,229,.7); display: inline-flex; gap: 4px; align-items: center; font-size: inherit; letter-spacing: inherit; }
+        .keys .kmfoot button:hover { color: #F2EFE5; }
 
         .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
         .slip[data-collapsed="true"] .inspect-btn { display: none; }
@@ -364,6 +433,11 @@ export function FontLabDevPanel() {
         </div>
         <div class="dogear" id="dogear" title="collapse"></div>
         <div class="oxford"></div>
+        <div class="keys" id="keys" data-open="false" role="dialog" aria-label="All keys — the back of the slip">
+          <div class="kmsub">the back of the slip — every key, grouped by act</div>
+          ${keysPageHTML}
+          <div class="kmfoot"><span>shows once on first run · then lives behind ? keys</span><button id="keysClose" aria-label="close the key page"><kbd>esc</kbd> closes</button></div>
+        </div>
         <div class="notice" id="notice" data-show="false">
           <div class="nh u" id="noticeHead"></div>
           <div class="nb" id="noticeBody"></div>
@@ -375,25 +449,19 @@ export function FontLabDevPanel() {
         <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
         <div class="standfirst" id="standfirst"></div>
         <div class="spread" id="spread"></div>
-        <div class="fidelity" id="fidelity" data-show="false"></div>
         <div class="pickwrap">
+          <button class="beforetog" id="beforeTog" data-fl-action="compare" aria-pressed="false"
+            title="toggle the site's current fonts (B) · hold B peeks">⇄ before</button>
           <button class="pick" id="pick" data-state="idle" data-fl-action="pick">
             <svg class="tick" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8.6 6.2 12l7-8"/></svg>
             <span id="pickLabel">PICK</span>
+            <span class="enterhint" aria-hidden="true">↵</span>
           </button>
         </div>
         <div class="status" id="status"></div>
         <div class="colophon">
-          <span title="previous / next direction"><kbd>←→</kbd> direction</span>
-          <span title="move between the three roles"><kbd>↑↓</kbd> role</span>
-          <span title="previous / next font for the focused role (or the text you're pointing at)"><kbd>[ ]</kbd> font</span>
-          <span title="snap back to the direction you viewed last — tap repeatedly to compare two finalists"><kbd>space</kbd> snap back</span>
-          <button data-fl-action="compare" title="tap: toggle the site's current fonts · hold the key to peek"><kbd>B</kbd> before</button>
-          <button data-fl-action="pin" title="save a hand-mixed set as a direction in the list"><kbd>S</kbd> save mix</button>
-          <span title="hover-identify text on the page (on by default) · double-click retypes words"><kbd>X</kbd> inspect</span>
-          <span title="tag every element on the page with its role at once"><kbd>⇧X</kbd> map</span>
-          <span title="scroll to the nearest element of the focused role"><kbd>J</kbd> jump</span>
-          <span title="save your pick — same as the PICK button"><kbd>↵</kbd> pick</span>
+          ${spineHTML}
+          <button class="keysdoor" id="keysDoor" aria-expanded="false" title="every key, grouped by act — ? opens · esc closes"><kbd>?</kbd> keys</button>
           <span class="ver">v${PANEL_VERSION}</span>
         </div>
       </div>`;
@@ -422,7 +490,9 @@ export function FontLabDevPanel() {
       cue.dataset.show = String(hidden > 0);
       if (hidden > 0) cue.textContent = `+${hidden} more ↓`;
     }
-    let fidTimer: ReturnType<typeof setTimeout> | null = null, fidKey = "";
+    // ≈ parity honesty: the per-role chip is the persistent surface (it never fades); the full
+    // sentence is narrated once per face, the first time that face enters the working mix.
+    const fidSaid = new Set<string>();
 
     // ---- change receipt: flash + ticks + row verdicts + status line ----------------------
     let tickTimer: ReturnType<typeof setTimeout> | null = null;
@@ -821,7 +891,7 @@ export function FontLabDevPanel() {
             <div class="spec"><span class="fam" data-fl-fam="${role}"></span></div>
             <div class="tagline"></div>
           </div>
-          <div class="right"><span class="pos"></span><button class="step" data-fl-dec="${role}" aria-label="previous ${role} font">‹</button><button class="step" data-fl-inc="${role}" aria-label="next ${role} font">›</button></div>`;
+          <div class="right"><span class="pos"></span><span class="bkt" aria-hidden="true">[ ]</span><button class="step" data-fl-dec="${role}" aria-label="previous ${role} font">‹</button><button class="step" data-fl-inc="${role}" aria-label="next ${role} font">›</button></div>`;
         row.addEventListener("click", (e) => { if ((e.target as Element).closest(".step")) return; state.focus = role; render(); });
         row.addEventListener("mouseenter", () => { if (!xrayAll) { state.focus = role; setXray(role); render(); } });
         row.addEventListener("mouseleave", () => { if (!xrayAll) setXray(null); });
@@ -850,7 +920,7 @@ export function FontLabDevPanel() {
       const gd0 = matchedDir(state.sel);
       const gFol = onCurrent(state.sel) ? "00 Current" : gd0 ? `${String(dirs.indexOf(gd0) + 1).padStart(2, "0")} ${gd0.name}` : "mix — set by hand";
       const unsaved = !onCurrent(state.sel) && state.savedId !== pickIdOf(state.sel);
-      $("collapsedInfo").innerHTML = `· ${esc(gFol)}${unsaved ? ' <span class="tick">′</span>' : ""} <span style="opacity:.55">· \` opens</span>`;
+      $("collapsedInfo").innerHTML = `<span class="ciname">· ${esc(gFol)}</span>${unsaved ? '<span class="ciunsaved">● unsaved</span>' : ""}<span class="ciopen">· \` opens</span>`;
 
       const shownDirM = matchedDir(eff);
       const idx = onCurrent(eff) ? 0 : shownDirM ? dirs.indexOf(shownDirM) + 1 : -1;
@@ -859,11 +929,12 @@ export function FontLabDevPanel() {
       updateTocCue();
 
       const sf = $("standfirst");
-      sf.textContent = state.beforeView
-        ? `Before — ${trio(BEFORE_SEL)}. What ships today.`
-        : shownDirM ? shownDirM.rationale
-        : onCurrent(eff) ? "Flip to a direction (→) — every change is shown on your real page."
-        : `Set by hand — ${trio(eff)}. S saves this mix as a direction.`;
+      if (state.beforeView) sf.textContent = `Before — ${trio(BEFORE_SEL)}. What ships today.`;
+      else if (shownDirM) sf.textContent = shownDirM.rationale;
+      else if (onCurrent(eff)) sf.textContent = "Flip to a direction (→) — every change is shown on your real page.";
+      // save-mix's control IS this sentence — present exactly when there is a mix to save
+      // (clicks are delegated on the container; this line is rewritten every render)
+      else sf.innerHTML = `Set by hand — ${esc(trio(eff))}. <button class="savelink" data-fl-action="pin" title="S also saves it">save this mix as a direction</button>.`;
 
       for (const role of ROLES) {
         const row = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement;
@@ -875,15 +946,20 @@ export function FontLabDevPanel() {
         famEl.textContent = famOf(role, eff);
         famEl.style.fontFamily = unwired ? MONO : stackOf(role, eff) || "";
         famEl.style.fontSize = unwired ? "12px" : "";
-        (row.querySelector(".parity") as HTMLElement).hidden = !(cand && cand.parity !== "guaranteed");
-        (row.querySelector(".parity") as HTMLElement).title = "best-effort — may render slightly differently once shipped";
+        const parityEl = row.querySelector(".parity") as HTMLElement;
+        parityEl.hidden = !(cand && cand.parity !== "guaranteed");
+        parityEl.title = "best-effort — may render slightly differently once shipped";
+        parityEl.setAttribute("aria-label", "best-effort — may render slightly differently once shipped"); // title alone is invisible to keyboard/SR
         (row.querySelector(".wtag") as HTMLElement).hidden = !unwired;
         if (!verdictActive) {
           const covEl = row.querySelector(".cov") as HTMLElement;
           covEl.dataset.verdict = "";
+          const pct = cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0;
           covEl.textContent = unwired ? ""
-            : role === "body" ? `${cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0}% of page text`
+            : role === "body" ? `${pct}% of page text`
             : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on page`;
+          // a zero is pinned always-visible — an invisible pick is exactly what must never hide
+          covEl.dataset.pin = String(!unwired && (role === "body" ? pct === 0 : cov.count[role] === 0));
         }
         (row.querySelector(".tagline") as HTMLElement).textContent = unwired
           ? "previews after ship · pick records."
@@ -894,20 +970,18 @@ export function FontLabDevPanel() {
         row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = unwired || state.beforeView));
       }
 
-      const bestEffort = workingParity(eff) === "best-effort" && !onCurrent(eff) && !state.beforeView;
-      const fid = $("fidelity");
-      fid.dataset.show = String(bestEffort);
-      if (bestEffort) {
-        const faces = ROLES.map((r) => candOf(r, eff)).filter((c): c is Cand => !!c && c.parity !== "guaranteed").map((c) => c.family);
-        fid.textContent = `≈ close preview — ${faces.join(", ")} may differ slightly once shipped.`;
-        const key = faces.join("|");
-        if (key !== fidKey) {
-          fidKey = key;
-          fid.dataset.quiet = "false";
-          if (fidTimer) clearTimeout(fidTimer);
-          fidTimer = setTimeout(() => { fid.dataset.quiet = "true"; }, 4500);
+      // ≈ honesty: no separate band (it restated the chip, then auto-faded — a caution that
+      // times out is a caution that can be missed). The chip on the row is permanent; the full
+      // sentence lands in the status line once per face, at first encounter.
+      if (workingParity(eff) === "best-effort" && !onCurrent(eff) && !state.beforeView) {
+        const fresh = ROLES.map((r) => candOf(r, eff))
+          .filter((c): c is Cand => !!c && c.parity !== "guaranteed")
+          .map((c) => c.family).filter((f) => !fidSaid.has(f));
+        if (fresh.length) {
+          fresh.forEach((f) => fidSaid.add(f));
+          setStatus(`≈ close preview — ${fresh.join(", ")} may differ slightly once shipped.`, "warn");
         }
-      } else { fidKey = ""; fid.dataset.quiet = "false"; }
+      }
 
       const pick = $<HTMLButtonElement>("pick"), pl = $("pickLabel");
       const pickable = !state.beforeView && !onCurrent(eff);
@@ -924,6 +998,7 @@ export function FontLabDevPanel() {
         if (!pickable && !state.saving && !editingEl)
           guardStatus(state.beforeView ? "Viewing before — flip back to pick." : "On current — nothing to pick.");
       }
+      $("beforeTog").setAttribute("aria-pressed", String(state.beforeView));
       refreshChip();
       persist();
     }
@@ -1100,6 +1175,8 @@ export function FontLabDevPanel() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
       const k = e.key;
+      // any working key closes the back page and still acts — the reference never blocks the loop
+      if (state.keysOpen && k !== "?" && k !== "Escape") setKeys(false);
       if (k === "ArrowRight") { e.preventDefault(); selectEntry(Math.min(state.cursor + 1, dirs.length)); }
       else if (k === "ArrowLeft") { e.preventDefault(); selectEntry(Math.max(state.cursor - 1, 0)); }
       else if (k === "ArrowDown") { e.preventDefault(); moveFocus(1); }
@@ -1112,6 +1189,8 @@ export function FontLabDevPanel() {
       else if (k === "X" && e.shiftKey) { e.preventDefault(); xrayAll ? setXray(null, false) : setXray(state.focus, true); }
       else if (k === "x") { e.preventDefault(); toggleInspect(); }
       else if (k === "j" || k === "J") { e.preventDefault(); jumpNearest(state.focus); }
+      else if (k === "?") { e.preventDefault(); setKeys(!state.keysOpen); }
+      else if (k === "Escape" && state.keysOpen) { e.preventDefault(); setKeys(false); }
       else if (k === "Escape" && xrayAll) { e.preventDefault(); setXray(null, false); }
       else if (k === "Enter") { e.preventDefault(); void doPick(); }
       else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
@@ -1126,10 +1205,16 @@ export function FontLabDevPanel() {
       setStatus(state.inspect ? "Inspect on — hover the page to identify text." : "Inspect off — X turns it back on.");
       render();
     }
+    // the back page — full key reference; open/closed is plain visible state
+    function setKeys(open: boolean) {
+      state.keysOpen = open;
+      $("keys").dataset.open = String(open);
+      $("keysDoor").setAttribute("aria-expanded", String(open));
+    }
     function toggleCollapsed() {
       state.expanded = !state.expanded;
       slip.dataset.collapsed = String(!state.expanded);
-      if (!state.expanded) { inspectClear(); setXray(null, false); }
+      if (!state.expanded) { inspectClear(); setXray(null, false); setKeys(false); }
       render();
     }
     $("dogear").addEventListener("click", toggleCollapsed);
@@ -1138,9 +1223,14 @@ export function FontLabDevPanel() {
     });
     $("inspectBtn").addEventListener("click", toggleInspect);
     $("pick").addEventListener("click", () => void doPick());
-    $("pick").addEventListener("mouseenter", () => { const f = $("fidelity"); if (f.dataset.show === "true") f.dataset.quiet = "false"; });
-    (shadow.querySelector('[data-fl-action="compare"]') as HTMLElement).addEventListener("click", toggleBefore);
-    (shadow.querySelector('[data-fl-action="pin"]') as HTMLElement).addEventListener("click", saveMix);
+    $("beforeTog").addEventListener("click", toggleBefore);
+    $("keysDoor").addEventListener("click", () => setKeys(!state.keysOpen));
+    $("keysClose").addEventListener("click", () => setKeys(false));
+    // the save-mix link lives inside the standfirst, which render() rewrites — delegate the
+    // click to the container so the handler survives every rewrite
+    $("standfirst").addEventListener("click", (e) => {
+      if ((e.target as Element).closest('[data-fl-action="pin"]')) saveMix();
+    });
     $("toc").addEventListener("scroll", updateTocCue);
     $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
     const onResize = () => invalidateScan();
@@ -1165,6 +1255,14 @@ export function FontLabDevPanel() {
     if (restored) { applyToPage(null, state.sel, { silent: true }); render(); }
     else { applyToPage(null, state.sel, { silent: true }); render(); } // land on Current; ← → flips
     setStatus("");
+    // First run only: show the back page once, so every key is seen before it rests folded.
+    // Skipped under automation (webdriver) so headless captures stay clean.
+    try {
+      if (!localStorage.getItem("fontlab.keysSeen.v1") && !navigator.webdriver) {
+        localStorage.setItem("fontlab.keysSeen.v1", "1");
+        setKeys(true);
+      }
+    } catch {}
 
     return () => {
       document.removeEventListener("keydown", onKey);
