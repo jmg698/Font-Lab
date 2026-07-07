@@ -667,6 +667,46 @@ export function FontLabDevPanel() {
     }
     let editingEl: HTMLElement | null = null;
     let editingOriginal = "";
+
+    // ---- floating edit result: pin the save ack / refusal reason to the words the human just
+    // edited — where their eyes already are — instead of only in the panel footer, which is
+    // easy to miss. Same overlay layer and visual language as the inspect hover chip. A refusal
+    // lingers longer (there's a reason to read) and a save carries a one-click undo.
+    let editToast: HTMLElement | null = null;
+    let editToastTimer: ReturnType<typeof setTimeout> | null = null;
+    function hideEditToast() {
+      if (editToastTimer) { clearTimeout(editToastTimer); editToastTimer = null; }
+      if (editToast) editToast.style.display = "none";
+    }
+    function showEditToast(el: HTMLElement, html: string, tone: "good" | "warn") {
+      if (!editToast) { editToast = document.createElement("div"); overlay.appendChild(editToast); }
+      const accent = tone === "good" ? "#E7FF3B" : "#FF6B57";
+      editToast.style.cssText =
+        `position:fixed;z-index:2147483647;max-width:320px;background:#100F0D;color:#F2EFE5;` +
+        `font:11px ${MONO};letter-spacing:.02em;line-height:1.6;padding:9px 12px;border-radius:4px;` +
+        `border:1px solid rgba(242,239,229,.18);border-left:3px solid ${accent};` +
+        `box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:auto;`;
+      editToast.innerHTML = html;
+      editToast.style.display = "block";
+      // pin above the edited text; flip below if it would clip the top of the viewport
+      const r = el.getBoundingClientRect();
+      editToast.style.left = Math.max(8, Math.min(innerWidth - editToast.offsetWidth - 8, r.left)) + "px";
+      let y = r.top - editToast.offsetHeight - 8;
+      if (y < 8) y = Math.min(innerHeight - editToast.offsetHeight - 8, r.bottom + 8);
+      editToast.style.top = y + "px";
+      if (editToastTimer) clearTimeout(editToastTimer);
+      editToastTimer = setTimeout(hideEditToast, tone === "good" ? 4200 : 9000);
+    }
+    async function runUndo() {
+      hideEditToast();
+      try {
+        const u = await fetch(ENDPOINT + "/undo", { method: "POST" });
+        if (u.ok) setStatus("Restored — byte-exact undo.", "good");
+        else setStatus("Undo failed — npx font-lab-undo from the terminal.", "warn");
+      } catch { setStatus("Endpoint offline — npx font-lab, then undo.", "warn"); }
+    }
+    const TOAST_UNDO = `<button class="fl-toast-undo" style="background:none;border:0;color:#E7FF3B;font:inherit;text-decoration:underline;cursor:pointer;padding:0;margin-left:6px">undo</button>`;
+
     const onDblClick = (e: MouseEvent) => {
       if (!state.expanded || editingEl) return;
       const t = e.target as Element | null;
@@ -685,6 +725,7 @@ export function FontLabDevPanel() {
     const onEditBlur = () => { void saveEdit(); };
     function startEdit(el: HTMLElement) {
       inspectClear();
+      hideEditToast();
       editingEl = el;
       editingOriginal = el.textContent || "";
       el.classList.add("__fl_editing");
@@ -721,29 +762,29 @@ export function FontLabDevPanel() {
         const j = await res.json().catch(() => ({}) as any);
         if (res.ok && j.ok) {
           setStatusHTML(`Saved ✓ <b>${esc(j.file)}:${esc(j.line)}</b> — words are in your source. <button class="linkish" id="undoEdit">undo</button>`, "good");
-          const ub = shadow.getElementById("undoEdit");
-          if (ub) ub.addEventListener("click", async () => {
-            try {
-              const u = await fetch(ENDPOINT + "/undo", { method: "POST" });
-              if (u.ok) { setStatus("Restored — byte-exact undo.", "good"); }
-              else setStatus("Undo failed — npx font-lab-undo from the terminal.", "warn");
-            } catch { setStatus("Endpoint offline — npx font-lab, then undo.", "warn"); }
-          });
+          shadow.getElementById("undoEdit")?.addEventListener("click", runUndo);
+          showEditToast(el, `<b style="color:#E7FF3B;font-weight:600">Saved ✓</b> ${esc(j.file)}:${esc(j.line)}${TOAST_UNDO}`, "good");
+          editToast?.querySelector(".fl-toast-undo")?.addEventListener("click", runUndo);
         } else {
           // Refused (dynamic text, duplicate phrase, unmappable) — revert the DOM so the page
-          // never lies about what's in source, and say why.
+          // never lies about what's in source, and say why, pinned to where the words snapped
+          // back so the reason is impossible to miss.
           el.textContent = before;
-          setStatus(`Not saved — ${j.error || `endpoint said ${res.status}`}.`, "warn");
+          const why = j.error || `endpoint said ${res.status}`;
+          setStatus(`Not saved — ${why}.`, "warn");
+          showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">${esc(why)}</span>`, "warn");
         }
       } catch {
         el.textContent = before;
         setStatus("Endpoint offline — run npx font-lab, then retype.", "warn");
+        showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">Endpoint offline — run <b>npx font-lab</b> in your site's folder, then retype.</span>`, "warn");
       }
     }
     function cancelEdit() {
       const el = endEdit();
       if (!el) return;
       el.textContent = editingOriginal;
+      hideEditToast();
       setStatus("Edit cancelled — nothing written.");
     }
 

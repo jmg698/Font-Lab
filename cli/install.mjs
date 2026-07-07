@@ -204,14 +204,21 @@ const AGENTS_END = "<!-- font-lab:end -->";
 export function agentsBlock() {
   return [
     AGENTS_START,
-    "## Font Lab — pick & ship fonts",
+    "## Font Lab — pick & ship fonts (and edit copy) on the real site",
     "",
-    "When the user wants to choose, change, compare, or improve the FONTS / typography of this Next.js + Tailwind app, drive the `font_lab_*` MCP tools in this order:",
+    "When the user wants to choose, change, compare, or improve the FONTS / typography of this Next.js + Tailwind app, drive the `font_lab_*` MCP tools. **Do as much of the setup yourself as your environment allows before involving the human — then hand them only what you genuinely can't do.**",
+    "",
+    "**Setup — who starts what (this is where it usually goes wrong):** the live panel needs TWO long-running local processes up at the same time — the **dev server** (your project's `npm run dev` / `pnpm dev` / …) and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Neither ever exits.",
+    "- **If you have a local terminal** (Cursor, Claude Code, Windsurf, VS Code, Gemini CLI): **start BOTH yourself as background tasks and leave them running** (skip whichever is already up). Do NOT run them in the foreground — they never return and your turn will hang. Then tell the human to open their site.",
+    "- **If you're a cloud / container agent** with no access to the user's localhost: you can still install, scaffold the panel, and ship — but you **cannot start or reach** those processes. Give the human the exact commands and the URL to open (`font_lab_live_instructions` prints them for this project), and drive the pick from screenshots (`font_lab_screenshot_directions`).",
+    "- **Only the human can:** reload this session once after install so the MCP tools load, and make the actual pick / retype copy in their browser.",
     "",
     "1. **Start & intake** — `font_lab_start({ projectDir })` analyzes the project and returns a design brief. **Ask the human its framing questions first** (what feeling? how bold a departure? brand to evoke or avoid?) and wait for answers before proposing any fonts.",
     "2. **Compose for their brief** — `font_lab_compose_directions(...)` with tailored directions (display + body + mono, each with a one-line rationale). Reach PAST the overexposed defaults (Inter, Geist, Space Grotesk, …). You're not limited to the catalog — any of ~1,500 Google fonts works; confirm uncertain faces with `font_lab_check_fonts`. (`font_lab_curate` is the no-brief fallback.)",
     "3. **Let the human choose** — `font_lab_screenshot_directions` (works anywhere) or the live panel. **Never auto-pick** — the human always makes the taste decision. On the live path, receive the pick by running `npx font-lab serve --once` as a background task (it exits when the pick lands) or by calling `font_lab_wait_for_pick` (blocks; re-call on timeout). Never \"check back later\" — idle agents can't poll. `font_lab_status` says where the loop stands anytime.",
     "4. **Ship** — `font_lab_apply` writes the exact next/font + Tailwind code, reversibly (`font_lab_undo`). It verifies every family is buildable before writing; after applying, run the project's build to confirm and report honestly.",
+    "",
+    "**Copy edits ride the same endpoint:** with the panel up and `:7777` running, the human can double-click any text on the page, retype it, and it saves to their source (reversibly). If edits appear to save then revert, it's almost always one of: the endpoint isn't running, it's pointed at the wrong folder (`--project` must be the site root), or the site isn't in dev mode — tell the human which to fix rather than leaving it looking broken.",
     "",
     "Prefer `guaranteed` (WYSIWYG) faces; when only `best-effort` is possible, relay the fidelity warning honestly.",
     AGENTS_END,
@@ -299,6 +306,11 @@ export function runInstall() {
     console.log(`  Note: a newly registered MCP server is picked up when the agent/session reloads its`);
     console.log(`        config — restart the session (or reconnect MCP) if the tools aren't live yet.`);
   }
+  console.log(`  For the agent: once the tools are live, do as much as your environment allows.`);
+  console.log(`        With a local terminal (Cursor/Claude Code/…), start the dev server AND`);
+  console.log(`        \`npx font-lab --project <dir>\` (:7777) YOURSELF as background tasks and leave`);
+  console.log(`        them running. As a cloud agent, hand those commands to the human instead.`);
+  console.log(`        The :7777 endpoint records picks AND saves in-panel copy edits.`);
   console.log(`  Then just ask: "use Font Lab to pick new fonts". Undo with \`font-lab uninstall\`.`);
 }
 

@@ -97,5 +97,26 @@ console.log("\nWRITE-BACK ENGINE\n");
   rmSync(dir, { recursive: true, force: true });
 }
 
+// 8) A resolved frame whose line/col DRIFTED (source-map column slip, tag-off call site) must
+//    still land a UNIQUE phrase instead of hard-refusing — the drift is why the panel used to
+//    snap the words back. Line 1 is a comment: elementAt() finds nothing there, so we fall
+//    through to the unique-phrase match.
+{
+  const dir = freshProject();
+  const r = applyEdit(dir, { file: FILE, line: 1, col: 0, oldText: "The moment of choice is the only part that needed you.", newText: "Taste is the only part that needed you." });
+  ok("drifted frame + unique phrase still saves", r.ok && read(dir).includes("Taste is the only part that needed you."), JSON.stringify(r));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// 9) …but a drifted frame must NOT let a DUPLICATE phrase through — degrade, never guess.
+{
+  const dir = freshProject();
+  const orig = read(dir);
+  const r = applyEdit(dir, { file: FILE, line: 1, col: 0, oldText: "Good design is the presence of a decision.", newText: "X" });
+  ok("drifted frame + duplicate phrase is still refused", !r.ok && /ambiguous/.test(r.error), JSON.stringify(r));
+  ok("  file untouched on the refusal", read(dir) === orig);
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "✗" : "✓"} write-back: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

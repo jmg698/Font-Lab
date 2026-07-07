@@ -17,6 +17,25 @@ the human picks from a curated set rendered on their real site, and you ship wha
 byte-for-byte. **You never auto-pick a font for the user.** Your job is to curate the menu and
 ship the order.
 
+## Setup — do as much yourself as you can, then guide the human
+
+The live panel needs **two long-running local processes up at the same time**: the **dev server**
+and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Neither ever exits.
+
+- **If you have a local terminal** (Cursor, Claude Code, Windsurf, VS Code, Gemini CLI — the common
+  case): **start BOTH yourself as background tasks and leave them running** (skip whichever is
+  already up). Never start them in the foreground — they don't return and your turn will hang. Then
+  the human just opens their site.
+- **If you're a cloud / container agent** with no reach to the user's localhost: you can still
+  install, scaffold the panel, and ship — but you **cannot start or reach** those processes. Hand
+  the human the exact commands (`font_lab_live_instructions({ projectDir })`) and the URL to open,
+  and drive the pick from screenshots (`font_lab_screenshot_directions`).
+- **Only the human can:** reload the session once after install (so the MCP tools load) and make the
+  actual pick / retype copy in their browser.
+
+The goal is that the human does nothing you could have done for them — you handle setup, scaffolding,
+and shipping; they keep the taste decision.
+
 ## The loop
 
 Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
@@ -107,6 +126,22 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    **After applying, verify before declaring success:** run the project's build (`next build`, or
    at minimum let the dev server recompile cleanly) and report the result honestly — apply verifies
    structure; the build verifies the fonts resolve.
+
+## Copy edits — same endpoint, no extra setup
+
+Once the panel is mounted (`init`) and the **`:7777` endpoint is running**, the human can
+**double-click any text on their page, retype it, and it saves to their source** — reversibly,
+through the same backup machinery as apply. It rides the exact endpoint you already started for
+picks, so there's nothing extra to install: if picks work, copy edits work. This is why keeping
+that endpoint up (and pointed at the site root) matters even when the user only came for fonts.
+
+If an edit **appears to save then snaps back**, it's the failure signal, and it's almost always one
+of three things — say which, don't leave it looking broken:
+- the **endpoint isn't running** (or the panel says OFFLINE),
+- it's **pointed at the wrong folder** — `npx font-lab --project <dir>` must be the site's own root
+  (a mismatch, or a space/odd char in the path, shows up as "couldn't find these words"),
+- the **site isn't in dev mode** — copy edit reads the dev server's source map to locate the JSX to
+  rewrite; a production build won't have it.
 
 ## Rules
 
