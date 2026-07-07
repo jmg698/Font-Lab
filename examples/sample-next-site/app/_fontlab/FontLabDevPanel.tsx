@@ -405,19 +405,25 @@ export function FontLabDevPanel() {
         .ver { font-size: 8.5px; color: rgba(242,239,229,.35); }
 
         /* the back page — the full key reference, flipped to via "? keys". An overlay over the
-           slip body (Pick never moves) that never covers the masthead's presence/unsaved state. */
+           slip body (Pick never moves) that never covers the masthead's presence/unsaved state.
+           It IS the back of the slip: click anywhere to flip it back over (the keycaps are
+           reference, not controls), so a first-run reader is never trapped needing the keyboard. */
         .keys { display: none; position: absolute; left: 0; right: 0; top: 51px; bottom: 0; z-index: 5; background: #191813;
-          border-top: 1px solid rgba(242,239,229,.2); padding: 12px 14px; overflow-y: auto; flex-direction: column; }
+          border-top: 1px solid rgba(242,239,229,.2); padding: 12px 14px; overflow-y: auto; flex-direction: column; cursor: pointer; }
         .keys[data-open="true"] { display: flex; }
         .keys .kmsub { font-family: ${SERIF_I}; font-style: italic; font-size: 12.5px; color: rgba(242,239,229,.7); padding-bottom: 8px; }
         .keys .kgrp { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(242,239,229,.12); align-items: baseline; }
         .keys .kgl { font-size: 8.5px; letter-spacing: .2em; color: rgba(242,239,229,.5); }
         .keys .kks { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 9.5px; color: rgba(242,239,229,.75); letter-spacing: .04em; }
         .keys .kks span { display: inline-flex; align-items: center; gap: 4px; }
-        .keys .kmfoot { margin-top: auto; padding-top: 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+        .keys .kmfoot { margin-top: auto; padding-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
           font-size: 8.5px; color: rgba(242,239,229,.45); }
-        .keys .kmfoot button { color: rgba(242,239,229,.7); display: inline-flex; gap: 4px; align-items: center; font-size: inherit; letter-spacing: inherit; }
-        .keys .kmfoot button:hover { color: #F2EFE5; }
+        .keys .kmfoot .khint { flex: 1; min-width: 0; }
+        .keys .kmfoot .khint kbd { margin: 0 1px; }
+        /* the explicit dismiss — paper-filled so it reads as the primary action on first sight */
+        .keys .kmdone { flex: none; background: #F2EFE5; color: #100F0D; border-radius: 3px; padding: 6px 14px; font-weight: 700;
+          letter-spacing: .1em; font-size: 9.5px; }
+        .keys .kmdone:hover { background: #fff; }
 
         .slip[data-collapsed="true"] > :not(.mast):not(.dogear) { display: none; }
         .slip[data-collapsed="true"] .inspect-btn { display: none; }
@@ -436,7 +442,7 @@ export function FontLabDevPanel() {
         <div class="keys" id="keys" data-open="false" role="dialog" aria-label="All keys — the back of the slip">
           <div class="kmsub">the back of the slip — every key, grouped by act</div>
           ${keysPageHTML}
-          <div class="kmfoot"><span>shows once on first run · then lives behind ? keys</span><button id="keysClose" aria-label="close the key page"><kbd>esc</kbd> closes</button></div>
+          <div class="kmfoot"><span class="khint">tap anywhere to flip back · <kbd>?</kbd> reopens it</span><button class="kmdone" id="keysClose" aria-label="flip back to the panel">Got it</button></div>
         </div>
         <div class="notice" id="notice" data-show="false">
           <div class="nh u" id="noticeHead"></div>
@@ -1175,8 +1181,10 @@ export function FontLabDevPanel() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
       const k = e.key;
-      // any working key closes the back page and still acts — the reference never blocks the loop
-      if (state.keysOpen && k !== "?" && k !== "Escape") setKeys(false);
+      // while the back page is up, the first key just flips it back — nothing else. It appeared
+      // on its own (first run), so dismiss-first is safest: no accidental pick, no accidental
+      // direction jump from a key the reader pressed only to get rid of the reference.
+      if (state.keysOpen) { e.preventDefault(); setKeys(false); return; }
       if (k === "ArrowRight") { e.preventDefault(); selectEntry(Math.min(state.cursor + 1, dirs.length)); }
       else if (k === "ArrowLeft") { e.preventDefault(); selectEntry(Math.max(state.cursor - 1, 0)); }
       else if (k === "ArrowDown") { e.preventDefault(); moveFocus(1); }
@@ -1189,8 +1197,7 @@ export function FontLabDevPanel() {
       else if (k === "X" && e.shiftKey) { e.preventDefault(); xrayAll ? setXray(null, false) : setXray(state.focus, true); }
       else if (k === "x") { e.preventDefault(); toggleInspect(); }
       else if (k === "j" || k === "J") { e.preventDefault(); jumpNearest(state.focus); }
-      else if (k === "?") { e.preventDefault(); setKeys(!state.keysOpen); }
-      else if (k === "Escape" && state.keysOpen) { e.preventDefault(); setKeys(false); }
+      else if (k === "?") { e.preventDefault(); setKeys(true); } // (keysOpen handled above)
       else if (k === "Escape" && xrayAll) { e.preventDefault(); setXray(null, false); }
       else if (k === "Enter") { e.preventDefault(); void doPick(); }
       else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
@@ -1225,7 +1232,10 @@ export function FontLabDevPanel() {
     $("pick").addEventListener("click", () => void doPick());
     $("beforeTog").addEventListener("click", toggleBefore);
     $("keysDoor").addEventListener("click", () => setKeys(!state.keysOpen));
-    $("keysClose").addEventListener("click", () => setKeys(false));
+    // the back page is reference, not controls — a click anywhere on it flips it back over,
+    // so a first-run reader is never stuck hunting for the keyboard. "Got it" is the same act,
+    // made visible; both routes (and esc / ?) land in setKeys(false).
+    $("keys").addEventListener("click", () => setKeys(false));
     // the save-mix link lives inside the standfirst, which render() rewrites — delegate the
     // click to the container so the handler survives every rewrite
     $("standfirst").addEventListener("click", (e) => {

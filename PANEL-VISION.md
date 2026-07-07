@@ -207,8 +207,11 @@ panel's content divides into three kinds with three lifespans:
   never hide), and post-flip row verdicts always show.
 - **Teaching** — the keycap hints — **folds behind one labeled door.** The colophon rests
   as the 3-key spine + `? keys`; `?` flips to the back page (an overlay over the slip body,
-  so Pick never moves and the masthead's state stays visible; any working key closes it and
-  still acts). On the very first run the back page shows itself once, then rests folded.
+  so Pick never moves and the masthead's state stays visible). It **is** the back of the
+  slip: a **click anywhere on it flips it back over** (the keycaps are reference, not
+  controls), plus a paper `Got it` button and `esc` — so a first-run reader is never trapped
+  needing the keyboard. Dismiss-first: while it is up, the next key only flips it back (no
+  accidental pick or jump). On the very first run it shows itself once, then rests folded.
 
 The two controls that used to hide in the footer dressed as hints (`B`, `S`) moved to where
 their proof-acts live (see Compare above); the colophon is now uniformly inert except the
