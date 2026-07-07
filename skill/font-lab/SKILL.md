@@ -135,6 +135,12 @@ through the same backup machinery as apply. It rides the exact endpoint you alre
 picks, so there's nothing extra to install: if picks work, copy edits work. This is why keeping
 that endpoint up (and pointed at the site root) matters even when the user only came for fonts.
 
+Prose written with **HTML entities** (`what&apos;s`, `Tom &amp; Jerry`) edits fine — the engine
+decodes them to match the rendered words and re-encodes on write, so the apostrophe round-trips and
+no lint rule (`react/no-unescaped-entities`) is reintroduced. Copy that's **duplicated across pages**
+also edits fine as long as the panel can resolve the call site (dev mode): the frame pins the one
+file, so the twin on another page is left untouched.
+
 If an edit **appears to save then snaps back**, it's the failure signal, and it's almost always one
 of three things — say which, don't leave it looking broken:
 - the **endpoint isn't running** (or the panel says OFFLINE),
@@ -142,6 +148,13 @@ of three things — say which, don't leave it looking broken:
   (a mismatch, or a space/odd char in the path, shows up as "couldn't find these words"),
 - the **site isn't in dev mode** — copy edit reads the dev server's source map to locate the JSX to
   rewrite; a production build won't have it.
+
+When an edit **genuinely can't be automated** — the words come from data (a DB/CMS/props), or the
+same phrase lives in several files with no resolvable call site — the panel stops guessing and
+offers a **"Copy fix for your agent →"** button. That copies a ready-to-paste instruction (change
+"X" to "Y", and where) the human hands to you; make that exact change in source, reversibly. The
+same text comes back on the endpoint's refusal as `agentPrompt`, so an un-automatable copy edit
+still has a clean next step instead of a dead end.
 
 ## Rules
 

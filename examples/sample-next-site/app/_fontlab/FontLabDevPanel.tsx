@@ -848,7 +848,22 @@ export function FontLabDevPanel() {
           el.textContent = before;
           const why = j.error || `endpoint said ${res.status}`;
           setStatus(`Not saved — ${why}.`, "warn");
-          showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">${esc(why)}</span>`, "warn");
+          // If the endpoint decided this edit can't be automated (data-driven text, or a phrase in
+          // several files with no call site), it hands back a ready-to-paste instruction for a
+          // coding agent. Offer a one-click copy so the human's next step is "paste to your agent,"
+          // not a dead end.
+          const agentPrompt: string = typeof j.agentPrompt === "string" ? j.agentPrompt : "";
+          const handoff = agentPrompt
+            ? `<br><button class="fl-toast-agent" style="background:none;border:0;color:#E7FF3B;font:inherit;text-decoration:underline;cursor:pointer;padding:0;margin-top:6px">Copy fix for your agent →</button>`
+            : "";
+          showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">${esc(why)}</span>${handoff}`, "warn");
+          const agentBtn = agentPrompt ? editToast?.querySelector(".fl-toast-agent") : null;
+          if (agentBtn) {
+            agentBtn.addEventListener("click", async () => {
+              try { await navigator.clipboard.writeText(agentPrompt); agentBtn.textContent = "Copied ✓ — paste it to your agent"; }
+              catch { agentBtn.textContent = "Copy blocked — it's in the console"; console.log("[Font Lab] ask your agent:\n" + agentPrompt); }
+            });
+          }
         }
       } catch {
         el.textContent = before;

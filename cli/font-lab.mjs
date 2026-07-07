@@ -270,17 +270,23 @@ const server = http.createServer((req, res) => {
             r = applyEdit(PROJECT, { file: hits[0].file, oldText, newText, runIdSeed: seed });
           } else if (!r) {
             // No resolvable frame AND not uniquely locatable by text — say why, actionably, so
-            // the revert in the panel reads as an explained boundary, not a silent snap-back.
+            // the revert in the panel reads as an explained boundary, not a silent snap-back, and
+            // hand back a ready-to-paste instruction for the user's coding agent (see agentHandoff).
             const why = hits.length === 0
               ? `couldn't find these words as a text literal in ${path.basename(PROJECT)}/ — they may come from data (a DB/CMS/props), or \`npx font-lab\` may be pointed at a different folder than your site`
               : `"${String(oldText).slice(0, 40)}…" appears ${hits.length}× — retype from the exact spot so the call-site pins which one`;
             console.log(`  ⚠ copy edit refused: ${why}`);
-            return send(409, { ok: false, error: why, candidates: hits });
+            return send(409, { ok: false, error: why, candidates: hits, agentPrompt: agentHandoff({ oldText, newText, hits }) });
           }
         }
         if (!r) return send(409, { ok: false, error: "need a resolvable frame or the original text" });
-        console.log(r.ok ? `  ✎ ${r.file}:${r.line}  "${r.before}" → "${r.after}"` : `  ⚠ copy edit refused: ${r.error}`);
-        return send(r.ok ? 200 : 409, r);
+        if (!r.ok) {
+          console.log(`  ⚠ copy edit refused: ${r.error}`);
+          const extra = oldText ? { agentPrompt: agentHandoff({ oldText, newText, hits: findPhrase(PROJECT, oldText) }) } : {};
+          return send(409, { ...r, ...extra });
+        }
+        console.log(`  ✎ ${r.file}:${r.line}  "${r.before}" → "${r.after}"`);
+        return send(200, r);
       } catch (e) {
         return send(400, { ok: false, error: String(e.message || e) });
       }
@@ -290,6 +296,24 @@ const server = http.createServer((req, res) => {
   res.writeHead(404);
   res.end();
 });
+
+// When an edit genuinely can't be automated — the words come from data, or the same phrase lives
+// in several files with no resolvable call site — we still owe the user a next step. Hand back a
+// ready-to-paste instruction for their coding agent: Font Lab is agent-native, so "here's exactly
+// what to change and where" turns a dead-end refusal into a one-paste fix.
+function agentHandoff({ oldText, newText, hits }) {
+  const project = path.basename(PROJECT);
+  const where = hits && hits.length
+    ? `It appears as static copy in: ${hits.map((h) => `${h.file}:${h.line}`).join(", ")}${hits.length > 1 ? " — change the one the user meant (ask them if it's unclear which page)" : ""}.`
+    : `It isn't a static string literal in ${project}/, so it's likely rendered from data (props, a CMS, or a constants/i18n file). Find where that copy originates and change it at the source.`;
+  return [
+    `In the ${project} project, change the on-page copy:`,
+    `  from: ${JSON.stringify(String(oldText))}`,
+    `    to: ${JSON.stringify(String(newText))}`,
+    where,
+    `Match the file's existing quote/entity style (e.g. &apos; for apostrophes), and keep the change reversible.`,
+  ].join("\n");
+}
 
 // Resolve a bundled call-site frame ({url,line,column} inside the dev bundle) to original
 // source using the dev server's own source map. Cached per bundle URL; no bundler plugin.

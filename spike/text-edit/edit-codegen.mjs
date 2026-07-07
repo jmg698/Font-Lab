@@ -28,6 +28,52 @@ import path from "node:path";
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const norm = (s) => s.replace(/\s+/g, " ").trim();
 
+// ---- HTML character references in JSX text ---------------------------------
+
+// JSX text renders HTML character references exactly like a browser does, so the words the panel
+// reads back (element.textContent) are the DECODED form — "what's", not the "what&apos;s" that's in
+// source. ts-morph hands us the RAW source text with entities intact, so we decode before comparing
+// or a perfectly good edit looks like `no editable text matching …`. Single-pass: `&amp;apos;`
+// decodes to the literal `&apos;`, matching what a browser shows. Unknown entities are left as-is.
+const NAMED_ENTITIES = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  copy: "©", reg: "®", trade: "™", hellip: "…",
+  mdash: "—", ndash: "–", lsquo: "‘", rsquo: "’",
+  ldquo: "“", rdquo: "”", sbquo: "‚", bdquo: "„",
+  laquo: "«", raquo: "»", times: "×", divide: "÷",
+  deg: "°", plusmn: "±", frac12: "½", frac14: "¼",
+  frac34: "¾", middot: "·", bull: "•", dagger: "†",
+  Dagger: "‡", sect: "§", para: "¶", euro: "€",
+  pound: "£", cent: "¢", yen: "¥", ensp: " ",
+  emsp: " ", thinsp: " ", shy: "­", prime: "′",
+  Prime: "″", minus: "−", not: "¬",
+};
+function decodeEntities(s) {
+  return s.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
+    if (body[0] === "#") {
+      const cp = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      // reject out-of-range and lone surrogates — leave the ref verbatim rather than emit invalid UTF-16
+      if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return m;
+      try { return String.fromCodePoint(cp); } catch { return m; }
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : m;
+  });
+}
+
+// Inverse, for write-back into a JsxText node: & < { MUST be encoded (else the parse corrupts);
+// > " ' } are encoded too so a retype never reintroduces a no-unescaped-entities lint error and
+// apostrophes round-trip to the `&apos;` the file already used. `&` first, to not double-encode.
+function encodeJsxText(s) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 // ---- locating the editable text node ---------------------------------------
 
 // Every JsxText / string-literal child that carries human-visible words, with the trimmed
@@ -36,7 +82,7 @@ function editableTextNodes(sf) {
   const out = [];
   for (const t of sf.getDescendantsOfKind(SyntaxKind.JsxText)) {
     const raw = t.getText();
-    const text = norm(raw);
+    const text = norm(decodeEntities(raw)); // compare against the rendered words, not source entities
     if (!text) continue; // whitespace-only formatting node
     out.push({
       node: t,
@@ -44,10 +90,10 @@ function editableTextNodes(sf) {
       text,
       line: t.getStartLineNumber(),
       setText: (next) => {
-        // keep leading / trailing whitespace, swap the meaningful core
+        // keep leading / trailing whitespace, swap the meaningful core (re-encoded to valid JSX text)
         const lead = raw.match(/^\s*/)[0];
         const trail = raw.match(/\s*$/)[0];
-        t.replaceWithText(lead + next + trail);
+        t.replaceWithText(lead + encodeJsxText(next) + trail);
       },
     });
   }
