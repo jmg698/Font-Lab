@@ -66,6 +66,7 @@ jobs:
       # Install prod deps and run the gates so we never publish a broken build.
       - run: npm install --omit=dev --no-audit --no-fund
       - run: node codegen-css-test.mjs
+      - run: node panel-keys-test.mjs
       - run: bash run-m5.sh
 
       # No token: npm authenticates via the OIDC id-token (Trusted Publishing) and attaches

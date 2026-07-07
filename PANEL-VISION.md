@@ -40,8 +40,8 @@ press.** Every region maps to a real editorial form, every act to a proofing act
 | Role rows | A **specimen spread** — the face at size, a standfirst tagline, live coverage stats |
 | Rationale | A **standfirst** in serif italic |
 | Compare | A **proof bar** — GALLEY / BEFORE / A / B, four proofs of the same page |
-| Pick | **Passing the proof for press** — then a drawn checkmark, nothing louder |
-| Footer | A **colophon** of keycaps + version |
+| Pick | **Passing the proof for press** — then a drawn checkmark, nothing louder. A quiet `⇄ before` toggle sits beside it — compare the proof where you pass it |
+| Footer | A **colophon** — one line: the 3-key spine (`←→` direction · `↑↓` role · `[ ]` font), a `? keys` door, version. The full key reference is the **back page**: an overlay you flip to (`?`), grouped by proofing act, shown once in full on first run |
 
 The metaphor is load-bearing, not costume: it dictates the color grammar, the two-voice
 typography, and the vocabulary (`galley`, `proof`, `press`) — and it gives Font Lab the brand
@@ -142,10 +142,14 @@ replacement folds comparison into the direction list itself, one mental model:
 - **`S` — save a mix.** A hand-mixed trio (the `MIX` state) saves as a real row in the list
   (`06 Mix 01 ····· your mix`), named in its own display font like every other row. Mixes
   are then comparable, pickable, and snap-back-able like anything else — no frozen-snapshot
-  concept, no "editing a copy of A."
+  concept, no "editing a copy of A." Its on-screen control is the standfirst sentence
+  itself — *"save this mix as a direction"* is a live link, present exactly when there is a
+  mix to save (never a scolding dead-end button).
 - **`B` — before.** Tap toggles the site's current fonts, **hold (>400ms) peeks** and
   springs back — the blink-comparator. Both directions fire the change machinery. (It's
-  "snap back to row 00," but it earns its own key.)
+  "snap back to row 00," but it earns its own key.) Its on-screen control is the `⇄ before`
+  toggle beside Pick (pressed = paper, like the inspect toggle — compare is neither the
+  hand nor a caution).
 - **Pick always picks what the page is showing.** The only guard left: viewing Current or
   before disables it with a stated reason (`Viewing before — flip back to pick.`).
 
@@ -170,10 +174,12 @@ The inspect layer is the entry point the inline-copy-editing spike needs (see
 
 - Presence: `OFFLINE · NPX FONT-LAB` (hollow dot) / `ENDPOINT READY` (paper dot) /
   `AGENT LISTENING` (wire-green pulse) + the existing narrated tooltips.
-- `≈` best-effort: coral hairline tag on the row + a coral fidelity line **directly above
-  Pick** (prominent at the pick moment, per REDESIGN.md). The line shows fully for ~4s per
-  new best-effort mix, then quiets to the inline `≈`; hovering Pick revives it — honest at
-  the moment it matters, not a permanent nag.
+- `≈` best-effort: the coral hairline tag on the row is the **permanent** honesty surface —
+  it names *which* role is approximate and never fades (a caution that times out is a
+  caution that can be missed; the earlier auto-quieting fidelity band was deleted for
+  exactly that reason). The full sentence — `≈ close preview — Fraunces may differ slightly
+  once shipped.` — lands once in the status line, in coral, the first time each best-effort
+  face enters the working mix. The chip carries an `aria-label`, not just a title.
 - Unwired role: mono (never a fake specimen), boxed `WIRED ON SHIP` tag, steppers off,
   tagline reads `previews after ship · pick records.`
 - Stale panel: the 4280f2c card restyled — plain language leads (`STALE PANEL — 0.9.1 SET ·
@@ -182,7 +188,33 @@ The inspect layer is the entry point the inline-copy-editing spike needs (see
   with the undo line. Status strings stay concrete and unhedged.
 - Keyboard is captured **only while expanded**; collapsed (dog-ear) leaves a 344×44 masthead
   bar that still carries the presence dot, the living `Aa`, the current folio + direction
-  name, and an unsaved-changes tick — loop state is never hidden.
+  name, and a legible `● unsaved` marker — loop state is never hidden. The marker is pinned
+  non-truncating: a long direction name gives way, the state token never does.
+
+## The streamline (state / tools / teaching)
+
+One sorting rule, applied everywhere, replaced the original always-painted surface. The
+panel's content divides into three kinds with three lifespans:
+
+- **State** — connection, folio/position, coverage zeros, `≈` parity, unsaved-mix,
+  what-just-changed — **always visible, never hides.**
+- **Tools** — the `‹ ›` steppers — **appear under the hand**: hidden at rest
+  (`visibility`, never `opacity`, so a hidden control is never tabbable), revealed on the
+  row that is focused or hovered — the same gesture that lights the marker bar. The
+  `font 03/04` counter stays put (state), and the focused row's steppers carry a faint
+  `[ ]` so the key is taught in place. Routine coverage stats reveal the same way, but a
+  **zero is pinned** ("0 spots on page" is an invisible pick — the one case that must
+  never hide), and post-flip row verdicts always show.
+- **Teaching** — the keycap hints — **folds behind one labeled door.** The colophon rests
+  as the 3-key spine + `? keys`; `?` flips to the back page (an overlay over the slip body,
+  so Pick never moves and the masthead's state stays visible; any working key closes it and
+  still acts). On the very first run the back page shows itself once, then rests folded.
+
+The two controls that used to hide in the footer dressed as hints (`B`, `S`) moved to where
+their proof-acts live (see Compare above); the colophon is now uniformly inert except the
+one element that is honestly a button. A single `KEYMAP` table in the template is the source
+of truth for every painted hint, and `cli/panel-keys-test.mjs` (in the publish gate and
+`run-m6.sh`) asserts it never drifts from the `onKey` handler — in either direction.
 
 ## What we take from v0, and what we reject
 

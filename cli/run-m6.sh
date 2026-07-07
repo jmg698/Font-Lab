@@ -13,6 +13,9 @@ DEV_PID=""
 cleanup() { [ -n "$DEV_PID" ] && kill "$DEV_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
+echo "[0/3] keymap parity (KEYMAP table ↔ onKey handler)"
+node "$CLI/panel-keys-test.mjs"
+
 echo "[1/3] build parity catalog"
 node "$CLI/gen-catalog.mjs"
 
