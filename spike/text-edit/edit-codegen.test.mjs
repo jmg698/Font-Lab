@@ -118,5 +118,26 @@ console.log("\nWRITE-BACK ENGINE\n");
   rmSync(dir, { recursive: true, force: true });
 }
 
+// 10) HTML entities: source has `what&apos;s`, the panel sends the rendered `what's`. The engine
+//     must decode to match, then re-encode on write-back so the apostrophe round-trips (and the
+//     edit is valid JSX text). This is the reported "no editable text matching…" bug.
+{
+  const dir = mkdtempSync(path.join(tmpdir(), "fl-text-ent-"));
+  mkdirSync(path.join(dir, "app"), { recursive: true });
+  const file = "app/Entity.tsx";
+  const SRC = `export default function E() {\n  return (\n    <main>\n      <p>Really understand AI in banking: what&apos;s real and what&apos;s vaporware.</p>\n      <p>Tom &amp; Jerry &mdash; done.</p>\n    </main>\n  );\n}\n`;
+  writeFileSync(path.join(dir, file), SRC);
+  const read = () => readFileSync(path.join(dir, file), "utf8");
+
+  const r1 = applyEdit(dir, { file, oldText: "Really understand AI in banking: what's real and what's vaporware.", newText: "Really understand AI in banking: what's hype and what's real." });
+  ok("edit a &apos;-encoded line by its RENDERED text", r1.ok, JSON.stringify(r1));
+  ok("  write-back re-encodes the apostrophe to &apos;", read().includes("what&apos;s hype and what&apos;s real."));
+  ok("  no raw apostrophe leaked into source", !read().includes("what's hype"));
+
+  const r2 = applyEdit(dir, { file, oldText: "Tom & Jerry — done.", newText: "Tom & Jerry & friends — done." });
+  ok("edit an &amp;/&mdash; line by its rendered text; & re-encodes", r2.ok && read().includes("Tom &amp; Jerry &amp; friends"), JSON.stringify(r2));
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "✗" : "✓"} write-back: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
