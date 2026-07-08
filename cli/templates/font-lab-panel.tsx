@@ -326,6 +326,35 @@ export function FontLabDevPanel() {
         .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
         .toc-cue[data-show="true"] { display: block; }
 
+        /* "none of these — ask for more" — the in-panel demand channel */
+        .more-trigger { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; padding: 7px 10px; text-align: left;
+          background: none; border: 1px dashed rgba(242,239,229,.22); border-radius: 4px; color: rgba(242,239,229,.72);
+          font-size: 10.5px; letter-spacing: .02em; cursor: pointer; }
+        .more-trigger:hover { border-color: rgba(242,239,229,.4); color: #F2EFE5; background: #191813; }
+        .more-sheet { margin: 0 14px 10px; padding: 12px; background: #17160f; border: 1px solid rgba(242,239,229,.14); border-radius: 5px; }
+        .more-sheet[hidden] { display: none; }
+        .more-sheet .mh { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,239,229,.6); font-weight: 600; margin-bottom: 8px; }
+        .more-q { margin-bottom: 9px; }
+        .more-q .ql { font-size: 10.5px; color: rgba(242,239,229,.82); font-family: ${SERIF_I}; font-style: italic; margin-bottom: 5px; }
+        .more-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+        .more-chip { font-size: 10px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(242,239,229,.2);
+          background: none; color: rgba(242,239,229,.75); cursor: pointer; white-space: nowrap; }
+        .more-chip:hover { border-color: rgba(242,239,229,.45); color: #F2EFE5; }
+        .more-chip[aria-pressed="true"] { background: #E7FF3B; border-color: #E7FF3B; color: #100F0D; font-weight: 600; }
+        .more-note { width: 100%; margin-top: 2px; padding: 7px 9px; background: #100F0D; border: 1px solid rgba(242,239,229,.2);
+          border-radius: 4px; color: #F2EFE5; font-size: 11px; font-family: inherit; resize: vertical; min-height: 34px; box-sizing: border-box; }
+        .more-note:focus { outline: none; border-color: #B7CC00; }
+        .more-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+        .more-send { flex: none; background: #F2EFE5; color: #100F0D; border: 0; border-radius: 4px; padding: 6px 14px;
+          font-weight: 700; font-size: 10.5px; letter-spacing: .06em; cursor: pointer; }
+        .more-send:hover { background: #fff; }
+        .more-cancel { background: none; border: 0; color: rgba(242,239,229,.55); font: inherit; font-size: 10px; cursor: pointer; padding: 0; }
+        .more-cancel:hover { color: #F2EFE5; }
+        .more-ack { margin-top: 9px; font-size: 10.5px; line-height: 1.5; color: rgba(242,239,229,.8); }
+        .more-ack[data-tone="good"] { color: #9BE7B8; } .more-ack[data-tone="warn"] { color: #E9A88F; }
+        .more-ack .offramp { display: block; margin-top: 6px; }
+        .more-ack .linkish { color: #E7FF3B; text-decoration: underline; cursor: pointer; background: none; border: 0; font: inherit; padding: 0; }
+
         .standfirst { padding: 10px 14px 12px; border-top: 1px solid rgba(242,239,229,.1); font-family: ${SERIF_I}; font-style: italic;
           font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
         /* save-mix lives on the sentence that names it — shown only when there is a mix to save */
@@ -458,6 +487,25 @@ export function FontLabDevPanel() {
           <span class="counter" id="counter"></span>
         </div>
         <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
+        <button class="more-trigger" id="moreTrigger">None of these? Tell Font Lab what you want →</button>
+        <div class="more-sheet" id="moreSheet" hidden>
+          <div class="mh">What are you looking for?</div>
+          <div class="more-q" data-q="feeling"><div class="ql">What should the type feel like?</div><div class="more-chips">
+            <button class="more-chip" data-v="editorial &amp; literary">editorial</button><button class="more-chip" data-v="technical &amp; precise">technical</button><button class="more-chip" data-v="warm &amp; human">warm</button><button class="more-chip" data-v="bold &amp; expressive">bold</button><button class="more-chip" data-v="quiet &amp; minimal">minimal</button><button class="more-chip" data-v="classic &amp; trustworthy">classic</button>
+          </div></div>
+          <div class="more-q" data-q="departure"><div class="ql">How far from the current look?</div><div class="more-chips">
+            <button class="more-chip" data-v="a subtle refinement">subtle</button><button class="more-chip" data-v="a clear shift">a clear shift</button><button class="more-chip" data-v="a dramatic rebrand">dramatic</button>
+          </div></div>
+          <div class="more-q" data-q="brand"><div class="ql">A brand or aesthetic to evoke — or avoid?</div>
+            <textarea class="more-note" id="moreBrand" rows="1" placeholder="e.g. like a respected magazine · not another SaaS template"></textarea></div>
+          <div class="more-q"><div class="ql">Anything else? (optional)</div>
+            <textarea class="more-note" id="moreNote" rows="2" placeholder="what you're going for, in your words"></textarea></div>
+          <div class="more-actions">
+            <button class="more-send" id="moreSend">Get more →</button>
+            <button class="more-cancel" id="moreCancel">cancel</button>
+          </div>
+          <div class="more-ack" id="moreAck" hidden></div>
+        </div>
         <div class="standfirst" id="standfirst"></div>
         <div class="spread" id="spread"></div>
         <div class="pickwrap">
@@ -1166,6 +1214,93 @@ export function FontLabDevPanel() {
       }
     }
 
+    // ---- "more options" — the in-panel demand channel ------------------------------------
+    // The human didn't like what's on the menu (or they're on the seeded STARTER menu and want
+    // ones tailored to them). They tell Font Lab what they're after; we hand that mini-brief to a
+    // listening agent (which composes fresh directions and appends them live). If NO agent is
+    // listening, we say so honestly and give a ready-to-paste prompt as the off-ramp — the ask is
+    // saved either way, so an agent that connects later still fulfills it.
+    function setupMore() {
+      const sheet = $("moreSheet"), trigger = $("moreTrigger"), ack = $("moreAck");
+      const openSheet = (open: boolean) => {
+        sheet.hidden = !open;
+        trigger.textContent = open ? "Never mind — hide this" : "None of these? Tell Font Lab what you want →";
+        if (open) sheet.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+      };
+      trigger.addEventListener("click", () => openSheet(sheet.hidden));
+      $("moreCancel").addEventListener("click", () => { openSheet(false); ack.hidden = true; });
+      // single-select chips, per question group
+      shadow.querySelectorAll<HTMLElement>(".more-q[data-q] .more-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const on = chip.getAttribute("aria-pressed") === "true";
+          const group = chip.closest(".more-q")!;
+          group.querySelectorAll(".more-chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
+          chip.setAttribute("aria-pressed", String(!on));
+        });
+      });
+      const chosen = (q: string): string => {
+        const c = shadow.querySelector(`.more-q[data-q="${q}"] .more-chip[aria-pressed="true"]`);
+        return c ? (c as HTMLElement).textContent?.trim() || "" : "";
+      };
+      const gatherBrief = () => ({
+        feeling: chosen("feeling"),
+        departure: chosen("departure"),
+        brand: ($("moreBrand") as HTMLTextAreaElement).value.trim(),
+        note: ($("moreNote") as HTMLTextAreaElement).value.trim(),
+      });
+      const excludeFamilies = () => [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles[r].family)))];
+
+      // The paste-to-your-agent off-ramp: a self-contained instruction with the brief filled in.
+      const agentPrompt = (brief: Record<string, string>, exclude: string[]) => {
+        const lines = Object.entries(brief).filter(([, v]) => v).map(([k, v]) => `  ${k}: ${v}`);
+        return [
+          "In this project (the one running the Font Lab dev panel), the human wants MORE font options —",
+          "they didn't pick from the current menu. What they're going for:",
+          lines.length ? lines.join("\n") : "  (no specifics given — surprise them, but keep it tasteful and distinctive)",
+          "",
+          `Compose fresh directions that AVOID these already-shown families: ${exclude.join(", ") || "(none)"}.`,
+          "Reach past the overexposed defaults (Inter, Geist, Space Grotesk, …). Then append them to the live",
+          "panel: call font_lab_compose_directions, then font_lab_more_directions. The human still makes the final pick.",
+        ].join("\n");
+      };
+
+      const setAck = (html: string, tone: "" | "good" | "warn" = "") => { ack.hidden = false; ack.dataset.tone = tone; ack.innerHTML = html; };
+      const showOfframp = (brief: Record<string, string>, exclude: string[]) => {
+        setAck(
+          `<b>No agent is listening right now</b>, so nothing will compose these automatically. Two ways forward:` +
+            `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +
+            `<span class="offramp">2 · Reconnect an agent: have it run <code>npx font-lab serve</code> (or call <code>font_lab_wait_for_request</code>), then click Get more again. Your request is saved either way.</span>`,
+          "warn",
+        );
+        shadow.getElementById("moreCopy")?.addEventListener("click", async () => {
+          const text = agentPrompt(brief, exclude);
+          const btn = shadow.getElementById("moreCopy")!;
+          try { await navigator.clipboard.writeText(text); btn.textContent = "Copied ✓ — paste it to your agent"; }
+          catch { btn.textContent = "Copy blocked — it's in the console"; console.log("[Font Lab] ask your agent:\n" + text); }
+        });
+      };
+
+      $("moreSend").addEventListener("click", async () => {
+        const brief = gatherBrief();
+        const exclude = excludeFamilies();
+        setAck("Sending…");
+        try {
+          const res = await fetch(ENDPOINT + "/request", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ brief, exclude }),
+          });
+          const j = await res.json().catch(() => ({}) as any);
+          if (!res.ok || !j.ok) { setAck(`Couldn't send — ${esc(j.error || res.status)}.`, "warn"); return; }
+          if (j.agentWaiting) setAck("<b>Sent to your agent ✓</b> — new options will appear here in a moment.", "good");
+          else showOfframp(brief, exclude);
+        } catch {
+          // endpoint down entirely — still give them the off-ramp so it's never a dead end
+          setAck(`<b>Endpoint offline</b> — run <code>npx font-lab</code> in your site's folder to reconnect. Meanwhile:`, "warn");
+          showOfframp(brief, excludeFamilies());
+        }
+      });
+    }
+
     // ---- live handoff state (SSE) --------------------------------------------------------
     const setConn = (next: Conn) => { if (state.conn === next) return; state.conn = next; render(); };
     const ver = (v: string) => String(v || "").replace(/[^0-9A-Za-z.\-]/g, "");
@@ -1268,6 +1403,7 @@ export function FontLabDevPanel() {
     });
     $("toc").addEventListener("scroll", updateTocCue);
     $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
+    setupMore();
     const onResize = () => invalidateScan();
     addEventListener("resize", onResize);
 

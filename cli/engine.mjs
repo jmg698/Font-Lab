@@ -23,7 +23,7 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -520,6 +520,62 @@ export async function waitForPick(projectDir, { timeoutMs = 240_000, ignoreExist
   }
 }
 
+// Block until the human asks for MORE options in the panel (the "none of these" flow), or timeout.
+// The MCP-native counterpart to waitForPick: while parked here the agent shows as "listening", so a
+// human who clicks "more" reaches a live agent instead of the copy-a-prompt off-ramp. Resolves with
+// the human's mini-brief + the families they've already seen, so the agent composes something NEW.
+// Returns { requested, request?, timedOut?, waitedMs }.
+export async function waitForRequest(projectDir, { timeoutMs = 240_000 } = {}) {
+  const dir = path.resolve(projectDir);
+  const reqPath = requestPath(dir);
+  const startedAt = Date.now();
+  const current = () => {
+    const r = readRequest(dir);
+    return r && r.status === "pending" ? r : null;
+  };
+
+  const immediate = current();
+  if (immediate) return { requested: true, request: immediate, waitedMs: 0 };
+
+  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  setAgentWaiting(dir, true);
+  try {
+    const request = await new Promise((resolve) => {
+      let watcher = null, poller = null, deadline = null;
+      const settle = (v) => {
+        try { watcher?.close(); } catch {}
+        clearInterval(poller);
+        clearTimeout(deadline);
+        resolve(v);
+      };
+      const check = () => { const r = current(); if (r) settle(r); };
+      try {
+        watcher = fsWatch(path.join(dir, ".font-lab"), (_ev, name) => {
+          if (!name || name === "request.json") check();
+        });
+      } catch {}
+      poller = setInterval(check, 1000);
+      deadline = setTimeout(() => settle(null), timeoutMs);
+      check();
+    });
+    if (request) return { requested: true, request, waitedMs: Date.now() - startedAt };
+    return {
+      requested: false,
+      timedOut: true,
+      waitedMs: Date.now() - startedAt,
+      hint: "No 'more options' request yet. Call font_lab_wait_for_request again to keep listening, or check in with the human.",
+    };
+  } finally {
+    setAgentWaiting(dir, false);
+  }
+}
+
+// The human's pending "more options" ask, if any (mini-brief + the families to avoid repeating).
+export function readMoreRequest(projectDir) {
+  const r = readRequest(path.resolve(projectDir));
+  return r && r.status === "pending" ? r : null;
+}
+
 // One snapshot of the whole handoff: the pick, the ship, agent presence, the endpoint, and
 // the latest backup. The cheap "where are we?" for a resumed or interrupted session.
 export async function status(projectDir, { port = 7777 } = {}) {
@@ -695,10 +751,16 @@ export async function expandPreview(projectDir, { directions, fetch = true, log 
   const analysis = analyzeProject(dir);
   const merged = mergeDirections(readPreviewSet(dir), directions);
   await ensureAdmitted(dir, directions);
-  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
+  // Appending composed directions makes the menu tailored — carry that through to the panel badge.
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis), menuMode: "composed" };
   const result = await generateCatalog(dir, merged, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, merged);
-  return { added: directions.length, total: merged.length, directions: result.directions };
+  writeMenuState(dir, { mode: "composed", count: merged.length });
+  // If this fulfilled a pending in-panel "more options" ask, clear it so the panel stops showing
+  // "waiting for your agent" and status reads clean.
+  const had = readRequest(dir);
+  clearRequest(dir);
+  return { added: directions.length, total: merged.length, directions: result.directions, fulfilledRequest: had?.status === "pending" || false };
 }
 
 export function uninit(projectDir) {

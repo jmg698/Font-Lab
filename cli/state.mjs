@@ -6,6 +6,8 @@
 //   selection.json   the human's pick (written by the panel endpoint / select)
 //   applied.json     stamp of the last successful apply (written by codegen)
 //   agent-waiting.json  present while an agent is blocked in waitForPick (presence signal)
+//   menu.json        how the mounted menu was built (composed vs fallback) — the provisional flag
+//   request.json     the human's in-panel "more options" ask, queued until an agent fulfills it
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -15,12 +17,14 @@ export const SELECTION_FILE = "selection.json";
 export const APPLIED_FILE = "applied.json";
 export const WAITING_FILE = "agent-waiting.json";
 export const MENU_FILE = "menu.json";
+export const REQUEST_FILE = "request.json";
 
 export const flDir = (projectDir) => path.join(projectDir, FL_DIR);
 export const selectionPath = (projectDir) => path.join(flDir(projectDir), SELECTION_FILE);
 export const appliedPath = (projectDir) => path.join(flDir(projectDir), APPLIED_FILE);
 export const waitingPath = (projectDir) => path.join(flDir(projectDir), WAITING_FILE);
 export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
+export const requestPath = (projectDir) => path.join(flDir(projectDir), REQUEST_FILE);
 
 const readJson = (p) => {
   try {
@@ -58,6 +62,26 @@ export function writeMenuState(projectDir, { mode, count } = {}) {
 
 export const readMenuState = (projectDir) => readJson(menuPath(projectDir));
 
+// The human's in-panel "more options" ask, queued on disk until an agent fulfills it. Carries the
+// mini-brief they typed (feeling / departure / brand / free note) and the families already on
+// screen, so the agent composes something genuinely NEW instead of repeating what they've rejected.
+// Persisting it means the ask survives an agent connecting late — it isn't lost if none is listening
+// at click time.
+export function writeRequest(projectDir, { brief, exclude } = {}) {
+  mkdirSync(flDir(projectDir), { recursive: true });
+  const req = {
+    status: "pending",
+    brief: brief || {},
+    exclude: Array.isArray(exclude) ? exclude : [],
+    at: new Date().toISOString(),
+  };
+  writeFileSync(requestPath(projectDir), JSON.stringify(req, null, 2) + "\n");
+  return req;
+}
+
+export const readRequest = (projectDir) => readJson(requestPath(projectDir));
+export const clearRequest = (projectDir) => rmSync(requestPath(projectDir), { force: true });
+
 export function setAgentWaiting(projectDir, on) {
   mkdirSync(flDir(projectDir), { recursive: true });
   if (on) writeFileSync(waitingPath(projectDir), JSON.stringify({ since: new Date().toISOString(), pid: process.pid }) + "\n");
@@ -75,6 +99,7 @@ export function readHandoffState(projectDir) {
     selection &&
     Date.parse(applied.at || 0) >= Date.parse(selection.pickedAt || 0)
   );
+  const request = readJson(requestPath(projectDir));
   return {
     selection: selection
       ? { direction: selection.direction ?? null, pickedAt: selection.pickedAt ?? null, roles: selection.roles ?? null }
@@ -82,5 +107,7 @@ export function readHandoffState(projectDir) {
     applied: applied ? { ...applied, current: appliedCurrent } : null,
     agentWaiting: !!waiting,
     waitingSince: waiting?.since ?? null,
+    // a pending "more options" ask (so the panel can show "waiting for your agent" across reloads)
+    request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
   };
 }

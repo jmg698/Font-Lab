@@ -64,7 +64,7 @@ if (SUB === "install" || SUB === "uninstall") {
 
 async function runServe() {
 
-const { readHandoffState, writeAppliedStamp } = await import("./state.mjs");
+const { readHandoffState, writeAppliedStamp, writeRequest, readRequest } = await import("./state.mjs");
 const { VERSION } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
@@ -158,6 +158,37 @@ const server = http.createServer((req, res) => {
     const cur = existsSync(SELECTION) ? readFileSync(SELECTION, "utf8") : "{}";
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(cur);
+  }
+  if (req.method === "GET" && req.url === "/request") {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify(readRequest(PROJECT) || {}));
+  }
+  // ---- "more options" ask: the panel's "none of these" lands here ------------------------
+  // The human wanted fresh directions (with the mini-brief they typed) — persist it and tell the
+  // panel whether an agent is listening RIGHT NOW, so it can either say "sent to your agent" or
+  // hand over the copy-a-prompt off-ramp. The ask persists on disk, so an agent that connects
+  // later still fulfills it (via font_lab_wait_for_request → font_lab_more_directions).
+  if (req.method === "POST" && req.url === "/request") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { brief, exclude } = JSON.parse(body || "{}");
+        // Sample presence BEFORE writing (the request write itself wakes a blocked waiter, which
+        // clears its flag — so afterwards we'd wrongly read "no agent" the instant one takes it).
+        const wasWaiting = ONCE || statusPayload().agentWaiting;
+        const saved = writeRequest(PROJECT, { brief, exclude });
+        console.log(`\n  ✎ "more options" requested${brief?.note ? `: "${String(brief.note).slice(0, 60)}"` : ""}${wasWaiting ? " — an agent is listening" : " — no agent listening (off-ramp shown)"}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, agentWaiting: wasWaiting, request: saved }));
+        broadcast("request", { at: saved.at, brief: saved.brief });
+        broadcast("status", statusPayload());
+      } catch (e) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: String(e) }));
+      }
+    });
+    return;
   }
   if (req.method === "POST" && req.url === "/select") {
     let body = "";
@@ -337,7 +368,7 @@ async function resolveFrame({ url, line, column }) {
 
   server.listen(PORT, HOST, () => {
     console.log(`Font Lab — pick endpoint`);
-    console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select /edit /undo · GET /selection /status /events)`);
+    console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select /edit /undo /request · GET /selection /request /status /events)`);
     console.log(`  project   ${PROJECT}`);
     if (HOST !== "127.0.0.1") console.log(`  binding   ${HOST} (non-loopback — anything on your network can post a pick)`);
     if (ONCE) console.log(`  mode      --once: exits after the first pick (the exit is your wake-up signal)`);
