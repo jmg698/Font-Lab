@@ -565,6 +565,74 @@ export async function waitForRequest(projectDir, { timeoutMs = 240_000 } = {}) {
   }
 }
 
+// Unified event wait: block until EITHER the human picks OR requests more options, whichever
+// comes first. Collapses waitForPick + waitForRequest into a single tool so agents don't need
+// to choose. Returns { event: "pick"|"request"|"timeout", ... }.
+export async function waitForEvent(projectDir, { timeoutMs = 240_000, ignoreExistingPick = false } = {}) {
+  const dir = path.resolve(projectDir);
+  const selPath = selectionPath(dir);
+  const reqPath = requestPath(dir);
+  const startedAt = Date.now();
+  const baseline = ignoreExistingPick && existsSync(selPath) ? statSafe(selPath) : null;
+
+  const currentPick = () => {
+    if (!existsSync(selPath)) return null;
+    if (baseline) {
+      const st = statSafe(selPath);
+      if (st && st.mtimeMs <= baseline.mtimeMs) return null;
+    }
+    return readSelection(dir);
+  };
+  const currentRequest = () => {
+    const r = readRequest(dir);
+    return r && r.status === "pending" ? r : null;
+  };
+
+  const immPick = currentPick();
+  if (immPick) return { event: "pick", picked: true, selection: immPick, waitedMs: 0 };
+  const immReq = currentRequest();
+  if (immReq) return { event: "request", requested: true, request: immReq, waitedMs: 0 };
+
+  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  setAgentWaiting(dir, true);
+  try {
+    const result = await new Promise((resolve) => {
+      let watcher = null, poller = null, deadline = null;
+      const settle = (v) => {
+        try { watcher?.close(); } catch {}
+        clearInterval(poller);
+        clearTimeout(deadline);
+        resolve(v);
+      };
+      const check = () => {
+        const pick = currentPick();
+        if (pick) return settle({ event: "pick", picked: true, selection: pick });
+        const req = currentRequest();
+        if (req) return settle({ event: "request", requested: true, request: req });
+      };
+      try {
+        watcher = fsWatch(path.join(dir, ".font-lab"), (_ev, name) => {
+          if (!name || name === "selection.json" || name === "request.json") check();
+        });
+      } catch {}
+      poller = setInterval(check, 1000);
+      deadline = setTimeout(() => settle(null), timeoutMs);
+      check();
+    });
+    if (result) return { ...result, waitedMs: Date.now() - startedAt };
+    return {
+      event: "timeout",
+      picked: false,
+      requested: false,
+      timedOut: true,
+      waitedMs: Date.now() - startedAt,
+      hint: "No pick or request yet. Call font_lab_wait again to keep listening, or check in with the human.",
+    };
+  } finally {
+    setAgentWaiting(dir, false);
+  }
+}
+
 // The human's pending "more options" ask, if any (mini-brief + the families to avoid repeating).
 export function readMoreRequest(projectDir) {
   const r = readRequest(path.resolve(projectDir));

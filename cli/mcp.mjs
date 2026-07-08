@@ -11,6 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import * as engine from "./engine.mjs";
+import { refreshAgentHeartbeat, clearAgentHeartbeat } from "./state.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
 // Version comes from package.json (stamped from the release tag in CI) — never hardcode it here.
@@ -159,9 +160,24 @@ const TOOLS = [
     handler: (a) => engine.preparePreview(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
   },
   {
+    name: "font_lab_wait",
+    description:
+      "BLOCK until the human EITHER picks a direction OR asks for more options in the panel — whichever comes first. This is the unified event loop: one call covers both paths, so you never miss a request because you were waiting for the wrong event. While blocked, the panel shows 'agent listening' and the human's clicks reach you instead of the copy-a-prompt off-ramp.\n\nReturns one of:\n  { event: 'pick', selection }     — the human picked. Call font_lab_apply to ship it.\n  { event: 'request', request }    — the human wants MORE options. request.brief has their mini-brief (feeling, departure, brand, note); request.exclude lists families already shown. Compose new directions honoring that brief, call font_lab_more_directions, then call font_lab_wait again.\n  { event: 'timeout', timedOut }   — no activity yet. Call font_lab_wait again to keep listening.\n\nTypical loop: compose → prepare_preview → font_lab_wait → handle pick or request → font_lab_wait → …",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        timeoutSec: { type: "number", description: "Max seconds to block (default 240). Re-call on timeout." },
+        ignoreExistingPick: { type: "boolean", description: "Wait for a NEW pick even if a previous selection.json exists." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.waitForEvent(a.projectDir, { timeoutMs: (a.timeoutSec ?? 240) * 1000, ignoreExistingPick: a.ignoreExistingPick === true }),
+  },
+  {
     name: "font_lab_wait_for_pick",
     description:
-      "BLOCK until the human picks in the live panel (or timeoutSec elapses) — the preferred way to receive a pick. While waiting, the panel shows 'agent listening' so the human knows their pick lands somewhere. Returns { picked: true, selection } or { picked: false, timedOut: true } — on timeout, call it again to keep waiting (or check in with the human). Alternative for harnesses with background terminals: run `npx font-lab serve --once` as a background task — it exits the moment the pick lands, with the selection as its final stdout line.",
+      "BLOCK until the human picks in the live panel (or timeoutSec elapses). Prefer font_lab_wait (unified) — it covers both picks AND 'more options' requests in one call. This single-event variant is still useful when you ONLY want picks (e.g. after the panel is fully stocked and no more rounds are expected). Returns { picked: true, selection } or { picked: false, timedOut: true } — on timeout, call it again to keep waiting. Alternative for harnesses with background terminals: run `npx font-lab serve --once` as a background task — it exits the moment the pick lands, with the selection as its final stdout line.",
     inputSchema: {
       type: "object",
       properties: {
@@ -176,7 +192,7 @@ const TOOLS = [
   {
     name: "font_lab_wait_for_request",
     description:
-      "BLOCK until the human clicks 'more options / none of these' in the live panel (or timeoutSec elapses). This is how you receive an in-panel request for FRESH directions — e.g. they didn't like the current menu, or they're on the deterministic starter menu and want ones tailored to them. While you're blocked, the panel shows 'agent listening', so the human's click reaches you instead of the copy-a-prompt off-ramp. Returns { requested: true, request } — where request.brief is the mini-brief they typed in the panel (feeling — an array of one or more vibes to combine, e.g. [\"technical & precise\", \"quiet & minimal\"] / departure / brand / a free-text note) and request.exclude is the families already on screen. On a request: compose NEW directions honoring that brief, reaching past request.exclude AND the design brief's overexposed defaults, then call font_lab_more_directions (which appends them live AND clears the request). Returns { requested: false, timedOut: true } on timeout — call again to keep listening. Run this after the panel is up (init) and the endpoint is serving, whenever the human may want to keep exploring.",
+      "BLOCK until the human clicks 'more options / none of these' in the live panel (or timeoutSec elapses). Prefer font_lab_wait (unified) — it covers both picks AND requests in one call. This single-event variant is still useful when you specifically want to wait ONLY for a request. Returns { requested: true, request } — where request.brief is the mini-brief (feeling / departure / brand / note) and request.exclude lists families already shown. On a request: compose new directions, call font_lab_more_directions, then switch to font_lab_wait. Returns { requested: false, timedOut: true } on timeout — call again.",
     inputSchema: {
       type: "object",
       properties: {
@@ -308,6 +324,7 @@ async function handle(msg) {
       if (missing.length) {
         return reply(id, { content: [{ type: "text", text: `Error: missing required argument(s) for ${tool.name}: ${missing.join(", ")}` }], isError: true });
       }
+      if (args.projectDir) { trackProject(args.projectDir); refreshAgentHeartbeat(args.projectDir); }
       try {
         const out = await tool.handler(args);
         return reply(id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
@@ -321,6 +338,13 @@ async function handle(msg) {
     if (!isNotification) fail(id, -32603, e.message);
   }
 }
+
+let lastProjectDir = null;
+const trackProject = (dir) => { if (dir) lastProjectDir = dir; };
+const cleanupHeartbeat = () => { if (lastProjectDir) { try { clearAgentHeartbeat(lastProjectDir); } catch {} } };
+process.on("exit", cleanupHeartbeat);
+process.on("SIGINT", () => { cleanupHeartbeat(); process.exit(0); });
+process.on("SIGTERM", () => { cleanupHeartbeat(); process.exit(0); });
 
 let buf = "";
 process.stdin.setEncoding("utf8");
