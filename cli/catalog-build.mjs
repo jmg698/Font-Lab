@@ -159,6 +159,11 @@ export const generatedBy = ${JSON.stringify(VERSION)};
 export const target = ${JSON.stringify(meta.target ?? null, null, 2)} as const;
 export const replaces = ${JSON.stringify(meta.replaces ?? null, null, 2)} as const;
 
+// How this menu was built: "composed" (tailored by the agent to the human's brief) or "fallback"
+// (the deterministic starter menu). The panel badges a fallback menu as provisional so a menu that
+// was never tailored to this project can't pass itself off as one that was.
+export const menuMode = ${JSON.stringify(meta.menuMode ?? "composed")} as const;
+
 // Per-role preview swap target (M5/M6): which leaf var to override and on which element. The
 // portable panel reads this so the live swap is honest on any site. null = unswappable role.
 export const wiring = ${JSON.stringify(meta.wiring ?? null, null, 2)} as const;

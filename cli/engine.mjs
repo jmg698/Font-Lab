@@ -16,20 +16,43 @@ import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSyn
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
 import { designBrief, isOverexposed, antiGenericViolations, pickWarnings } from "./design-brain.mjs";
-import { gatherContext, extractColors } from "./context.mjs";
+import { gatherContext, extractColors, deriveSignals } from "./context.mjs";
 import { resolveDirectionsMode, mergeDirections } from "./flow.mjs";
 import { buildSpecimenHtml } from "./specimen.mjs";
 import { admit as admitFont, normalize as normFamily, isShippable } from "./admit.mjs";
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
 
 const ROLES = ["display", "body", "mono"];
 const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+// The deterministic fallback menu, but SEEDED to this project — the same project always yields the
+// same spread, while two different projects yield different (still diverse, still non-generic)
+// spreads. This is what stops the fallback from being byte-identical on every site. Every fallback
+// call site routes through here so the panel, the screenshots, and a later headless select all
+// resolve to the same set.
+function fallbackDirections(dir, analysis, { vibe, count } = {}) {
+  const { seed, hints } = deriveSignals(path.basename(dir), gatherContext(dir));
+  return curateDirections(analysis, { vibe, count, seed, signals: hints });
+}
+
+// The in-band heads-up an agent gets when it mounts or ships the deterministic starter menu instead
+// of a brief-tailored one — so a menu that was never tailored to the project can't quietly become
+// the product. null when the menu was composed for a brief.
+function fallbackNotice(mode) {
+  if (mode !== "fallback") return null;
+  return (
+    "You mounted the DETERMINISTIC STARTER MENU (allowFallback) — it's seeded to this project so it " +
+    "isn't identical across projects, but it is NOT tailored to the human's brief. Fine for a quick " +
+    "smoke-test while wiring things up; before the human picks, run intake (font_lab_start) → " +
+    "font_lab_compose_directions → font_lab_prepare_preview so the options actually fit what they asked for."
+  );
+}
 
 // ── read ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +69,8 @@ export function analyze(projectDir) {
 export function start(projectDir) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
+  const context = gatherContext(dir); // the project's own palette, brand docs, and copy voice (B2)
+  const { seed } = deriveSignals(path.basename(dir), context); // rotates the brief's references per project
   const cap = analysis.capabilities;
   // The intake + taste steps are identical on every stack; only HOW the human previews and how
   // the pick ships differ. Hand the agent the right path for THIS project instead of assuming Next.
@@ -58,8 +83,8 @@ export function start(projectDir) {
     analysis,
     capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
     shipNote: analysis.shipNote,
-    context: gatherContext(dir), // the project's own palette, brand docs, and copy voice (B2)
-    brief: designBrief(),
+    context, // the project's own palette, brand docs, and copy voice (B2)
+    brief: designBrief({ seed }),
     nextStep:
       "Read `context` (the project's palette, brand docs, and copy) — your options must fit THIS " +
       "project, not a generic default. Then ask the human the intake questions in `brief.intake` " +
@@ -173,10 +198,12 @@ export function listCatalog({ role, tag } = {}) {
     .map(([family, e]) => ({ family, roles: e.roles, tags: e.tags }));
 }
 
-// The default menu: ~5 deterministic directions for this project.
+// The default menu: ~5 deterministic directions, seeded to THIS project (so it isn't the same
+// spread every site) and leaning on the project's own signals.
 export function curate(projectDir, opts = {}) {
-  const analysis = analyzeProject(path.resolve(projectDir));
-  return { analysis, directions: curateDirections(analysis, opts) };
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  return { analysis, directions: fallbackDirections(dir, analysis, opts) };
 }
 
 // ── option 3: the agent composes its own directions ──────────────────────────
@@ -277,14 +304,16 @@ export async function preparePreview(projectDir, { directions, vibe, count, allo
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   const mode = resolveDirectionsMode({ directions, allowFallback });
-  const dirs = mode === "composed" ? directions : curateDirections(analysis, { vibe, count });
+  const dirs = mode === "composed" ? directions : fallbackDirections(dir, analysis, { vibe, count });
   await ensureAdmitted(dir, dirs); // admit any non-catalog (Google/foundry) families before building
   // Include `wiring` so the panel knows which leaf var to override per role — without it every
-  // role renders "not wired" and the live swap is a no-op (must match init's meta).
-  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
+  // role renders "not wired" and the live swap is a no-op (must match init's meta). `menuMode` lets
+  // the panel badge a fallback menu as provisional.
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis), menuMode: mode };
   const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, dirs);
-  return { analysis, mode, prepared: result.fonts, directions: result.directions, outPath: result.outPath };
+  writeMenuState(dir, { mode, count: dirs.length });
+  return { analysis, mode, provisional: mode === "fallback", warning: fallbackNotice(mode), prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }
 
 // ── the portable "choosing moment" (framework-agnostic, no dev server) ────────
@@ -332,7 +361,7 @@ function specimenDirections(directions, stacks) {
 export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, { vibe, count });
   await ensureAdmitted(dir, dirs);
 
   const families = [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles?.[r]?.family ?? d[r]).filter(Boolean)))];
@@ -422,6 +451,12 @@ export async function apply(projectDir, opts = {}) {
   // Stamp the ship so the panel (via the endpoint's SSE) and font_lab_status can show
   // "shipped" for the current pick without guessing from file mtimes.
   writeAppliedStamp(dir, result);
+  // If the pick came from the deterministic starter menu (mounted via allowFallback), say so —
+  // shipping it is fine, but the human may not realize the options were never tailored to them.
+  const menu = readMenuState(dir);
+  if (menu?.mode === "fallback")
+    result.menuWarning =
+      "Heads up: this pick came from the deterministic starter menu, not one tailored to this project's brief. If the human wanted options tailored to what they're going for, run intake → compose → prepare_preview and let them pick again — reversible via font_lab_undo.";
   return result;
 }
 
@@ -507,7 +542,7 @@ export async function status(projectDir, { port = 7777 } = {}) {
     const runId = readFileSync(path.join(dir, ".font-lab", "backups", "latest.txt"), "utf8").trim();
     backups = { latestRunId: runId };
   } catch {}
-  return { ...state, endpoint, backups, versions: panelDrift(dir) };
+  return { ...state, endpoint, backups, menu: readMenuState(dir), versions: panelDrift(dir) };
 }
 
 // Compare the version that installed the project's panel against the running tool. Surfaces the
@@ -618,9 +653,9 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   // Build the panel from the agent's brief-driven directions (the tasteful path). Refuse to mount
   // the generic default menu without a brief unless allowFallback is set (see flow.resolveDirectionsMode).
   const mode = resolveDirectionsMode({ directions, allowFallback });
-  const dirs = mode === "composed" ? directions : curateDirections(analysis, { vibe, count });
+  const dirs = mode === "composed" ? directions : fallbackDirections(dir, analysis, { vibe, count });
   await ensureAdmitted(dir, dirs); // self-host any non-catalog (Google/foundry) faces the agent composed
-  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis) };
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis), menuMode: mode };
   const built = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
 
   mkdirSync(path.join(appDir, "_fontlab"), { recursive: true });
@@ -629,10 +664,13 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   writeFileSync(path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"), panelSrc);
   const mounted = mountPanel(layout);
   writePreviewSet(dir, dirs);
+  writeMenuState(dir, { mode, count: dirs.length });
 
   return {
     analysis,
     mode,
+    provisional: mode === "fallback",
+    warning: fallbackNotice(mode),
     directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
     wiring: meta.wiring,
     deadRoles: analysis.coverage?.deadRoles || [],
@@ -641,8 +679,10 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
     mounted,
     layout: path.relative(dir, layout),
     nextStep:
-      "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. " +
-      "Want more options? compose additional directions and call font_lab_more_directions. Then read_pick → apply.",
+      mode === "fallback"
+        ? "The panel is up with the STARTER MENU (badged 'not tailored yet' in-panel). Good enough to verify the panel mounts — but it's not tailored to this project. Before the human commits, run intake (font_lab_start) → font_lab_compose_directions → font_lab_prepare_preview so the options fit their brief. Then read_pick → apply."
+        : "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. " +
+          "Want more options? compose additional directions and call font_lab_more_directions. Then read_pick → apply.",
   };
 }
 
@@ -705,7 +745,7 @@ export function undo(projectDir) {
 export function selectDirection(projectDir, { directionId, directions, vibe, count, roles: roleSrc } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : curateDirections(analysis, { vibe, count });
+  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, { vibe, count });
   const byId = (id) => dirs.find((d) => d.id === id || slugId(d.name) === id);
   const chosen = byId(directionId);
   if (!chosen) throw new Error(`no direction "${directionId}" — available: ${dirs.map((d) => d.id).join(", ")}`);
@@ -852,7 +892,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   }
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : curateDirections(analysis, {});
+  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, {});
   const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
   mkdirSync(out, { recursive: true });
   const base = baseUrl.replace(/\/+$/, "");

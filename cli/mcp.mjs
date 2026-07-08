@@ -69,7 +69,7 @@ const TOOLS = [
   {
     name: "font_lab_curate",
     description:
-      "FALLBACK menu — ~5 deterministic font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Use this when you have NO brief from the user. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
+      "FALLBACK menu — ~5 font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Seeded to THIS project (its name + palette + copy), so the spread differs from project to project instead of being the same five everywhere — but it is still a generic starting point, NOT tailored to the user's brief. Use it only when you have NO brief. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
     inputSchema: {
       type: "object",
       properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },

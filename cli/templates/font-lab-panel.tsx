@@ -28,7 +28,7 @@
 // Dev-only (mounted behind a NODE_ENV guard in layout). Shadow-DOM isolated. Zero deps.
 
 import { useEffect } from "react";
-import { catalogFontFaceCss, directions, replaces, target, wiring, type Direction } from "./catalog.generated";
+import { catalogFontFaceCss, directions, replaces, target, wiring, menuMode, type Direction } from "./catalog.generated";
 
 const ENDPOINT = "http://localhost:7777";
 const STORE_KEY = "fontlab.working.v1";
@@ -306,6 +306,9 @@ export function FontLabDevPanel() {
         .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
         .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
         .sect .counter b { color: #E7FF3B; font-weight: 600; }
+        .sect .starter { font-size: 8.5px; letter-spacing: .12em; font-weight: 700; text-transform: uppercase;
+          color: #100F0D; background: #E9A88F; border-radius: 3px; padding: 2px 6px; cursor: help; white-space: nowrap; }
+        .sect .starter[hidden] { display: none; }
         .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
           -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
@@ -449,7 +452,9 @@ export function FontLabDevPanel() {
           <div class="nb" id="noticeBody"></div>
         </div>
         <div class="sect">
-          <span class="lab u">DIRECTION</span><span class="rule"></span>
+          <span class="lab u">DIRECTION</span>
+          <span class="starter" id="starter" hidden title="This is Font Lab's starter menu — the same deterministic set every project falls back to, not yet tailored to this one. For options chosen for what you're going for, ask your agent to run intake and compose a tailored menu.">STARTER · NOT TAILORED</span>
+          <span class="rule"></span>
           <span class="counter" id="counter"></span>
         </div>
         <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
@@ -475,6 +480,11 @@ export function FontLabDevPanel() {
     const $ = <T extends HTMLElement = HTMLElement>(id: string) => shadow.getElementById(id) as unknown as T;
     const slip = shadow.querySelector(".slip") as HTMLElement;
     const esc = (s: unknown) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+    // Badge the starter (deterministic fallback) menu as provisional — a menu that was never
+    // tailored to this project shouldn't pass itself off as one that was. (Older generated modules
+    // predate `menuMode`; treat a missing value as composed and stay quiet.)
+    if (menuMode === "fallback") { const s = $("starter"); if (s) s.hidden = false; }
 
     // Pick-guard hints must never stomp a real message (save acks, edit acks, receipts).
     let statusKind: "" | "guard" | "msg" = "";

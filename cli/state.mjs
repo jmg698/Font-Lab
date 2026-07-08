@@ -14,11 +14,13 @@ export const FL_DIR = ".font-lab";
 export const SELECTION_FILE = "selection.json";
 export const APPLIED_FILE = "applied.json";
 export const WAITING_FILE = "agent-waiting.json";
+export const MENU_FILE = "menu.json";
 
 export const flDir = (projectDir) => path.join(projectDir, FL_DIR);
 export const selectionPath = (projectDir) => path.join(flDir(projectDir), SELECTION_FILE);
 export const appliedPath = (projectDir) => path.join(flDir(projectDir), APPLIED_FILE);
 export const waitingPath = (projectDir) => path.join(flDir(projectDir), WAITING_FILE);
+export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
 
 const readJson = (p) => {
   try {
@@ -42,6 +44,19 @@ export function writeAppliedStamp(projectDir, result) {
 }
 
 export const clearAppliedStamp = (projectDir) => rmSync(appliedPath(projectDir), { force: true });
+
+// Record HOW the currently-mounted menu was built: "composed" (agent tailored it to a brief) or
+// "fallback" (the deterministic starter menu, mounted via allowFallback while debugging or when no
+// brief was gathered). This is the truth the panel, status, and apply read so a menu that was never
+// tailored to the project can't silently masquerade as one that was.
+export function writeMenuState(projectDir, { mode, count } = {}) {
+  mkdirSync(flDir(projectDir), { recursive: true });
+  const state = { mode: mode || "composed", tailored: mode === "composed", count: count ?? null, at: new Date().toISOString() };
+  writeFileSync(menuPath(projectDir), JSON.stringify(state, null, 2) + "\n");
+  return state;
+}
+
+export const readMenuState = (projectDir) => readJson(menuPath(projectDir));
 
 export function setAgentWaiting(projectDir, on) {
   mkdirSync(flDir(projectDir), { recursive: true });
