@@ -1,0 +1,44 @@
+name: Build & render
+
+# The heavy proof: apply a real font pick into the fixture, run a real `next build`, start it,
+# and pixel-check in a headless browser that the picked fonts actually render — then confirm the
+# edit is idempotent and reverts byte-for-byte. This is the deepest guarantee of "preview == ship,"
+# but it's slow (a full Next build + a browser) and needs network for next/font/google, so it runs
+# as its OWN workflow, separate from the fast `gates` merge check. Keep `gates` as the required
+# status check; treat this as the informative deep pass (still green-on-PR, just not the gate).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable # the fixture builds with pnpm
+
+      # Full CLI deps — run-m2 drives Playwright directly, so it needs the dev `playwright`.
+      - name: Install CLI deps
+        working-directory: cli
+        run: npm install --no-audit --no-fund
+
+      # The browser the test renders in (GitHub runners ship none).
+      - name: Install Chromium
+        working-directory: cli
+        run: npx playwright install --with-deps chromium
+
+      # The Next.js fixture that gets the font applied and built.
+      - name: Install fixture deps
+        working-directory: examples/clean-next-site
+        run: pnpm install
+
+      - name: M2 — apply → build → render → idempotent → reversible
+        run: bash cli/run-m2.sh

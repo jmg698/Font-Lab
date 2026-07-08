@@ -369,12 +369,7 @@ export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executa
   const dir = path.resolve(projectDir);
   let html = htmlPath;
   if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline })).path;
-  let chromium;
-  try {
-    ({ chromium } = await import("playwright"));
-  } catch {
-    throw new Error("Playwright isn't installed for screenshots (`npm i -D playwright`). The HTML at " + html + " still opens in any browser.");
-  }
+  const chromium = await loadChromium();
   const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
   mkdirSync(out, { recursive: true });
   const { browser, via } = await launchBrowser(chromium, { executablePath });
@@ -812,6 +807,28 @@ function discoverChromium() {
 // Launch Chromium from whatever the machine actually has — an explicit path, a pre-installed
 // build (cloud envs), the user's system Chrome/Edge, or Playwright's own bundle — first one that
 // launches wins. This sidesteps Playwright's hard pin to its exact bundled revision.
+// Load Playwright's `chromium` driver, tolerating the two ways it can be present. We ship
+// `playwright-core` as an OPTIONAL dependency (light — no bundled-browser download), so the
+// headless screenshot path works out of the box for `npx font-lab` users instead of throwing on a
+// missing devDependency. A full `playwright` (its own browser included) is preferred when present —
+// e.g. in this repo's tests. Either driver launches whatever Chromium is on the machine (system
+// Chrome/Edge or a pre-installed build; see launchBrowser). Throws ONE actionable error only when
+// neither module resolves — a real load error inside an installed driver is re-thrown as-is.
+async function loadChromium() {
+  for (const mod of ["playwright", "playwright-core"]) {
+    try {
+      return (await import(mod)).chromium;
+    } catch (e) {
+      if (e?.code !== "ERR_MODULE_NOT_FOUND") throw e;
+    }
+  }
+  throw new Error(
+    "Screenshots need a Playwright driver. Install one — `npm i playwright-core` (light; uses your " +
+      "system Chrome) or `npm i -D playwright` (bundles its own browser) — and, if no system Chrome is " +
+      "present, `npx playwright install chromium`. Or skip headless and use the live editor (liveInstructions()).",
+  );
+}
+
 async function launchBrowser(chromium, { executablePath } = {}) {
   const explicit = executablePath || process.env.FONT_LAB_CHROMIUM || process.env.PLAYWRIGHT_EXECUTABLE_PATH;
   const discovered = discoverChromium();
@@ -842,14 +859,7 @@ async function launchBrowser(chromium, { executablePath } = {}) {
 // Makes no project edits — it only reads the running site. Returns a manifest the agent shows.
 export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath } = {}) {
   if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
-  let chromium;
-  try {
-    ({ chromium } = await import("playwright"));
-  } catch {
-    throw new Error(
-      "Playwright isn't installed for screenshots (`npm i -D playwright`), or use the live editor instead — see liveInstructions(). The browser itself can be any system Chrome/Chromium; it doesn't need Playwright's exact bundled build.",
-    );
-  }
+  const chromium = await loadChromium();
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   const dirs = directions && directions.length ? directions : curateDirections(analysis, {});
