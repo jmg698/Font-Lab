@@ -35,10 +35,13 @@ jobs:
         working-directory: cli
         run: npx playwright install --with-deps chromium
 
-      # The Next.js fixture that gets the font applied and built.
+      # The Next.js fixture that gets the font applied and built. sharp (a Next transitive dep)
+      # ships a build script; pnpm 10/11 fail `install` on unapproved build scripts in CI, so
+      # allow them explicitly — the fixture renders no images, but building sharp is harmless and
+      # keeps the install non-interactive and green regardless of the corepack-pinned pnpm version.
       - name: Install fixture deps
         working-directory: examples/clean-next-site
-        run: pnpm install
+        run: pnpm install --config.dangerouslyAllowAllBuilds=true
 
       - name: M2 — apply → build → render → idempotent → reversible
         run: bash cli/run-m2.sh
