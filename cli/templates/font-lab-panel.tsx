@@ -1466,9 +1466,16 @@ export function FontLabDevPanel() {
     } catch { setConn("offline"); }
 
     // ---- keyboard — captured only while expanded; suspended while retyping ---------------
+    // The panel lives in a shadow root, so a document-level listener sees e.target RETARGETED to the
+    // host element — never the <input>/<textarea> the human is actually typing in (the brand/note
+    // fields). composedPath()[0] is the true innermost target across the shadow boundary; without it
+    // our single-key shortcuts (space = snap back, s = save, b = before, …) eat characters mid-typing.
+    const typingInField = (e: Event) => {
+      const t = (e.composedPath()[0] as HTMLElement | null) ?? (e.target as HTMLElement | null);
+      return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+    };
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (typingInField(e)) return;
       if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
       const k = e.key;
       // while the back page is up, the first key just flips it back — nothing else. It appeared
@@ -1492,7 +1499,7 @@ export function FontLabDevPanel() {
       else if (k === "Enter") { e.preventDefault(); void doPick(); }
       else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
     };
-    const onKeyUp = (e: KeyboardEvent) => { if (e.key === "b" || e.key === "B") bUp(); };
+    const onKeyUp = (e: KeyboardEvent) => { if (typingInField(e)) return; if (e.key === "b" || e.key === "B") bUp(); };
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
 
