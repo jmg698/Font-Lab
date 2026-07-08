@@ -6,6 +6,7 @@
 //   selection.json   the human's pick (written by the panel endpoint / select)
 //   applied.json     stamp of the last successful apply (written by codegen)
 //   agent-waiting.json  present while an agent is blocked in waitForPick (presence signal)
+//   mcp-heartbeat.json  refreshed on every MCP tool call — "an agent touched Font Lab recently"
 //   menu.json        how the mounted menu was built (composed vs fallback) — the provisional flag
 //   request.json     the human's in-panel "more options" ask, queued until an agent fulfills it
 

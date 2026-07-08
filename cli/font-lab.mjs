@@ -53,8 +53,9 @@ if (SUB === "install" || SUB === "uninstall") {
       "  font-lab uninstall [--project <dir>]",
       "  font-lab mcp                      run the MCP server (stdio)",
       "  font-lab serve [--project <dir>] [--port <n>] [--host <ip>] [--once] [--apply]",
-      "                 pick write-back endpoint (loopback-only by default; --once exits",
-      "                 after the first pick so a background task wakes your agent)",
+      "                 pick write-back endpoint (loopback-only by default; --once exits on the",
+      "                 first pick OR 'more options' request — the final stdout line is the",
+      "                 event JSON — so a background task wakes your agent for either)",
       "  font-lab --version                print the version and exit (never starts a server)",
     ].join("\n"),
   );
@@ -79,9 +80,10 @@ const PORT = Number(arg("--port", "7777"));
 const HOST = arg("--host", "127.0.0.1");
 const PROJECT = path.resolve(arg("--project", process.cwd()));
 const AUTO_APPLY = process.argv.includes("--apply"); // pick -> ship, in one step
-// --once: exit after the first pick, with the selection as the final stdout line. This turns
-// the pick into a process-exit event — the one signal every agent harness reliably watches.
-// (An agent runs `font-lab serve --once` as a background task and is woken when it exits.)
+// --once: exit on the first EVENT — a pick OR a "more options" request — with the event JSON as
+// the final stdout line. This turns both panel events into a process-exit signal — the one thing
+// every agent harness reliably watches. (An agent runs `font-lab serve --once` as a background
+// task, is woken when it exits, handles the event, and relaunches it.)
 const ONCE = process.argv.includes("--once");
 const FLDIR = path.join(PROJECT, ".font-lab");
 const SELECTION = path.join(FLDIR, "selection.json");
@@ -98,15 +100,39 @@ const cors = (res) => {
 // agent waiting (or --once armed), pick received, apply landed. Watching .font-lab/ means
 // out-of-band writers (font_lab_select, apply from another terminal) surface here too.
 const sseClients = new Set();
+// The version on disk RIGHT NOW — vs VERSION, which was read at boot. `npm install` doesn't
+// restart this process, so the two drift after an upgrade; reporting both lets the panel and
+// font_lab_status say "endpoint outdated — restart npx font-lab" instead of leaving it silent.
+const installedVersion = () => {
+  try {
+    return JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+  } catch {
+    return VERSION;
+  }
+};
 const statusPayload = () => ({
   ok: true,
   once: ONCE,
   autoApply: AUTO_APPLY,
   version: VERSION, // running tool version — the panel compares it against its own stamp
+  installed: installedVersion(), // package version on disk — differs from `version` after an un-restarted upgrade
   ...readHandoffState(PROJECT),
   // --once means an agent parked a process on this pick; count it as a listening agent.
   agentWaiting: ONCE || readHandoffState(PROJECT).agentWaiting,
 });
+// --once shutdown: print the event as the final stdout line (the harness hands it to the agent),
+// give the ack + SSE frames a beat to flush, then exit unconditionally — an attached SSE client
+// would otherwise hold server.close open. Shared by the pick and request exits.
+const exitWithEvent = (payload) => {
+  console.log(JSON.stringify(payload));
+  setTimeout(() => {
+    for (const c of sseClients) {
+      try { c.destroy(); } catch {}
+    }
+    try { server.close(); } catch {}
+    setTimeout(() => process.exit(0), 120);
+  }, 80);
+};
 const broadcast = (event, data) => {
   const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) res.write(frame);
@@ -178,11 +204,33 @@ const server = http.createServer((req, res) => {
         // clears its flag — so afterwards we'd wrongly read "no agent" the instant one takes it).
         const wasWaiting = ONCE || statusPayload().agentWaiting;
         const saved = writeRequest(PROJECT, { brief, exclude });
-        console.log(`\n  ✎ "more options" requested${brief?.note ? `: "${String(brief.note).slice(0, 60)}"` : ""}${wasWaiting ? " — an agent is listening" : " — no agent listening (off-ramp shown)"}`);
+        // No agent anywhere? The endpoint itself serves the ask from the deterministic curator —
+        // slower-quality than an agent's composition, but the click never dead-ends.
+        const selfServe = !wasWaiting;
+        console.log(`\n  ✎ "more options" requested${brief?.note ? `: "${String(brief.note).slice(0, 60)}"` : ""}${wasWaiting ? " — an agent is listening" : " — no agent listening (self-serving from the catalog)"}`);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, agentWaiting: wasWaiting, request: saved }));
+        res.end(JSON.stringify({ ok: true, agentWaiting: wasWaiting, selfServe, request: saved }));
         broadcast("request", { at: saved.at, brief: saved.brief });
         broadcast("status", statusPayload());
+        if (ONCE) {
+          // Same contract as exit-on-pick: --once means "wake me on the first event", and a
+          // "more options" ask IS an event — the agent relaunches serve --once after composing.
+          exitWithEvent({ event: "request", requested: true, request: saved });
+        } else if (selfServe) {
+          void (async () => {
+            try {
+              const engine = await import("./engine.mjs");
+              const r = await engine.selfServeMore(PROJECT, saved, { log: (m) => console.log("  " + m) });
+              console.log(r.exhausted
+                ? `  ⚠ self-serve exhausted: ${r.hint}`
+                : `  ✦ self-served ${r.added} direction(s) from the catalog — an agent can still compose tailored ones`);
+              broadcast("status", statusPayload());
+            } catch (e) {
+              console.error(`  self-serve failed: ${e.message}`);
+              broadcast("error", { message: `self-serve failed: ${e.message}` });
+            }
+          })();
+        }
       } catch (e) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: String(e) }));
@@ -230,17 +278,9 @@ const server = http.createServer((req, res) => {
             }
           }
           if (ONCE) {
-            // The selection as the final stdout line — the harness hands this to the agent.
-            console.log(JSON.stringify({ picked: true, selection: sel }));
-            // Give the ack + SSE frames a beat to flush, then exit-on-pick. Exit must be
-            // unconditional: an attached SSE client would otherwise hold server.close open.
-            setTimeout(() => {
-              for (const c of sseClients) {
-                try { c.destroy(); } catch {}
-              }
-              try { server.close(); } catch {}
-              setTimeout(() => process.exit(0), 120);
-            }, 80);
+            // `event` tags which of the two --once exits this is; `picked`/`selection` are kept
+            // for consumers that predate exit-on-request.
+            exitWithEvent({ event: "pick", picked: true, selection: sel });
           }
         };
         void finish();
@@ -371,7 +411,7 @@ async function resolveFrame({ url, line, column }) {
     console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select /edit /undo /request · GET /selection /request /status /events)`);
     console.log(`  project   ${PROJECT}`);
     if (HOST !== "127.0.0.1") console.log(`  binding   ${HOST} (non-loopback — anything on your network can post a pick)`);
-    if (ONCE) console.log(`  mode      --once: exits after the first pick (the exit is your wake-up signal)`);
+    if (ONCE) console.log(`  mode      --once: exits on the first pick OR "more options" request (the exit is your wake-up signal; the last stdout line is the event JSON)`);
     if (AUTO_APPLY) console.log(`  mode      --apply: pick ships immediately (reversible via font-lab undo)`);
     console.log(`  Open your dev site, flip directions in the panel (← →), and hit Pick.`);
     console.log(`  Waiting for a pick…`);

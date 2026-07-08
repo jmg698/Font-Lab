@@ -327,7 +327,25 @@ async function handle(msg) {
       if (args.projectDir) { trackProject(args.projectDir); refreshAgentHeartbeat(args.projectDir); }
       try {
         const out = await tool.handler(args);
-        return reply(id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
+        // Piggyback delivery: if the human's "more options" ask is sitting unfulfilled, say so on
+        // EVERY tool result — an agent that never parks on a wait still finds out the next time it
+        // touches Font Lab, instead of the ask rotting on disk. Skip the tools that receive or
+        // fulfill it themselves.
+        let payload = out;
+        if (args.projectDir && out && typeof out === "object" && !Array.isArray(out) && !/wait|more_directions/.test(tool.name)) {
+          try {
+            const pending = engine.readMoreRequest(args.projectDir);
+            if (pending)
+              payload = {
+                ...out,
+                pendingHumanRequest: {
+                  note: "UNFULFILLED: the human clicked 'Get more' in the panel and is waiting. Compose new directions honoring request.brief (avoiding request.exclude), then call font_lab_more_directions.",
+                  request: pending,
+                },
+              };
+          } catch {}
+        }
+        return reply(id, { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] });
       } catch (e) {
         // tool-level errors are reported in-band so the agent can react
         return reply(id, { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });

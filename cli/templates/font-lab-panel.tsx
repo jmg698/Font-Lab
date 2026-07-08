@@ -1395,19 +1395,30 @@ export function FontLabDevPanel() {
       };
 
       const setAck = (html: string, tone: "" | "good" | "warn" = "") => { ack.hidden = false; ack.dataset.tone = tone; ack.innerHTML = html; };
-      const showOfframp = (brief: Record<string, string | string[]>, exclude: string[]) => {
-        setAck(
-          `<b>No agent is listening right now</b>, so nothing will compose these automatically. Two ways forward:` +
-            `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +
-            `<span class="offramp">2 · Reconnect an agent: have it run <code>npx font-lab serve</code> (or call <code>font_lab_wait_for_request</code>), then click Get more again. Your request is saved either way.</span>`,
-          "warn",
-        );
+      const wireCopy = (brief: Record<string, string | string[]>, exclude: string[]) => {
         shadow.getElementById("moreCopy")?.addEventListener("click", async () => {
           const text = agentPrompt(brief, exclude);
           const btn = shadow.getElementById("moreCopy")!;
           try { await navigator.clipboard.writeText(text); btn.textContent = "Copied ✓ — paste it to your agent"; }
           catch { btn.textContent = "Copy blocked — it's in the console"; console.log("[Font Lab] ask your agent:\n" + text); }
         });
+      };
+      const showOfframp = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        setAck(
+          `<b>No agent is listening right now</b>, so nothing will compose these automatically. Two ways forward:` +
+            `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +
+            `<span class="offramp">2 · Reconnect an agent: have it run <code>npx font-lab serve --once</code> in the background (or call <code>font_lab_wait</code>), then click Get more again. Your request is saved either way.</span>`,
+          "warn",
+        );
+        wireCopy(brief, exclude);
+      };
+      const showSelfServe = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        setAck(
+          `<b>No agent connected</b> — Font Lab is adding options from its own catalog, tuned to your answers. They'll appear here shortly.` +
+            `<span class="offramp">These aren't agent-composed — for options tailored to your full brief: <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button></span>`,
+          "good",
+        );
+        wireCopy(brief, exclude);
       };
 
       $("moreSend").addEventListener("click", async () => {
@@ -1422,6 +1433,7 @@ export function FontLabDevPanel() {
           const j = await res.json().catch(() => ({}) as any);
           if (!res.ok || !j.ok) { setAck(`Couldn't send — ${esc(j.error || res.status)}.`, "warn"); return; }
           if (j.agentWaiting) setAck("<b>Sent to your agent ✓</b> — new options will appear here in a moment.", "good");
+          else if (j.selfServe) showSelfServe(brief, exclude);
           else showOfframp(brief, exclude);
         } catch {
           // endpoint down entirely — still give them the off-ramp so it's never a dead end
@@ -1434,17 +1446,23 @@ export function FontLabDevPanel() {
     // ---- live handoff state (SSE) --------------------------------------------------------
     const setConn = (next: Conn) => { if (state.conn === next) return; state.conn = next; render(); };
     const ver = (v: string) => String(v || "").replace(/[^0-9A-Za-z.\-]/g, "");
-    const checkVersion = (running: string) => {
-      const stale = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
-      $("notice").dataset.show = String(stale);
-      if (stale) {
+    const checkVersion = (running: string, installed?: string) => {
+      // Two distinct drifts, same notice slot: the endpoint outran this panel (re-init), or the
+      // package on disk outran the running endpoint (npm install doesn't restart :7777).
+      const stalePanel = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
+      const staleEndpoint = isRealVersion(running) && isRealVersion(installed || "") && cmpVersions(installed!, running) > 0;
+      $("notice").dataset.show = String(stalePanel || staleEndpoint);
+      if (staleEndpoint) {
+        $("noticeHead").innerHTML = `ENDPOINT OUTDATED — <code>${ver(running)}</code> RUNNING · <code>${ver(installed!)}</code> INSTALLED`;
+        $("noticeBody").innerHTML = `The :7777 endpoint predates the installed package. Restart it: <code>npx font-lab</code>.`;
+      } else if (stalePanel) {
         $("noticeHead").innerHTML = `STALE PANEL — <code>${ver(PANEL_VERSION)}</code> SET · <code>${ver(running)}</code> RUNNING`;
         $("noticeBody").innerHTML = `This panel was set by an older version. Re-run <code>font_lab_init</code> to refresh it.`;
       }
     };
     let es: EventSource | null = null;
     const handleStatus = (s: any) => {
-      if (s.version) checkVersion(s.version);
+      if (s.version) checkVersion(s.version, s.installed);
       setConn(s.agentWaiting ? "agent" : "ready");
       if (s.selection?.direction?.id && !state.savedId) state.savedId = s.selection.direction.id; // survive reloads
       state.shipped = s.applied ? { current: !!s.applied.current } : null;
