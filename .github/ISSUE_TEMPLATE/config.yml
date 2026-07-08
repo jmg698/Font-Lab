@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Idea, font request, or general feedback
+    url: https://github.com/jmg698/Font-Lab/discussions
+    about: For "please add this font", loose ideas, or questions, start a Discussion. Bugs and stack requests use the forms above.

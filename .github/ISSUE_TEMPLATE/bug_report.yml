@@ -1,0 +1,94 @@
+name: Bug report
+description: Font Lab did something wrong — mis-analyzed your project, shipped bad code, or the preview didn't match what shipped.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Font Lab. The single most useful thing you can give us is **what Font Lab saw** —
+        the analyzer output — because most "it didn't work" reports come down to an unsupported stack, and we
+        can't tell without it. It takes ten seconds (see the field below).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did Font Lab do, and what did you expect instead?
+      placeholder: |
+        I asked my agent to "pick new fonts". It applied Fraunces to headings, but the headings still
+        render the body font on my running site. I expected the heading swap to be visible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: analyze-output
+    attributes:
+      label: What Font Lab saw (analyzer output) — REQUIRED
+      description: >-
+        Paste what Font Lab's analyze/start step reported. If you drove it through an agent, paste that
+        tool output. Otherwise run this in your project and paste the JSON:
+        `npx -p font-lab font-lab-analyze --project . --json`
+      render: json
+    validations:
+      required: true
+
+  - type: input
+    id: next-version
+    attributes:
+      label: Next.js version
+      placeholder: "e.g. 15.1.0 (from package.json)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: router
+    attributes:
+      label: Router
+      options:
+        - App Router (app/)
+        - Pages Router (pages/)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tailwind
+    attributes:
+      label: Tailwind version
+      options:
+        - v4
+        - v3
+        - No Tailwind
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fidelity
+    attributes:
+      label: Did the preview match what shipped?
+      description: Font Lab's core promise is "preview == ship." If it broke, that's our highest-priority class of bug.
+      options:
+        - "N/A — it failed before I got to preview"
+        - "Yes — preview matched the shipped result"
+        - "No — what shipped looked different from the preview"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Agent/host (Claude Code, Cursor, Codex, web, phone…), OS, Node version, and the Font Lab version (`npx font-lab --version`).
+      placeholder: |
+        Claude Code on the web · macOS 15 · Node 22 · font-lab 0.11.1
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: A repo link, a screenshot of the before/after, or the `.font-lab/selection.json` it wrote — all help.
+    validations:
+      required: false
