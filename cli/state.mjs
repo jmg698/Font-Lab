@@ -18,6 +18,7 @@ export const APPLIED_FILE = "applied.json";
 export const WAITING_FILE = "agent-waiting.json";
 export const MENU_FILE = "menu.json";
 export const REQUEST_FILE = "request.json";
+export const HEARTBEAT_FILE = "mcp-heartbeat.json";
 
 export const flDir = (projectDir) => path.join(projectDir, FL_DIR);
 export const selectionPath = (projectDir) => path.join(flDir(projectDir), SELECTION_FILE);
@@ -25,6 +26,7 @@ export const appliedPath = (projectDir) => path.join(flDir(projectDir), APPLIED_
 export const waitingPath = (projectDir) => path.join(flDir(projectDir), WAITING_FILE);
 export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
 export const requestPath = (projectDir) => path.join(flDir(projectDir), REQUEST_FILE);
+export const heartbeatPath = (projectDir) => path.join(flDir(projectDir), HEARTBEAT_FILE);
 
 const readJson = (p) => {
   try {
@@ -88,12 +90,25 @@ export function setAgentWaiting(projectDir, on) {
   else rmSync(waitingPath(projectDir), { force: true });
 }
 
+export function refreshAgentHeartbeat(projectDir) {
+  try {
+    mkdirSync(flDir(projectDir), { recursive: true });
+    writeFileSync(heartbeatPath(projectDir), JSON.stringify({ at: Date.now(), pid: process.pid }) + "\n");
+  } catch {}
+}
+
+export function clearAgentHeartbeat(projectDir) {
+  try { rmSync(heartbeatPath(projectDir), { force: true }); } catch {}
+}
+
 // One assembled snapshot of the handoff — what the panel's status pill and font_lab_status
 // both render. `applied` is only "the current pick shipped" when the stamp postdates the pick.
 export function readHandoffState(projectDir) {
   const selection = readJson(selectionPath(projectDir));
   const applied = readJson(appliedPath(projectDir));
   const waiting = readJson(waitingPath(projectDir));
+  const heartbeat = readJson(heartbeatPath(projectDir));
+  const heartbeatFresh = heartbeat?.at && (Date.now() - heartbeat.at) < 2 * 60 * 1000;
   const appliedCurrent = !!(
     applied &&
     selection &&
@@ -105,9 +120,8 @@ export function readHandoffState(projectDir) {
       ? { direction: selection.direction ?? null, pickedAt: selection.pickedAt ?? null, roles: selection.roles ?? null }
       : null,
     applied: applied ? { ...applied, current: appliedCurrent } : null,
-    agentWaiting: !!waiting,
+    agentWaiting: !!waiting || !!heartbeatFresh,
     waitingSince: waiting?.since ?? null,
-    // a pending "more options" ask (so the panel can show "waiting for your agent" across reloads)
     request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
   };
 }
