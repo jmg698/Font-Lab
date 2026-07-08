@@ -1,6 +1,6 @@
 # Font Lab — PRODUCT.md
 
-> Product context for design tools (impeccable et al.) and contributors. The full concept
+> Product context for design-skill authors and contributors. The full concept
 > lives in [`CONCEPT.md`](./CONCEPT.md); architecture in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## What it is

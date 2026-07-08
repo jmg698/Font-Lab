@@ -66,15 +66,14 @@ we need most); code contributions and how to run the tests are in
 
 ## Going deeper
 
-Design notes and the decision log behind the build — useful if you're contributing to the
-analyzer or codegen, skippable if you just want to use the tool:
+Notes behind the build — useful if you're contributing to the analyzer or codegen, skippable
+if you just want to use the tool:
 
 - [`cli/README.md`](./cli/README.md) — the full user guide: install, the loop, hand-use commands.
-- [`CONCEPT.md`](./CONCEPT.md) — the vision and the core belief (the *why*).
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — how the choosing moment works and the `selection.json` contract.
-- [`SHIP-SPEC.md`](./SHIP-SPEC.md) — how a pick becomes real, reversible code (the link nobody else closes).
-- [`ROADMAP.md`](./ROADMAP.md) — what's built and what's next.
-- [`CRITIQUE.md`](./CRITIQUE.md) — the teardown and decisions behind the plan.
+- [`docs/CONCEPT.md`](./docs/CONCEPT.md) — the vision and the core belief (the *why*).
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — how the choosing moment works and the `selection.json` contract.
+- [`docs/SHIP-SPEC.md`](./docs/SHIP-SPEC.md) — how a pick becomes real, reversible code (the link nobody else closes).
+- [`docs/PRODUCT.md`](./docs/PRODUCT.md) · [`docs/PANEL-VISION.md`](./docs/PANEL-VISION.md) — product/brand context and the panel design.
 
 ---
 

@@ -11,7 +11,7 @@ Name for the thing we're protecting: **THE CHOOSING MOMENT**. That's the magic. 
 ## The Ideal Loop (what the user experiences)
 
 1. **Invoke** — inside their project, the user (or their agent) says "let's choose fonts." No setup, no account.
-2. **Understand** — the tool reads the project: what framework, what fonts are in play now, what kind of site this is. (This is where it can call impeccable — let it audit and say "you're on Inter/Geist, here's what reads generic." We consume that as input, not as the answer.)
+2. **Understand** — the tool reads the project: what framework, what fonts are in play now, what kind of site this is. (This is where it can call an installed design skill — let it audit and say "you're on Inter/Geist, here's what reads generic." We consume that as input, not as the answer.)
 3. **Curate a set, not an answer** — it proposes ~5 concrete directions, each a real, tasteful pairing (display / body / mono) with a name, a vibe label ("editorial," "technical," "warm-humanist"), and a one-line rationale. Opinionated, never a 1,500-font dump.
 4. **The choosing moment** — it opens a live preview of their actual site, their real content, rendered in each direction. Flip through with arrow keys, before/after toggle against current, pin two to compare side-by-side, "more like this one." This is the part that does not exist anywhere today.
 5. **Pick** — the human commits to one (or a heading from A, a body from B).
@@ -22,7 +22,7 @@ Name for the thing we're protecting: **THE CHOOSING MOMENT**. That's the magic. 
 ## The Pieces (tech-lead view, no specs yet)
 
 - **Entry / distribution:** An agent-installable tool — an MCP server + Claude Code / Cursor skill, and/or an npm dev-dependency. The agent installs it and drives it. This is HOW the pick gets "incorporated directly by the agent." It rides the agent wave instead of fighting for Chrome-store installs.
-- **Understanding:** Reads framework, current fonts, content, site type. This is basically what gamut-engine already does (static parsing of a Next.js project) — real reuse. Optionally shell out to impeccable for the audit.
+- **Understanding:** Reads framework, current fonts, content, site type (static parsing of a Next.js project). Optionally shell out to an installed design skill for the audit.
 - **Curation engine:** Turns "this site + this vibe" into N concrete pairings with rationale. Backed by a hand-curated catalog (the human-taste asset / the moat) + LLM only for matching and explaining, never for inventing the list.
 - **Preview surface (the magic):** Renders the user's real running site in each candidate, live, flippable. Because the agent is local in their project, you mount the preview against their own dev server / own origin → full fidelity, no CORS, fonts swap for real. A local "Font Lab" panel opens in the browser.
 - **Decision handoff:** The pick becomes a clean structured selection the agent reads back. Conceptually identical to how gamut-engine exports a structured handoff to gamut-canvas — you already have this pattern in-house.
@@ -30,14 +30,14 @@ Name for the thing we're protecting: **THE CHOOSING MOMENT**. That's the magic. 
 
 **Technical crux to flag early:** the preview must render their own content in context, and the cleanest way to get that for free is to run inside their project against their local dev server. That single decision is what makes "preview on your real site" achievable without expensive headless infrastructure — and it's why the dev-tool / agent form factor beats the bookmarklet for the core product (the bookmarklet space is commoditized anyway).
 
-## Where Impeccable Fits (complement, not compete)
+## Where design skills fit (complement, not compete)
 
 Frame it as a stack, not a rivalry:
 
-- **impeccable = the floor.** Structure, rules, "this is generic, here's a direction." It's a critic.
-- **Font Lab = the ceiling.** It takes a direction — impeccable's or its own — and gives the human the choosing moment, then ships the pick. It's a chooser.
+- **A design/critique skill = the floor.** Structure, rules, "this is generic, here's a direction." It's a critic.
+- **Font Lab = the ceiling.** It takes a direction — a design skill's or its own — and gives the human the choosing moment, then ships the pick. It's a chooser.
 
-You can literally consume impeccable's audit as one input to step 2/3 and credit it. That makes you interoperable with a tool people already install, instead of trying to displace it.
+You can literally consume any design skill's audit as one input to step 2/3 and credit it. That makes you interoperable with tools people already install, instead of trying to displace them.
 
 ## The Ideal Beyond V1 (so we build the slice in the right direction)
 
@@ -56,6 +56,6 @@ Keep these as the north star, but don't build them yet.
 - **Curated set:** ~5 hand-picked directions over a ~40-font catalog.
 - **The magic:** a local Font Lab panel that renders your running dev site in each direction — flip-through + before/after vs. current.
 - **Pick → agent writes next/font + Tailwind.** Loop closed.
-- **Optional:** call impeccable to seed the directions, proving the "we make impeccable's advice choosable" story.
+- **Optional:** call an installed design skill to seed the directions, proving the "we make a design skill's advice choosable" story.
 
 That slice is the smallest thing that delivers the choosing moment AND the ship-it loop — i.e., it lands in the empty seam, not the crowded one.

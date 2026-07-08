@@ -1,7 +1,7 @@
 "use client";
 
 // Font Lab dev panel — "Galley", the editor's proof slip. Portable build, installed by
-// `font-lab init` into a real project. Design spec: PANEL-VISION.md (repo root).
+// `font-lab init` into a real project. Design spec: docs/PANEL-VISION.md.
 //
 // The swap applies through the analyzer's `wiring`: for each role it overrides the project's
 // OWN leaf next/font variable (e.g. --font-bricolage) on the element next/font uses (<html>
@@ -62,7 +62,7 @@ export function FontLabDevPanel() {
     const root = document.documentElement;
     const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const MONO = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
-    // The editorial voice. Local serif-italic stack for now; PANEL-VISION.md specs embedded
+    // The editorial voice. Local serif-italic stack for now; docs/PANEL-VISION.md specs embedded
     // Instrument Serif subsets as the build-step upgrade — this stack is its fallback either way.
     const SERIF_I = "'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif";
 

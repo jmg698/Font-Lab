@@ -1,6 +1,6 @@
 // Font Lab codegen (M2 + M3) — turn .font-lab/selection.json into real, reversible
 // next/font + Tailwind edits, with the analyzer (M3) choosing the branch so codegen never
-// guesses. Strategy per SHIP-SPEC.md:
+// guesses. Strategy per docs/SHIP-SPEC.md:
 //   • ts-morph for the AST-sensitive bits: merge the next/font import, rewrite the <html>
 //     (or <body>) className, and either replace or adopt the consts we're swapping;
 //   • fenced markers for the append-only regions (the generated font consts in layout.tsx
