@@ -76,12 +76,17 @@ export const STRATEGY_STEPS = [
 // Reach for these *kinds* of choices. Vary them per project — do not serve the same shortlist
 // every time. Some live in open foundries (Fontshare/Velvetyne) and aren't shippable until the
 // dynamic gate (A2) admits them; until then, map the intent to the nearest shippable family.
+//
+// These pools are DELIBERATELY LONG. The brief the agent actually receives (designBrief) rotates a
+// per-project SUBSET out of each pool, so two projects don't get anchored on the identical five
+// names — the exact "the shortlist becomes the new Inter" failure this file warned about. Keep the
+// pools broad and non-overexposed; adding names widens the rotation.
 export const REFERENCES = [
-  { intent: "editorial / literary headlines", families: ["Fraunces", "Hedvig Letters Serif", "Gambetta", "Newsreader", "Spectral"], why: "high-contrast or warm serifs that carry a voice — the opposite of a neutral UI sans." },
-  { intent: "distinctive grotesque (instead of Space Grotesk)", families: ["Cabinet Grotesk", "Bricolage Grotesque", "Familjen Grotesk", "Darker Grotesque", "Clash Grotesk"], why: "grotesques with actual character, for when you want modern but not template." },
-  { intent: "expressive display", families: ["Syne", "Unbounded", "Clash Display", "Big Shoulders Display"], why: "loud, opinionated faces for a hero or a wordmark that should be remembered." },
-  { intent: "warm humanist body", families: ["Hanken Grotesk", "Mona Sans", "Literata", "Hedvig Letters Sans"], why: "readable text faces with warmth, instead of the flat geometric defaults." },
-  { intent: "technical without the cliché", families: ["Spline Sans Mono", "Martian Mono", "Departure Mono", "Commit Mono"], why: "code/mono character that isn't JetBrains or Fira on every other dev site." },
+  { intent: "editorial / literary headlines", families: ["Fraunces", "Hedvig Letters Serif", "Gambetta", "Newsreader", "Spectral", "Sentient", "Zodiak", "Bespoke Serif", "Source Serif 4", "Crimson Pro", "Piazzolla", "STIX Two Text"], why: "high-contrast or warm serifs that carry a voice — the opposite of a neutral UI sans." },
+  { intent: "distinctive grotesque (instead of Space Grotesk)", families: ["Cabinet Grotesk", "Bricolage Grotesque", "Familjen Grotesk", "Darker Grotesque", "Clash Grotesk", "General Sans", "Switzer", "Supreme", "Archivo", "Anybody"], why: "grotesques with actual character, for when you want modern but not template." },
+  { intent: "expressive display", families: ["Syne", "Unbounded", "Clash Display", "Big Shoulders Display", "Melodrama", "Panchang", "Ranade", "Gabarito", "Hatton"], why: "loud, opinionated faces for a hero or a wordmark that should be remembered." },
+  { intent: "warm humanist body", families: ["Hanken Grotesk", "Mona Sans", "Literata", "Hedvig Letters Sans", "Onest", "Author", "Supreme", "Instrument Sans", "Source Sans 3"], why: "readable text faces with warmth, instead of the flat geometric defaults." },
+  { intent: "technical without the cliché", families: ["Spline Sans Mono", "Martian Mono", "Departure Mono", "Commit Mono", "IBM Plex Mono", "Red Hat Mono", "Overpass Mono"], why: "code/mono character that isn't JetBrains or Fira on every other dev site." },
 ];
 
 // ── the rule that kills the lazy pick ─────────────────────────────────────────
@@ -134,8 +139,37 @@ export function pickWarnings(roles) {
   return warnings;
 }
 
+// ── per-project reference rotation ────────────────────────────────────────────
+// A tiny FNV-1a hash (dependency-free) so the reference subset a project sees is stable for THAT
+// project but differs across projects — the mechanism that stops the shortlist from calcifying.
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// Rotate a pool by a seed-derived offset and take the first `n` — a different window per project.
+function rotateSubset(families, seed, n = 4) {
+  if (!seed || families.length <= n) return families;
+  const off = hashStr(seed) % families.length;
+  const rotated = families.slice(off).concat(families.slice(0, off));
+  return rotated.slice(0, n);
+}
+
 // Assemble the full design brief the front door (engine.start / font_lab_start) hands the agent.
-export function designBrief() {
+// Pass a per-project `seed` (engine derives it from the project's name + palette + copy) to rotate
+// the reference examples so every project doesn't anchor on the identical shortlist. No seed →
+// the full pools (used by direct callers and the unit test).
+export function designBrief({ seed } = {}) {
+  const groups = REFERENCES.map((g) => ({
+    ...g,
+    // each group rotates on its own axis so they don't all shift in lockstep
+    families: rotateSubset(g.families, seed ? `${seed}|${g.intent}` : "", 4),
+  }));
   return {
     intake: {
       instruction: "Ask the human these BEFORE proposing any fonts, then wait for the answers. This is what makes the result tailored instead of generic.",
@@ -150,8 +184,8 @@ export function designBrief() {
       families: EXCLUSIONS,
     },
     references: {
-      note: "Inspiration, not a pick-list. Reach for these KINDS of choices and vary them per project. Confirm any family with font_lab_check_fonts — the gate admits any shippable Google font and a curated bench of open-foundry faces (Fontshare); when one can't ship, pick the nearest shippable family of the same character.",
-      groups: REFERENCES,
+      note: "Inspiration, not a pick-list — and this is a PER-PROJECT SAMPLE of a larger pool, rotated so you don't reach for the same names every project. Treat them as a starting point, not a menu; a face you'd pick for any project is the wrong one. Confirm any family with font_lab_check_fonts — the gate admits any shippable Google font and a curated bench of open-foundry faces (Fontshare); when one can't ship, pick the nearest shippable family of the same character.",
+      groups,
     },
     rationale: RATIONALE_REQUIREMENT,
     principles: PRINCIPLES,

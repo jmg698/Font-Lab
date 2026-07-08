@@ -73,6 +73,34 @@ function appDir(dir) {
   return dir;
 }
 
+// Turn the project's own context into fallback-curation inputs: a stable per-project SEED (so the
+// deterministic fallback menu differs from project to project instead of being identical
+// everywhere) and a few SOFT vibe hints (so the spread leans toward the project's voice — editorial
+// copy nudges serifs, technical copy nudges engineered grotesques, a rich brand palette allows more
+// expressive display). Pure: pass a project name + gatherContext()'s output. The hints only tilt;
+// the seed is what guarantees differentiation even when a project gives no signal at all.
+export function deriveSignals(name, context = {}) {
+  const colors = context.colors || [];
+  const copy = context.copySample || [];
+  const docs = (context.designDocs || []).map((d) => d.excerpt || "").join(" ");
+
+  // The seed folds in the things that actually distinguish one project from another.
+  const seed = [name || "", ...colors.map((c) => `${c.name}:${c.value}`), ...copy].join("|");
+
+  const text = (copy.join(" ") + " " + docs).toLowerCase();
+  const hints = [];
+  const bump = (tag, weight = 1) => hints.push({ tag, weight });
+  if (/\b(story|stories|essay|read|article|journal|editorial|magazine|writ|prose|publish|report)\b/.test(text)) bump("editorial", 2);
+  if (/\b(api|sdk|cli|code|deploy|docs|developer|engineer|infra|latency|build|ship|runtime|data)\b/.test(text)) bump("technical", 2);
+  if (/\b(care|human|warm|community|people|together|friendly|welcome|help|support)\b/.test(text)) bump("warm", 1);
+  if (/\b(luxury|elegant|refined|couture|atelier|premium|timeless|fashion|studio)\b/.test(text)) bump("elegant", 1);
+  if (/\b(play|fun|bold|loud|vibrant|energy|launch|create|remix)\b/.test(text)) bump("bold", 1);
+  // A visibly designed brand (many named color tokens) can carry a more expressive display.
+  if (colors.length >= 8) bump("expressive", 1);
+
+  return { seed, hints };
+}
+
 // Gather the project's design context for the brief. Everything is best-effort — missing files just
 // yield empty signals; this never throws.
 export function gatherContext(projectDir) {

@@ -69,7 +69,7 @@ const TOOLS = [
   {
     name: "font_lab_curate",
     description:
-      "FALLBACK menu — ~5 deterministic font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Use this when you have NO brief from the user. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
+      "FALLBACK menu — ~5 font directions (display+body+mono pairings) that move off the project's current fonts, no LLM. Seeded to THIS project (its name + palette + copy), so the spread differs from project to project instead of being the same five everywhere — but it is still a generic starting point, NOT tailored to the user's brief. Use it only when you have NO brief. When you DO have a brief (from font_lab_start's intake questions), prefer font_lab_compose_directions and tailor the options to what they asked for — that's the better experience. Pass an optional 'vibe' to steer the fallback.",
     inputSchema: {
       type: "object",
       properties: { projectDir: proj, vibe: { type: "string" }, count: { type: "number" } },
@@ -127,7 +127,7 @@ const TOOLS = [
   {
     name: "font_lab_more_directions",
     description:
-      "Add MORE options to the live panel — when the human wants to keep exploring beyond the current set. Compose additional tailored directions first (font_lab_compose_directions), then pass them here; they're admitted and APPENDED to the panel (existing options are kept), and the panel updates live. Use this whenever the user asks 'what else?' / 'show me more' — the menu is never capped.",
+      "Add MORE options to the live panel — when the human wants to keep exploring beyond the current set. Compose additional tailored directions first (font_lab_compose_directions), then pass them here; they're admitted and APPENDED to the panel (existing options are kept), and the panel updates live. Use this whenever the user asks 'what else?' / 'show me more' — the menu is never capped. This ALSO fulfills an in-panel 'more options' request (from font_lab_wait_for_request): appending clears the pending request and flips the menu from provisional 'starter' to tailored. Honor the request's brief and reach past its exclude list so the new options are genuinely different.",
     inputSchema: {
       type: "object",
       properties: { projectDir: proj, directions: { type: "array", items: { type: "object" }, description: "The new directions to append (from compose_directions)." } },
@@ -172,6 +172,20 @@ const TOOLS = [
       required: ["projectDir"],
     },
     handler: (a) => engine.waitForPick(a.projectDir, { timeoutMs: (a.timeoutSec ?? 240) * 1000, ignoreExisting: a.ignoreExisting === true }),
+  },
+  {
+    name: "font_lab_wait_for_request",
+    description:
+      "BLOCK until the human clicks 'more options / none of these' in the live panel (or timeoutSec elapses). This is how you receive an in-panel request for FRESH directions — e.g. they didn't like the current menu, or they're on the deterministic starter menu and want ones tailored to them. While you're blocked, the panel shows 'agent listening', so the human's click reaches you instead of the copy-a-prompt off-ramp. Returns { requested: true, request } — where request.brief is the mini-brief they typed in the panel (feeling / departure / brand / a free-text note) and request.exclude is the families already on screen. On a request: compose NEW directions honoring that brief, reaching past request.exclude AND the design brief's overexposed defaults, then call font_lab_more_directions (which appends them live AND clears the request). Returns { requested: false, timedOut: true } on timeout — call again to keep listening. Run this after the panel is up (init) and the endpoint is serving, whenever the human may want to keep exploring.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        timeoutSec: { type: "number", description: "Max seconds to block (default 240). Re-call on timeout." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.waitForRequest(a.projectDir, { timeoutMs: (a.timeoutSec ?? 240) * 1000 }),
   },
   {
     name: "font_lab_status",
