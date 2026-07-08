@@ -103,5 +103,34 @@ const lineOf = (src, needle) => src.split("\n").findIndex((l) => l.includes(need
   rmSync(dir, { recursive: true, force: true });
 }
 
+console.log("\ninline markup — a bare run edits without disturbing its <br/>/<em> siblings\n");
+
+// The panel's per-run editing (font-lab-panel.tsx) sends the run's nearest ELEMENT call-site plus the
+// run's OWN words, so a headline carrying inline markup is no longer un-editable — each run maps to one
+// JsxText node. This guards that server contract against regressions.
+{
+  const dir = mkdtempSync(path.join(tmpdir(), "fl-runs-"));
+  mkdirSync(path.join(dir, "app"), { recursive: true });
+  // The real jack-mcgovern.com hero: a bare text run beside a <br/> and an <em> run.
+  const HERO =
+    `export default function Hero() {\n  return (\n    <h1 className="hero">\n` +
+    `      You pick the type.\n      <br />\n      <em>Your agent ships it.</em>\n    </h1>\n  );\n}\n`;
+  const file = path.join(dir, "app/page.tsx");
+  writeFileSync(file, HERO);
+  const read = () => readFileSync(file, "utf8");
+  const lineOf2 = (needle) => read().split("\n").findIndex((l) => l.includes(needle)) + 1;
+
+  const r1 = applyEdit(dir, { file: "app/page.tsx", line: lineOf2("<h1"), col: 4, oldText: "You pick the type.", newText: "You choose the type." });
+  ok("bare run inside <h1> saves via the element frame + its own oldText", r1.ok, JSON.stringify(r1));
+  ok("  only the bare run changed", read().includes("You choose the type."));
+  ok("  the <br/> sibling is preserved", read().includes("<br />"));
+  ok("  the <em> sibling is untouched", read().includes("<em>Your agent ships it.</em>"));
+
+  const r2 = applyEdit(dir, { file: "app/page.tsx", line: lineOf2("<em>"), col: 6, oldText: "Your agent ships it.", newText: "Your agent writes it." });
+  ok("the <em> run edits independently, leaving the h1 run intact",
+    r2.ok && read().includes("Your agent writes it.") && read().includes("You choose the type."));
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "✗" : "✓"} copyedit: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

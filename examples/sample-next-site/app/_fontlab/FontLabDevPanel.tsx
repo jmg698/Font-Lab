@@ -677,14 +677,15 @@ export function FontLabDevPanel() {
       }
       const cs = getComputedStyle(hoverHit.el);
       const cov = coverage();
-      const editable = isEditableText(hoverHit.el);
+      const editable = hasEditableRun(hoverHit.el);
+      const trapped = editable && !!hoverHit.el.closest(INTERACTIVE);
       const role = hoverHit.role;
       // name the live font in its own typeface — the same touch the panel rows use
       const specimen = canSwap(role) ? (stackOf(role, effSel()) || MONO) : MONO;
       hoverChip.style.display = "block";
       hoverChip.innerHTML =
         `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")};font-size:13px;line-height:1">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
-        `<br><span style="color:rgba(242,239,229,.55)">${editable ? "[ or ] to flip fonts · double-click retypes it" : "[ or ] to flip fonts · words come from data / markup — not retypable"}</span>`;
+        `<br><span style="color:rgba(242,239,229,.55)">[ or ] to flip fonts · ${editable ? (trapped ? "⌥ double-click to retype (it's a link)" : "double-click to retype") : "words come from data / markup"}</span>`;
       const r = hoverHit.el.getBoundingClientRect();
       const x = Math.max(8, Math.min(innerWidth - hoverChip.offsetWidth - 8, e.clientX - 20));
       let y = r.top - hoverChip.offsetHeight - 6;
@@ -734,14 +735,50 @@ export function FontLabDevPanel() {
       }
       return null;
     }
-    // The clean, unambiguous case: an element whose children are all text nodes.
-    function isEditableText(el: Element): boolean {
+    // A "run" is one rendered text node — which is exactly one JsxText node in source, the unit the
+    // write-back rewrites (cli/copyedit.mjs resolveTarget). So a headline like
+    //   <h1>You pick the type.<br/><em>Your agent ships it.</em></h1>
+    // has three runs, and each edits on its own, leaving the inline markup (<em>, <br/>, links)
+    // untouched. That's why editing keys off the run under the cursor — NOT "is the whole element
+    // pure text," which refused any block that carried a single <em> or <br/>.
+    const INTERACTIVE = "a[href], button, [role='button'], [role='link']";
+    // Does this element carry at least one directly-editable run (a non-empty text node of its own)?
+    // Only used to word the hover chip; the double-click resolves the exact run under the pointer.
+    function hasEditableRun(el: Element): boolean {
       if (!el || el.nodeType !== 1 || OURS(el)) return false;
-      if (!el.childNodes.length) return false;
-      for (const n of Array.from(el.childNodes)) if (n.nodeType !== 3) return false;
-      return el.textContent!.trim().length > 0;
+      return Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent!.trim().length > 0);
     }
-    let editingEl: HTMLElement | null = null;
+    // The exact text node under the pointer (falls back to the target's first non-empty text child).
+    function textNodeAtPoint(e: MouseEvent, t: Element): Text | null {
+      let node: Node | null = null;
+      const anyDoc = document as any;
+      if (anyDoc.caretPositionFromPoint) {
+        const cp = anyDoc.caretPositionFromPoint(e.clientX, e.clientY);
+        if (cp && cp.offsetNode) node = cp.offsetNode;
+      } else if (anyDoc.caretRangeFromPoint) {
+        const r = anyDoc.caretRangeFromPoint(e.clientX, e.clientY);
+        if (r) node = r.startContainer;
+      }
+      if (!node || node.nodeType !== 3)
+        node = Array.from(t.childNodes).find((n) => n.nodeType === 3 && n.textContent!.trim()) ?? null;
+      return node && node.nodeType === 3 && node.textContent!.trim() ? (node as Text) : null;
+    }
+    // Resolve the run the user aimed at: the text node, its nearest ELEMENT ancestor (whose call-site
+    // the write-back needs), and whether that element holds ONLY this run (edit it in place) or the run
+    // is a bare sibling of inline markup (wrap it just for the edit).
+    function editableRunAt(e: MouseEvent, t: Element): { node: Text; host: HTMLElement; soleText: boolean; runText: string } | null {
+      const node = textNodeAtPoint(e, t);
+      if (!node) return null;
+      const host = node.parentElement;
+      if (!host || OURS(host)) return null;
+      const soleText = Array.from(host.childNodes).every(
+        (n) => n === node || (n.nodeType === 3 && !n.textContent!.trim()),
+      );
+      return { node, host, soleText, runText: node.textContent || "" };
+    }
+    let editingEl: HTMLElement | null = null;       // the contenteditable host (an element, or a temp wrap span)
+    let editingSourceEl: HTMLElement | null = null; // the real element whose call-site the edit maps to
+    let editingWrap: HTMLElement | null = null;     // a throwaway span we inserted to isolate a bare run (else null)
     let editingOriginal = "";
 
     // ---- floating edit result: pin the save ack / refusal reason to the words the human just
@@ -787,65 +824,126 @@ export function FontLabDevPanel() {
       if (!state.expanded || editingEl) return;
       const t = e.target as Element | null;
       if (!t || OURS(t)) return;
-      const el = (scan().find(({ el: se }) => se.contains(t))?.el ?? (t as HTMLElement)) as HTMLElement;
-      if (!isEditableText(el)) return;
+      const run = editableRunAt(e, t);
+      if (!run) return;
+      // Words inside a link or button: a plain click there is the site's own navigation, and inspect
+      // promised never to steal it. So editing trapped text takes an explicit alt/option-double-click
+      // (the guard below swallows those clicks so the <a>/<button> never fires). Plain text still edits
+      // on a plain double-click.
+      const trapped = run.host.closest(INTERACTIVE);
+      if (trapped && !OURS(trapped) && !e.altKey) return;
       e.preventDefault();
-      startEdit(el);
+      startEditRun(run);
     };
     document.addEventListener("dblclick", onDblClick, true);
+    // Single clicks pass straight through to the site (inspect "never steals a click"). But when the
+    // human alt/option-clicks text inside a link or button, they mean "let me edit these words," not
+    // "navigate" — so swallow those clicks in the capture phase (before the anchor navigates or the
+    // React onClick fires), which also clears the way for the alt-double-click to open the editor.
+    // Everything without alt, and everything outside a link/button, is untouched.
+    const onGuardedClick = (e: MouseEvent) => {
+      if (!state.expanded || editingEl || !e.altKey) return;
+      const t = e.target as Element | null;
+      if (!t || OURS(t)) return;
+      const trapped = t.closest?.(INTERACTIVE);
+      if (trapped && !OURS(trapped) && (t.textContent || "").trim()) { e.preventDefault(); e.stopPropagation(); }
+    };
+    document.addEventListener("click", onGuardedClick, true);
+    document.addEventListener("auxclick", onGuardedClick, true);
     function editKeys(e: KeyboardEvent) {
       e.stopPropagation();
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEdit(); }
       else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
     }
     const onEditBlur = () => { void saveEdit(); };
-    function startEdit(el: HTMLElement) {
+    function startEditRun(run: { node: Text; host: HTMLElement; soleText: boolean; runText: string }) {
       inspectClear();
       hideEditToast();
-      editingEl = el;
-      editingOriginal = el.textContent || "";
-      el.classList.add("__fl_editing");
-      el.setAttribute("contenteditable", "plaintext-only");
-      el.focus();
+      let editEl: HTMLElement;
+      if (run.soleText) {
+        // the run is the element's only content — edit it in place (the common leaf case)
+        editEl = run.host;
+        editingWrap = null;
+      } else {
+        // a bare run sitting beside inline markup (<em>, <br/>, a link) — wrap JUST this text node in a
+        // throwaway span so contenteditable touches only these words, never the siblings. Unwrapped on end.
+        const span = document.createElement("span");
+        span.setAttribute("data-fl-edit-wrap", "");
+        run.node.parentNode!.insertBefore(span, run.node);
+        span.appendChild(run.node);
+        editEl = span;
+        editingWrap = span;
+      }
+      editingEl = editEl;
+      editingSourceEl = run.host; // the call-site maps to the real element, never the temp span
+      editingOriginal = run.runText;
+      editEl.classList.add("__fl_editing");
+      editEl.setAttribute("contenteditable", "plaintext-only");
+      editEl.focus();
+      // select the run so a retype replaces it cleanly
+      try {
+        const sel = getSelection();
+        const r = document.createRange();
+        r.selectNodeContents(editEl);
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+      } catch {}
       setStatus("Retype in place — ⏎ saves to source · esc cancels.");
-      el.addEventListener("keydown", editKeys);
-      el.addEventListener("blur", onEditBlur);
+      editEl.addEventListener("keydown", editKeys);
+      editEl.addEventListener("blur", onEditBlur);
     }
-    function endEdit(): HTMLElement | null {
-      const el = editingEl;
-      if (!el) return null;
-      el.removeEventListener("keydown", editKeys);
-      el.removeEventListener("blur", onEditBlur);
-      el.removeAttribute("contenteditable");
-      el.classList.remove("__fl_editing");
+    function endEdit(): { editEl: HTMLElement; sourceEl: HTMLElement; wrap: HTMLElement | null } | null {
+      const editEl = editingEl;
+      const sourceEl = editingSourceEl;
+      const wrap = editingWrap;
+      if (!editEl) return null;
+      editEl.removeEventListener("keydown", editKeys);
+      editEl.removeEventListener("blur", onEditBlur);
+      editEl.removeAttribute("contenteditable");
+      editEl.classList.remove("__fl_editing");
       editingEl = null;
-      return el;
+      editingSourceEl = null;
+      editingWrap = null;
+      return { editEl, sourceEl: sourceEl || editEl, wrap };
+    }
+    // Collapse a temporary edit-wrap span back to a plain text node once editing ends, so the page DOM
+    // is left exactly as we found it (plus the retyped words). No-op for the in-place case.
+    function unwrapEdit(wrap: HTMLElement | null) {
+      if (!wrap || !wrap.parentNode) return;
+      wrap.replaceWith(document.createTextNode(wrap.textContent || ""));
     }
     async function saveEdit() {
-      const el = endEdit();
-      if (!el) return;
+      const ctx = endEdit();
+      if (!ctx) return;
+      const { editEl, sourceEl, wrap } = ctx;
       const before = editingOriginal;
-      const after = (el.textContent || "").replace(/\s+/g, " ").trim();
-      if (after === before.replace(/\s+/g, " ").trim()) { setStatus(""); return; }
+      const after = (editEl.textContent || "").replace(/\s+/g, " ").trim();
+      if (after === before.replace(/\s+/g, " ").trim()) { unwrapEdit(wrap); setStatus(""); return; }
       invalidateScan();
       setStatus("Saving words to source…");
+      // The temp wrap is about to be collapsed, so anchor every toast on the real element instead.
+      const anchor = sourceEl;
       try {
         const res = await fetch(ENDPOINT + "/edit", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ frame: callSite(el), oldText: before, newText: after }),
+          // the call-site is the run's nearest element; oldText is the run's OWN words, so the endpoint
+          // rewrites exactly that JsxText node and leaves any sibling <em>/<br/>/links untouched.
+          body: JSON.stringify({ frame: callSite(sourceEl), oldText: before, newText: after }),
         });
         const j = await res.json().catch(() => ({}) as any);
         if (res.ok && j.ok) {
+          unwrapEdit(wrap);
           setStatusHTML(`Saved ✓ <b>${esc(j.file)}:${esc(j.line)}</b> — words are in your source. <button class="linkish" id="undoEdit">undo</button>`, "good");
           shadow.getElementById("undoEdit")?.addEventListener("click", runUndo);
-          showEditToast(el, `<b style="color:#E7FF3B;font-weight:600">Saved ✓</b> ${esc(j.file)}:${esc(j.line)}${TOAST_UNDO}`, "good");
+          showEditToast(anchor, `<b style="color:#E7FF3B;font-weight:600">Saved ✓</b> ${esc(j.file)}:${esc(j.line)}${TOAST_UNDO}`, "good");
           editToast?.querySelector(".fl-toast-undo")?.addEventListener("click", runUndo);
         } else {
           // Refused (dynamic text, duplicate phrase, unmappable) — revert the DOM so the page
           // never lies about what's in source, and say why, pinned to where the words snapped
           // back so the reason is impossible to miss.
-          el.textContent = before;
+          editEl.textContent = before;
+          unwrapEdit(wrap);
           const why = j.error || `endpoint said ${res.status}`;
           setStatus(`Not saved — ${why}.`, "warn");
           // If the endpoint decided this edit can't be automated (data-driven text, or a phrase in
@@ -856,7 +954,7 @@ export function FontLabDevPanel() {
           const handoff = agentPrompt
             ? `<br><button class="fl-toast-agent" style="background:none;border:0;color:#E7FF3B;font:inherit;text-decoration:underline;cursor:pointer;padding:0;margin-top:6px">Copy fix for your agent →</button>`
             : "";
-          showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">${esc(why)}</span>${handoff}`, "warn");
+          showEditToast(anchor, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">${esc(why)}</span>${handoff}`, "warn");
           const agentBtn = agentPrompt ? editToast?.querySelector(".fl-toast-agent") : null;
           if (agentBtn) {
             agentBtn.addEventListener("click", async () => {
@@ -866,15 +964,17 @@ export function FontLabDevPanel() {
           }
         }
       } catch {
-        el.textContent = before;
+        editEl.textContent = before;
+        unwrapEdit(wrap);
         setStatus("Endpoint offline — run npx font-lab, then retype.", "warn");
-        showEditToast(el, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">Endpoint offline — run <b>npx font-lab</b> in your site's folder, then retype.</span>`, "warn");
+        showEditToast(anchor, `<b style="color:#FF6B57;font-weight:600">Couldn't save</b><br><span style="color:rgba(242,239,229,.75)">Endpoint offline — run <b>npx font-lab</b> in your site's folder, then retype.</span>`, "warn");
       }
     }
     function cancelEdit() {
-      const el = endEdit();
-      if (!el) return;
-      el.textContent = editingOriginal;
+      const ctx = endEdit();
+      if (!ctx) return;
+      ctx.editEl.textContent = editingOriginal;
+      unwrapEdit(ctx.wrap);
       hideEditToast();
       setStatus("Edit cancelled — nothing written.");
     }
@@ -1294,6 +1394,10 @@ export function FontLabDevPanel() {
       document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("mousemove", inspectMove, true);
       document.removeEventListener("dblclick", onDblClick, true);
+      document.removeEventListener("click", onGuardedClick, true);
+      document.removeEventListener("auxclick", onGuardedClick, true);
+      const inFlight = endEdit(); // if we unmount mid-edit, restore the DOM to exactly as found
+      if (inFlight) unwrapEdit(inFlight.wrap);
       removeEventListener("resize", onResize);
       mo.disconnect();
       es?.close();
