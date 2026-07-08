@@ -1,6 +1,6 @@
 // Font Lab — the portable design brain (v2, A1).
 //
-// Taste has to travel. We can't assume Impeccable or any other design skill is installed (it
+// Taste has to travel. We can't assume any particular design skill is installed (it
 // won't be, in most environments, and never on Codex), so Font Lab carries its OWN design
 // intelligence and hands it to the agent as DATA it must apply — not prose it can skim. This
 // module is the source of that data: the intake questions to ask first, the strategy scaffold

@@ -40,7 +40,7 @@ Inside your Next.js + Tailwind project — or just ask your agent *"install Font
 npx font-lab install
 ```
 
-This does two things, idempotently and reversibly (mirroring the `npx impeccable install`
+This does two things, idempotently and reversibly (the familiar `npx <tool> install`
 pattern):
 
 1. **Skill** → copies the `font-lab` skill into `~/.claude/skills/font-lab`, so the agent
@@ -340,7 +340,7 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 ## The contract it writes
 
 `.font-lab/selection.json` follows the schema in
-[`../ARCHITECTURE.md`](../ARCHITECTURE.md): `direction`, `roles` (display/body/mono with
+[`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md): `direction`, `roles` (display/body/mono with
 family/source/weights), `replaces` (current fonts), and `target` (framework/router/Tailwind
 version/wiring). `picks.log.jsonl` appends every pick — the taste-memory stream the roadmap
 starts capturing at M1.

@@ -1,4 +1,4 @@
-// Font Lab catalog (M4) — the parity asset, not a taste moat (see ARCHITECTURE.md).
+// Font Lab catalog (M4) — the parity asset, not a taste moat (see docs/ARCHITECTURE.md).
 //
 // Each entry is a font we can ship with the WYSIWYG guarantee intact. Membership is gated on
 // two hard requirements, both verified:

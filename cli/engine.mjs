@@ -871,8 +871,8 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
     const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
-    // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. Impeccable's
-    // live mode, HMR sockets) keeps the network busy so `networkidle` never fires and capture times
+    // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. a design
+    // skill's live mode, HMR sockets) keeps the network busy so `networkidle` never fires and times
     // out. We gate readiness on the panel mounting + fonts being ready instead, which is what we
     // actually need for a faithful shot.
     await page.goto(base + route, { waitUntil: "load", timeout: 30000 });

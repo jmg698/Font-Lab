@@ -3,8 +3,7 @@
 > Engineering companion to [`CONCEPT.md`](./CONCEPT.md). This is the tech-lead view of
 > *how* the concept becomes real code. No specs are frozen here — it captures the
 > decisions we've made, the seams between pieces, and the contracts everything hangs
-> off. The detailed plan for the ship step lives in [`SHIP-SPEC.md`](./SHIP-SPEC.md);
-> the decision history and open risks live in [`CRITIQUE.md`](./CRITIQUE.md).
+> off. The detailed plan for the ship step lives in [`SHIP-SPEC.md`](./SHIP-SPEC.md).
 
 ## The crux: how the "choosing moment" actually works
 
@@ -78,22 +77,28 @@ The two places parity can drift, and how we close them:
   high-fidelity swap; projects that hardcode `font-family` get a lower-fidelity broad
   override. v1 is scoped to the CSS-variable path (our own stack).
 
-Both are exercised in the M0 spike (see [`ROADMAP.md`](./ROADMAP.md)). M0 is the go/no-go.
+Both were exercised in the M0 go/no-go spike.
 
-## Monorepo layout
+## Layout
+
+The concept was sketched as a seven-package monorepo; in practice it ships as one small,
+dependency-light module set under `cli/` (no build step, Node ES modules). The *seams* below
+are real — each concern is an independent, separately testable module — they just live as files
+in one package rather than seven:
 
 ```
 font-lab/
-  packages/
-    catalog/        # parity bundles: woff2 + the two @font-face blocks + verified metrics
-    analyzer/       # static read of the project: framework, router, TW version, fonts, wiring
-    curator/        # analysis + vibe -> ~5 directions (deterministic lookup; no runtime LLM)
-    preview/        # THE MAGIC: dev-only panel, :root swap, parity CSS injection, panel UI
-    codegen/        # selection -> exact next/font + Tailwind edits, applied + reversible
-    cli/            # `npx font-lab` ties it together + the localhost write-back endpoint
-    mcp/            # MCP server + skill so the agent drives all of the above
-  examples/
-    sample-next-site/  # deterministic Next + Tailwind v4 fixture to develop against
+  cli/
+    catalog.mjs     # parity bundles: woff2 + the two @font-face blocks + verified metrics
+    analyzer.mjs    # static read of the project: framework, router, TW version, fonts, wiring
+    curator.mjs     # analysis + vibe -> ~5 directions (deterministic lookup; no runtime LLM)
+    engine.mjs      # the facade: preview/parity, screenshots, read-pick, apply, undo
+    templates/font-lab-panel.tsx  # THE MAGIC: dev-only panel, :root swap, parity injection, UI
+    codegen.mjs     # selection -> exact next/font + Tailwind edits, applied + reversible
+    font-lab.mjs    # `npx font-lab` + the localhost write-back endpoint
+    mcp.mjs         # MCP server + skill so the agent drives all of the above
+  skill/font-lab/   # the SKILL.md an agent reads to drive the loop
+  examples/         # deterministic Next + Tailwind v4 fixtures to develop against
 ```
 
 Data flows one direction, each arrow a typed contract:
@@ -102,25 +107,25 @@ Data flows one direction, each arrow a typed contract:
 analyzer  ->  curator  ->  preview  ->  selection.json  ->  codegen
 ```
 
-Each package stays independently testable; any one can be swapped without touching the
+Each module stays independently testable; any one can be swapped without touching the
 others.
 
-### What each package owns
+### What each module owns
 
-- **catalog** — Not a taste asset (see [`CRITIQUE.md`](./CRITIQUE.md)); a **parity asset.**
-  For each font: the woff2 (matching the shippable subset), the precomputed primary +
+- **catalog** — Not a taste asset (the list of names is copyable in an afternoon); a **parity
+  asset.** For each font: the woff2 (matching the shippable subset), the precomputed primary +
   adjusted-fallback `@font-face` CSS, and a flag confirming capsize-metric coverage. Pure
   data. This is what makes preview == ship.
 - **analyzer** — Static parsing of the target project: framework, **App vs Pages Router**,
   **Tailwind v3 vs v4**, current fonts, and *how fonts are wired* (CSS vars vs hardcoded).
-  Pure functions; the gamut-engine pattern reused. Its output selects the codegen branch.
+  Pure functions. Its output selects the codegen branch.
 - **curator** — Turns `analysis + vibe` into ~5 concrete directions via a deterministic
   lookup over the catalog, with pre-written rationale. **No runtime LLM call** — the
-  agent driving the tool *is* the LLM; the package stays dumb, instant, and free.
-  Optionally seeds the brief from an impeccable audit.
+  agent driving the tool *is* the LLM; the module stays dumb, instant, and free.
+  Optionally seeds the brief from an installed design skill's audit.
 - **preview** — The dev-only panel, the `:root` variable swap, the parity-CSS injection,
   and the panel chrome (arrow-key flip, before/after toggle, pin-to-compare, "more like
-  this"). The hard package.
+  this"). The hard part.
 - **codegen** — Takes the selection and applies the exact `next/font` + Tailwind edits to
   the project, idempotently and reversibly. The link nobody else closes. Full spec in
   [`SHIP-SPEC.md`](./SHIP-SPEC.md).
@@ -200,16 +205,16 @@ Two notes:
 - **Testbeds: both.** A deterministic in-repo `examples/sample-next-site` for day-to-day
   iteration, plus the real `jack-mcgovern.com` as the periodic fidelity check.
 
-## Where impeccable fits
+## Where design skills fit
 
-A stack, not a rivalry. impeccable is the **floor** (a critic: "this is generic"); Font
-Lab is the **ceiling** (a chooser). Integration is **best-effort, not a dependency**:
-impeccable ships no API, no MCP, and no stable report file — the only mechanism is shelling
-out to `npx impeccable detect --json` and parsing stdout (whose schema is undocumented, so
-we'd pin it against the installed version). Its font rules only *flag* (Inter, Geist, Space
-Grotesk, flat hierarchy, single family) — they don't suggest replacements. So impeccable
-**seeds the brief** ("you're on slop; you need a display/body pair with more contrast"), not
-the directions. It's Apache-2.0, so wrapping and crediting it is clean.
+A stack, not a rivalry. A design/critique skill is the **floor** (it flags "this is generic");
+Font Lab is the **ceiling** (it hands a human the choosing moment and ships the pick). Any such
+skill is welcome, and integration is **best-effort, not a dependency** — Font Lab never assumes a
+particular one is installed. When a critique skill is present, it can **seed the brief** ("you're
+on slop; you need a display/body pair with more contrast"); Font Lab consumes that as *one input*
+to the directions, not as the answer, and credits it. A critique skill typically only *flags*
+overused faces (Inter, Geist, Space Grotesk, flat hierarchy) — it doesn't suggest shippable
+replacements, which is exactly the gap Font Lab fills.
 
 ## Risks we're tracking
 
@@ -223,6 +228,6 @@ the directions. It's Apache-2.0, so wrapping and crediting it is clean.
 4. **Font-wiring heterogeneity** — hardcoded `font-family` projects get a lower-fidelity
    fallback; v1 is scoped to the CSS-variable path.
 5. **Demand / behavioral risk (the real one)** — will people pause to *choose*, rather than
-   want a good default? Not answerable in code; tested by dogfooding (see ROADMAP).
+   want a good default? Not answerable in code; tested by dogfooding.
 6. **Distribution discovery** — "rides the agent wave" is a hope until the skill/tool
    description is tuned so agents reach for us, plus a thin front-door lure for awareness.

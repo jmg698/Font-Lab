@@ -8,7 +8,7 @@
 > The unconstrained answer to "what is the absolute best version of this panel?" — synthesized
 > from a five-concept design exploration (specimen sheet, hardware console, page x-ray,
 > editorial companion, darkroom contact sheet) judged from three lenses (founder taste, design
-> craft, daily use). This doc is the spec; `spike/panel-galley/prototype.html` is the living,
+> craft, daily use). This doc is the spec; `../spike/panel-galley/prototype.html` is the living,
 > clickable version of it.
 
 ## The diagnosis
@@ -156,7 +156,7 @@ replacement folds comparison into the direction list itself, one mental model:
 ## Copy edits on the same proof (the text-edit brief, integrated)
 
 The inspect layer is the entry point the inline-copy-editing spike needs (see
-`spike/text-edit` — React 19 `_debugStack` → source map → ts-morph write-back, proven):
+`../spike/text-edit` — React 19 `_debugStack` → source map → ts-morph write-back, proven):
 
 - The inspect chip's second line already teaches it: `[ ] flips this text · double-click
   retypes it`.
@@ -247,7 +247,7 @@ React shell:
    saved mixes appended to the directions array replace `comparing`/`showingPin`/pins
    entirely; the pick guard derives from `beforeView || onCurrent`.
 5. **Copy edits**: the dev server grows an `/edit` + `/undo` endpoint pair (sibling of
-   `/select`) backed by the `spike/text-edit` engine; the panel's dblclick handler posts
+   `/select`) backed by the `../spike/text-edit` engine; the panel's dblclick handler posts
    `{loc, before, after}` and narrates the ack. Same NODE_ENV guard, nothing ships.
 6. The font endpoint protocol, persistence, and DCE guard are untouched.
 
@@ -263,7 +263,7 @@ sentinel scan, inspect, change receipts, list-based compare, copy editing via th
 `analyzer.wiringFor`). Verified against the real fixture: loop 16/16, m6 18/18, handoff
 19/19, version 13/13, write-back engine 13/13, plus a live dblclick→source→undo e2e.
 
-Prototype: `spike/panel-galley/prototype.html` — open it in a browser. The demo harness
+Prototype: `../spike/panel-galley/prototype.html` — open it in a browser. The demo harness
 (top-left) switches connection/honesty states; candidate faces render as local stand-ins
 (the artifact sandbox can't fetch webfonts); the real panel loads the true subsets, so flips
 will be *more* distinct than the demo, not less.

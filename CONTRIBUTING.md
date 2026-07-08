@@ -17,8 +17,9 @@ Everything lives in [`cli/`](./cli) — dependency-light ES modules, no build st
 | Engine facade + MCP server (the agent-facing surface) | `cli/engine.mjs`, `cli/mcp.mjs` |
 | The dev panel (`init` installs it into a real project) | `cli/templates/font-lab-panel.tsx` |
 
-The deeper design docs are linked from the [README](./README.md#going-deeper) — read
-`ARCHITECTURE.md` and `SHIP-SPEC.md` before touching the analyzer or codegen.
+The deeper design docs live in [`docs/`](./docs) — read
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and [`docs/SHIP-SPEC.md`](./docs/SHIP-SPEC.md)
+before touching the analyzer or codegen.
 
 ## Run the tests
 
