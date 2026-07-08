@@ -2,7 +2,7 @@
 // (resolve/apply/undo/refuse) is proven headlessly in spike/text-edit/edit-codegen.test.mjs;
 // this file guards the parts that vary by the target repo we're injected into — chiefly the
 // source-map path shapes different bundlers emit, and the HTML-entity gap between what's in
-// source (what&apos;s) and the rendered words the panel reads back (what's). Run: node copyedit.test.mjs
+// source (what&apos;s) and the rendered words the panel reads back (what's). Run: node copyedit-test.mjs
 
 import { normalizeSourcePath, decodeEntities, encodeJsxText, applyEdit, findPhrase, undoEdit, resolveTarget } from "./copyedit.mjs";
 import { Project } from "ts-morph";

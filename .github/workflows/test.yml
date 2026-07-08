@@ -2,14 +2,14 @@ name: Test
 
 # The merge gate. Runs the fast, deterministic, offline test suite on every PR and every
 # push to a long-lived branch — so a change that breaks the analyzer, the CSS codegen, the
-# curator, the catalog's parity guarantees, the MCP surface, or the panel keymap is caught
-# before it lands, not by a user on Reddit.
+# copy-edit write-back, the curator, the catalog's parity guarantees, the MCP surface, or the
+# panel keymap is caught before it lands, not by a user on Reddit.
 #
 # These are the SAME gates publish.yml runs before a release (codegen-css, panel-keys, m5),
-# plus m3 (analyzer) and m4 (catalog + curator) — all pure Node, no browser, no dev server,
-# no network. The heavier build-and-render proof (run-m2, browser + `next build`) is left out
-# on purpose: it's slower and flakier, and belongs in a separate opt-in job, not the gate
-# that must stay green for every contribution.
+# plus copyedit (copy-edit write-back), m3 (analyzer) and m4 (catalog + curator) — all pure Node,
+# no browser, no dev server, no network. The heavier build-and-render proof (run-m2, browser +
+# `next build`) is left out on purpose: it's slower and flakier, and belongs in a separate opt-in
+# job, not the gate that must stay green for every contribution.
 
 on:
   pull_request:
@@ -35,6 +35,9 @@ jobs:
 
       - name: CSS codegen (fenced @theme block, idempotent, removable)
         run: node codegen-css-test.mjs
+
+      - name: Copy-edit write-back (source-map paths, HTML-entity round-trip)
+        run: node copyedit-test.mjs
 
       - name: Panel keymap (every key handled is documented and vice-versa)
         run: node panel-keys-test.mjs

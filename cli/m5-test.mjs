@@ -115,7 +115,7 @@ try {
 
     const list = await rpc("tools/list", {});
     const names = list.result.tools.map((t) => t.name);
-    for (const t of ["font_lab_analyze", "font_lab_list_catalog", "font_lab_curate", "font_lab_compose_directions", "font_lab_init", "font_lab_uninit", "font_lab_prepare_preview", "font_lab_read_pick", "font_lab_apply", "font_lab_rewire_dead_roles", "font_lab_undo"])
+    for (const t of ["font_lab_analyze", "font_lab_list_catalog", "font_lab_curate", "font_lab_compose_directions", "font_lab_init", "font_lab_uninit", "font_lab_prepare_preview", "font_lab_read_pick", "font_lab_apply", "font_lab_rewire_dead_roles", "font_lab_undo", "font_lab_wait_for_request"])
       assert(`MCP exposes ${t}`, names.includes(t));
     assert("MCP tool descriptions mention the human keeps the pick", list.result.tools.some((t) => /human/i.test(t.description)));
 

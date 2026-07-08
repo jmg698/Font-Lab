@@ -884,10 +884,13 @@ export function FontLabDevPanel() {
       if (!t || OURS(t)) return;
       const run = editableRunAt(e, t);
       if (!run) return;
-      // Words inside a link or button: a plain click there is the site's own navigation, and inspect
-      // promised never to steal it. So editing trapped text takes an explicit alt/option-double-click
-      // (the guard below swallows those clicks so the <a>/<button> never fires). Plain text still edits
-      // on a plain double-click.
+      // Words inside a link or button don't open the editor here on Chromium: alt-clicking a link
+      // fires a browser default (follow/download the target) and suppressing it — which we must, so the
+      // click doesn't navigate — also cancels the dblclick this handler waited on. Trapped text is
+      // opened by onGuardedDown on the second mousedown instead; this branch stays as a harmless
+      // fallback for engines that DO deliver the dblclick. Plain text still opens on a plain
+      // double-click, and a plain (no-alt) double-click on trapped text is refused so inspect never
+      // steals a navigation click.
       const trapped = run.host.closest(INTERACTIVE);
       if (trapped && !OURS(trapped) && !e.altKey) return;
       e.preventDefault();
@@ -896,11 +899,12 @@ export function FontLabDevPanel() {
     document.addEventListener("dblclick", onDblClick, true);
     // Single clicks pass straight through to the site (inspect "never steals a click"). But when the
     // human alt/option-clicks text inside a link or button, they mean "let me edit these words," not
-    // "navigate" — so swallow those clicks in the capture phase (before the anchor navigates or the
-    // React onClick fires), which also clears the way for the alt-double-click to open the editor.
-    // Everything without alt, and everything outside a link/button, is untouched.
+    // "navigate" — so swallow those clicks in the capture phase before the anchor navigates or the
+    // React onClick fires. Keep swallowing even while editing: the editor may be mounted ON the link,
+    // and an alt-click there must never fall through to navigation. Everything without alt, and
+    // everything outside a link/button, is untouched.
     const onGuardedClick = (e: MouseEvent) => {
-      if (!state.expanded || editingEl || !e.altKey) return;
+      if (!state.expanded || !e.altKey) return;
       const t = e.target as Element | null;
       if (!t || OURS(t)) return;
       const trapped = t.closest?.(INTERACTIVE);
@@ -908,6 +912,23 @@ export function FontLabDevPanel() {
     };
     document.addEventListener("click", onGuardedClick, true);
     document.addEventListener("auxclick", onGuardedClick, true);
+    // The alt-double-click that opens trapped text: because suppressing the link's alt-click default
+    // (above) also cancels its dblclick, ride the SECOND mousedown (detail === 2) — which fires
+    // reliably even with the click default prevented — to open the run editor. Narrowly scoped: only
+    // an expanded panel, alt held, a genuine double, and real text inside a link/button.
+    const onGuardedDown = (e: MouseEvent) => {
+      if (!state.expanded || editingEl || !e.altKey || e.detail < 2) return;
+      const t = e.target as Element | null;
+      if (!t || OURS(t)) return;
+      const trapped = t.closest?.(INTERACTIVE);
+      if (!trapped || OURS(trapped) || !(t.textContent || "").trim()) return;
+      const run = editableRunAt(e, t);
+      if (!run) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startEditRun(run);
+    };
+    document.addEventListener("mousedown", onGuardedDown, true);
     function editKeys(e: KeyboardEvent) {
       e.stopPropagation();
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEdit(); }
@@ -1542,6 +1563,7 @@ export function FontLabDevPanel() {
       document.removeEventListener("dblclick", onDblClick, true);
       document.removeEventListener("click", onGuardedClick, true);
       document.removeEventListener("auxclick", onGuardedClick, true);
+      document.removeEventListener("mousedown", onGuardedDown, true);
       const inFlight = endEdit(); // if we unmount mid-edit, restore the DOM to exactly as found
       if (inFlight) unwrapEdit(inFlight.wrap);
       removeEventListener("resize", onResize);
