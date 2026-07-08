@@ -43,6 +43,14 @@ try {
     assert("readHandoffState surfaces the pending request", readHandoffState(TMP).request?.brief?.feeling === "editorial & literary");
     clearRequest(TMP);
     assert("clearRequest removes it", !existsSync(requestPath(TMP)) && readHandoffState(TMP).request === null);
+
+    // A multi-select vibe from the panel arrives as an array of feelings — persisted verbatim so the
+    // agent receives every vibe the human combined (e.g. technical AND minimal), not just one.
+    writeRequest(TMP, { brief: { feeling: ["technical & precise", "quiet & minimal"], departure: "a clear shift" }, exclude: [] });
+    const multi = readHandoffState(TMP).request?.brief?.feeling;
+    assert("multi-select feeling round-trips as an array", Array.isArray(multi) && multi.length === 2 && multi[0] === "technical & precise",
+      JSON.stringify(multi));
+    clearRequest(TMP);
   }
 
   // ---- Part 2: engine.waitForRequest blocks, flags presence, resolves ---------

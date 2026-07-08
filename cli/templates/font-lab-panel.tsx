@@ -336,6 +336,8 @@ export function FontLabDevPanel() {
         .more-sheet .mh { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,239,229,.6); font-weight: 600; margin-bottom: 8px; }
         .more-q { margin-bottom: 9px; }
         .more-q .ql { font-size: 10.5px; color: rgba(242,239,229,.82); font-family: ${SERIF_I}; font-style: italic; margin-bottom: 5px; }
+        .more-q .ql .qhint { font-family: ${MONO}; font-style: normal; font-size: 8px; letter-spacing: .1em; text-transform: uppercase;
+          color: rgba(242,239,229,.42); margin-left: 6px; white-space: nowrap; }
         .more-chips { display: flex; flex-wrap: wrap; gap: 5px; }
         .more-chip { font-size: 10px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(242,239,229,.2);
           background: none; color: rgba(242,239,229,.75); cursor: pointer; white-space: nowrap; }
@@ -490,7 +492,7 @@ export function FontLabDevPanel() {
         <button class="more-trigger" id="moreTrigger">None of these? Tell Font Lab what you want →</button>
         <div class="more-sheet" id="moreSheet" hidden>
           <div class="mh">What are you looking for?</div>
-          <div class="more-q" data-q="feeling"><div class="ql">What should the type feel like?</div><div class="more-chips">
+          <div class="more-q" data-q="feeling" data-multi="true"><div class="ql">What should the type feel like?<span class="qhint">combine any</span></div><div class="more-chips" role="group" aria-label="What should the type feel like — combine any that apply">
             <button class="more-chip" data-v="editorial &amp; literary">editorial</button><button class="more-chip" data-v="technical &amp; precise">technical</button><button class="more-chip" data-v="warm &amp; human">warm</button><button class="more-chip" data-v="bold &amp; expressive">bold</button><button class="more-chip" data-v="quiet &amp; minimal">minimal</button><button class="more-chip" data-v="classic &amp; trustworthy">classic</button>
           </div></div>
           <div class="more-q" data-q="departure"><div class="ql">How far from the current look?</div><div class="more-chips">
@@ -1350,30 +1352,37 @@ export function FontLabDevPanel() {
       };
       trigger.addEventListener("click", () => openSheet(sheet.hidden));
       $("moreCancel").addEventListener("click", () => { openSheet(false); ack.hidden = true; });
-      // single-select chips, per question group
+      // Chip toggle. A question marked data-multi keeps every pressed chip — the human can want
+      // "technical AND minimal" — while the rest stay single-select (a new press clears the group).
       shadow.querySelectorAll<HTMLElement>(".more-q[data-q] .more-chip").forEach((chip) => {
         chip.addEventListener("click", () => {
           const on = chip.getAttribute("aria-pressed") === "true";
-          const group = chip.closest(".more-q")!;
-          group.querySelectorAll(".more-chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
+          const group = chip.closest(".more-q") as HTMLElement;
+          if (group.dataset.multi !== "true")
+            group.querySelectorAll(".more-chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
           chip.setAttribute("aria-pressed", String(!on));
         });
       });
-      const chosen = (q: string): string => {
-        const c = shadow.querySelector(`.more-q[data-q="${q}"] .more-chip[aria-pressed="true"]`);
-        return c ? (c as HTMLElement).textContent?.trim() || "" : "";
-      };
+      // A chip's value is its rich data-v phrase ("technical & precise") — the vocabulary the design
+      // brief speaks — falling back to its short label. Multi-select questions yield every pressed value.
+      const chipValue = (c: Element) => (c as HTMLElement).dataset.v?.trim() || (c as HTMLElement).textContent?.trim() || "";
+      const chosenAll = (q: string): string[] =>
+        [...shadow.querySelectorAll(`.more-q[data-q="${q}"] .more-chip[aria-pressed="true"]`)].map(chipValue).filter(Boolean);
+      const chosenOne = (q: string): string => chosenAll(q)[0] || "";
       const gatherBrief = () => ({
-        feeling: chosen("feeling"),
-        departure: chosen("departure"),
+        feeling: chosenAll("feeling"),      // multi-select — one or more vibes to combine
+        departure: chosenOne("departure"),  // single-select
         brand: ($("moreBrand") as HTMLTextAreaElement).value.trim(),
         note: ($("moreNote") as HTMLTextAreaElement).value.trim(),
       });
       const excludeFamilies = () => [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles[r].family)))];
 
       // The paste-to-your-agent off-ramp: a self-contained instruction with the brief filled in.
-      const agentPrompt = (brief: Record<string, string>, exclude: string[]) => {
-        const lines = Object.entries(brief).filter(([, v]) => v).map(([k, v]) => `  ${k}: ${v}`);
+      // feeling arrives as an array (multi-select) — join it, and treat an empty array as "unset".
+      const agentPrompt = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        const has = (v: string | string[]) => (Array.isArray(v) ? v.length > 0 : !!v);
+        const fmt = (v: string | string[]) => (Array.isArray(v) ? v.join(", ") : v);
+        const lines = Object.entries(brief).filter(([, v]) => has(v)).map(([k, v]) => `  ${k}: ${fmt(v)}`);
         return [
           "In this project (the one running the Font Lab dev panel), the human wants MORE font options —",
           "they didn't pick from the current menu. What they're going for:",
@@ -1386,7 +1395,7 @@ export function FontLabDevPanel() {
       };
 
       const setAck = (html: string, tone: "" | "good" | "warn" = "") => { ack.hidden = false; ack.dataset.tone = tone; ack.innerHTML = html; };
-      const showOfframp = (brief: Record<string, string>, exclude: string[]) => {
+      const showOfframp = (brief: Record<string, string | string[]>, exclude: string[]) => {
         setAck(
           `<b>No agent is listening right now</b>, so nothing will compose these automatically. Two ways forward:` +
             `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +

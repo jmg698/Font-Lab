@@ -49,6 +49,9 @@ export const INTAKE_QUESTIONS = [
     id: "feeling",
     q: "What should the type feel like?",
     examples: ["editorial & literary", "technical & precise", "warm & human", "bold & expressive", "quiet & minimal", "classic & trustworthy"],
+    // Not mutually exclusive — the human may combine vibes (e.g. technical AND minimal). The panel's
+    // "none of these" sheet lets them multi-select this one; accept several answers here too.
+    multi: true,
   },
   {
     id: "departure",

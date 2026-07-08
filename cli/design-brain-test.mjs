@@ -25,6 +25,8 @@ ok(INTAKE_QUESTIONS.length >= 3 && INTAKE_QUESTIONS.every((q) => q.id && q.q),
   "intake has >=3 well-formed questions");
 ok(INTAKE_QUESTIONS.some((q) => q.id === "feeling") && INTAKE_QUESTIONS.some((q) => q.id === "departure"),
   "intake covers feeling + departure");
+ok(INTAKE_QUESTIONS.find((q) => q.id === "feeling")?.multi === true,
+  "feeling intake accepts more than one vibe (multi-select)");
 
 // strategy scaffold — names last
 ok(STRATEGY_STEPS.length >= 4 && STRATEGY_STEPS.some((s) => /names?\s+last|before any font names|strategy/i.test(s)),
