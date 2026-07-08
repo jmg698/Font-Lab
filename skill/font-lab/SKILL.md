@@ -36,6 +36,11 @@ and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Nei
 The goal is that the human does nothing you could have done for them — you handle setup, scaffolding,
 and shipping; they keep the taste decision.
 
+**After upgrading Font Lab** (npm install of a new version), three things hold the OLD version until
+restarted: the `:7777` endpoint (kill + relaunch it), the MCP server (the human reloads the
+IDE/session so new tools appear), and the installed panel (`font_lab_init` re-stamps it).
+`font_lab_status` reports all three drifts — check it after any version bump.
+
 ## The loop
 
 Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
@@ -74,7 +79,14 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    rebuilds without re-mounting.)
    - **Want more options?** The menu is never capped. When the user asks "what else?", compose
      additional directions and call `font_lab_more_directions({ projectDir, directions })` — they're
-     appended to the live panel (existing options kept).
+     appended to the live panel (existing options kept). The human can also ask from **inside the
+     panel** ("None of these? Tell Font Lab what you want" → Get more): that request reaches you via
+     whichever listening mechanism you set up in step 4 (`serve --once` exiting with
+     `{ event: "request" }`, or `font_lab_wait` returning it). If NO agent is listening, the endpoint
+     self-serves curator picks tuned to the mini-brief so the human is never stuck — but those aren't
+     agent-composed, so **keep a listener parked** whenever the human is exploring. If you were
+     working while a request landed, any Font Lab tool result will carry a `pendingHumanRequest`
+     field — fulfill it before moving on.
 4. **The choosing moment** — pick the path that fits where you're running.
 
    - **Portable (works on ANY framework, no dev server — the default off Next):**
@@ -93,12 +105,12 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      Also start the pick endpoint, then tell the human to open their site and flip the panel
      (← →, `↑↓`+`[ ]` to mix, `B` for before/after) and **pick one**.
 
-     **How to receive the pick — turn-based agents can't poll while idle, so pick ONE
+     **How to receive panel events — turn-based agents can't poll while idle, so pick ONE
      mechanism (never "check back later"):**
      | Your harness | Do this |
      |---|---|
-     | Background terminals available (Claude Code, Cursor, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits the moment the pick lands** (the selection JSON is its final stdout line) — the exit wakes you. |
-     | MCP-only / no background terminals | Start the endpoint however you can (`npx font-lab serve`; the panel needs it), then call **`font_lab_wait_for_pick`** — it blocks up to 240s and lights up "agent listening" in the panel. On `{ timedOut: true }`, call it again. |
+     | Background terminals available (Claude Code, Cursor, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits on the first panel event** — a pick OR a "Get more" request — with the event JSON as its final stdout line (`{ event: "pick", selection }` or `{ event: "request", request }`); the exit wakes you. On a pick → `font_lab_apply`. On a request → compose directions for `request.brief`, call `font_lab_more_directions`, **then relaunch `serve --once` and end your turn** so the next event reaches you too. |
+     | MCP-only / no background terminals | Start the endpoint however you can (`npx font-lab serve`; the panel needs it), then call **`font_lab_wait`** — it blocks up to 240s for a pick OR a request (whichever comes first) and lights up "agent listening" in the panel. On `{ event: "timeout" }`, call it again. |
 
      Resuming a session, or unsure where things stand? **`font_lab_status`** returns the pick,
      whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by

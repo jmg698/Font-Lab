@@ -105,6 +105,14 @@
       "pass": true
     },
     {
+      "name": "MCP exposes font_lab_wait_for_request",
+      "pass": true
+    },
+    {
+      "name": "MCP exposes font_lab_wait",
+      "pass": true
+    },
+    {
       "name": "MCP tool descriptions mention the human keeps the pick",
       "pass": true
     },

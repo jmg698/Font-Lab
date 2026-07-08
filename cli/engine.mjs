@@ -652,8 +652,14 @@ export async function status(projectDir, { port = 7777 } = {}) {
     clearTimeout(t);
     if (res.ok) {
       const body = await res.json();
-      endpoint = { up: true, port, once: !!body.once, autoApply: !!body.autoApply };
+      endpoint = { up: true, port, once: !!body.once, autoApply: !!body.autoApply, version: body.version ?? null };
       if (body.agentWaiting) state.agentWaiting = true;
+      // The endpoint keeps its boot-time version for its whole life; npm install doesn't restart
+      // it. Surface the drift to the agent — it's the "0.12.1 endpoint, 0.12.2 package" trap.
+      if (isRealVersion(body.version) && cmpVersions(VERSION, body.version) > 0) {
+        endpoint.stale = true;
+        endpoint.hint = `The :7777 endpoint is running ${body.version} but ${VERSION} is installed — kill it and relaunch \`npx font-lab serve\` to pick up the new version.`;
+      }
     }
   } catch {}
   let backups = null;
@@ -807,7 +813,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
 
 // Grow the live panel (#4): admit + APPEND newly-composed directions to the current preview set and
 // rebuild, so the human can keep exploring without losing what's already there.
-export async function expandPreview(projectDir, { directions, fetch = true, log } = {}) {
+export async function expandPreview(projectDir, { directions, fetch = true, log, menuMode } = {}) {
   if (!Array.isArray(directions) || !directions.length)
     throw new Error("expandPreview: provide the new `directions` to add (compose them first with compose_directions)");
   const dir = path.resolve(projectDir);
@@ -815,15 +821,48 @@ export async function expandPreview(projectDir, { directions, fetch = true, log 
   const merged = mergeDirections(readPreviewSet(dir), directions);
   await ensureAdmitted(dir, directions);
   // Appending composed directions makes the menu tailored — carry that through to the panel badge.
-  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis), menuMode: "composed" };
+  // (menuMode override: the endpoint's curator self-serve appends WITHOUT claiming "tailored".)
+  const mode = menuMode || "composed";
+  const meta = { target: toTarget(analysis), replaces: analysis.replaces, wiring: wiringFor(analysis), menuMode: mode };
   const result = await generateCatalog(dir, merged, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, merged);
-  writeMenuState(dir, { mode: "composed", count: merged.length });
+  writeMenuState(dir, { mode, count: merged.length });
   // If this fulfilled a pending in-panel "more options" ask, clear it so the panel stops showing
   // "waiting for your agent" and status reads clean.
   const had = readRequest(dir);
   clearRequest(dir);
   return { added: directions.length, total: merged.length, directions: result.directions, fulfilledRequest: had?.status === "pending" || false };
+}
+
+// The endpoint's no-agent fallback for the panel's "Get more" ask: honor the human's mini-brief
+// from the deterministic curator so the click ALWAYS yields new options — even with no agent
+// alive anywhere. Curator picks aren't LLM-tailored, so the menu badge is preserved (never
+// upgraded to "composed" by this path) and the panel narrates honestly. An agent that shows up
+// later can still do better — this clears the request, so it composes for the NEXT ask.
+export async function selfServeMore(projectDir, request, { count = 4, fetch = true, log } = {}) {
+  const dir = path.resolve(projectDir);
+  const analysis = analyzeProject(dir);
+  const brief = request?.brief || {};
+  const feelings = Array.isArray(brief.feeling) ? brief.feeling.filter(Boolean) : brief.feeling ? [brief.feeling] : [];
+  const vibe = feelings[0] || undefined;
+  // Extra feelings lean the score without forcing it, same as project-derived signals.
+  const signals = feelings.slice(1).map((f) => ({ tag: f, weight: 2 }));
+  const norm = (s) => normFamily(s || "");
+  const excluded = new Set((request?.exclude || []).map(norm));
+  for (const d of readPreviewSet(dir)) for (const r of ROLES) excluded.add(norm(d.roles[r].family));
+
+  // Over-ask the curator, then keep directions whose display AND body are genuinely new — the
+  // mono role legitimately repeats across directions, so it doesn't disqualify.
+  const { seed, hints } = deriveSignals(path.basename(dir), gatherContext(dir));
+  const pool = curateDirections(analysis, { vibe, count: 12, seed, signals: [...hints, ...signals] });
+  const fresh = pool.filter((d) => !excluded.has(norm(d.roles.display.family)) && !excluded.has(norm(d.roles.body.family))).slice(0, count);
+  if (!fresh.length) {
+    clearRequest(dir);
+    return { added: 0, exhausted: true, hint: "The curator's catalog spread is already on screen — fresh options need an agent to compose beyond it." };
+  }
+  const currentMode = readMenuState(dir)?.mode || "fallback";
+  const result = await expandPreview(dir, { directions: fresh, fetch, log, menuMode: currentMode });
+  return { ...result, selfServed: true };
 }
 
 export function uninit(projectDir) {
