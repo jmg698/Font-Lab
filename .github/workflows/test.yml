@@ -1,0 +1,49 @@
+name: Test
+
+# The merge gate. Runs the fast, deterministic, offline test suite on every PR and every
+# push to a long-lived branch — so a change that breaks the analyzer, the CSS codegen, the
+# curator, the catalog's parity guarantees, the MCP surface, or the panel keymap is caught
+# before it lands, not by a user on Reddit.
+#
+# These are the SAME gates publish.yml runs before a release (codegen-css, panel-keys, m5),
+# plus m3 (analyzer) and m4 (catalog + curator) — all pure Node, no browser, no dev server,
+# no network. The heavier build-and-render proof (run-m2, browser + `next build`) is left out
+# on purpose: it's slower and flakier, and belongs in a separate opt-in job, not the gate
+# that must stay green for every contribution.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Production deps only (ts-morph + capsize) — the gate tests need nothing else.
+      - run: npm install --omit=dev --no-audit --no-fund
+
+      - name: CSS codegen (fenced @theme block, idempotent, removable)
+        run: node codegen-css-test.mjs
+
+      - name: Panel keymap (every key handled is documented and vice-versa)
+        run: node panel-keys-test.mjs
+
+      - name: M3 — analyzer (framework / router / Tailwind version / wiring)
+        run: node m3-test.mjs
+
+      - name: M4 — catalog + curator (verified capsize coverage, deterministic directions)
+        run: node m4-test.mjs
+
+      - name: M5 — engine + MCP server over real stdio
+        run: node m5-test.mjs

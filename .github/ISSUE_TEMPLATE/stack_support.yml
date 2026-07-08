@@ -1,0 +1,36 @@
+name: Support my stack
+description: Font Lab refused your project (wrong framework, router, or Tailwind version) and you want that stack supported.
+labels: ["stack-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        v1 supports **Next.js + App Router + Tailwind v4 + CSS-variable fonts** — on purpose, because that's the
+        stack where Font Lab can *guarantee* "preview == ship." If it refused your project, that's the tool being
+        honest, not broken. Tell us what you're on and **👍 this issue** — support requests are how we prioritize
+        what to widen next. Please search first and add a 👍 to an existing request instead of opening a duplicate.
+
+  - type: input
+    id: stack
+    attributes:
+      label: What stack are you on?
+      placeholder: "e.g. Next.js 14 + Pages Router + Tailwind v3 · or Vite + React + Tailwind v4 · or Astro"
+    validations:
+      required: true
+
+  - type: textarea
+    id: refusal
+    attributes:
+      label: What did Font Lab say when it refused?
+      description: Paste the reason it gave, if you have it. It usually names exactly what's unsupported.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: A link to the repo (if public) helps us test against a real target.
+    validations:
+      required: false
