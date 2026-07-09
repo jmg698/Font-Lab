@@ -206,7 +206,7 @@ const TOOLS = [
   {
     name: "font_lab_status",
     description:
-      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands.",
+      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands. Its `sourceChanges` field lists every SOURCE file Font Lab wrote this session (copy edits, font applies, rewires, undos, panel scaffolding) — read it when the human is done to tell them exactly what to commit, keeping their content edits separate from Font Lab's own scaffolding.",
     inputSchema: { type: "object", properties: { projectDir: proj, port: { type: "number", description: "Pick-endpoint port (default 7777)." } }, required: ["projectDir"] },
     handler: (a) => engine.status(a.projectDir, { port: a.port ?? 7777 }),
   },

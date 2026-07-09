@@ -220,6 +220,8 @@ export function agentsBlock() {
     "",
     "**Copy edits ride the same endpoint:** with the panel up and `:7777` running, the human can double-click any text on the page, retype it, and it saves to their source (reversibly). If edits appear to save then revert, it's almost always one of: the endpoint isn't running, it's pointed at the wrong folder (`--project` must be the site root), or the site isn't in dev mode — tell the human which to fix rather than leaving it looking broken.",
     "",
+    "**When they're done, hand the repo back clean:** `font_lab_status` → `sourceChanges` lists every source file Font Lab wrote this session (copy edits, font applies, panel scaffolding). Propose the commit plan from it — their content edits in one commit, Font Lab's scaffolding (the `layout.tsx` mount, `app/_fontlab/`, `public/fontlab/`) as a separate chore commit or left uncommitted — and never `git commit`/`git push` unless they explicitly ask. `.font-lab/` is runtime state and ignores itself; it never belongs in a commit.",
+    "",
     "Prefer `guaranteed` (WYSIWYG) faces; when only `best-effort` is possible, relay the fidelity warning honestly.",
     AGENTS_END,
   ].join("\n");

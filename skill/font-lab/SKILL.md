@@ -138,6 +138,22 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    **After applying, verify before declaring success:** run the project's build (`next build`, or
    at minimum let the dev server recompile cleanly) and report the result honestly — apply verifies
    structure; the build verifies the fonts resolve.
+6. **Hand the repo back clean** — the loop isn't finished until the human knows what to commit.
+   When they're done (pick shipped, copy edits saved), read `font_lab_status` → `sourceChanges`:
+   the deduped list of every source file Font Lab wrote this session, each tagged with the kind
+   of write. Propose the commit plan in two piles — and let THEM run it (**never `git commit` /
+   `git push` yourself unless they explicitly ask**):
+   - **Their work** — `text-edit` (copy), `font-apply` / `rewire` (the font change): one commit,
+     message about the content ("New hero copy; ship Fraunces + Inter"). An `undo-*` kind means
+     the file was rewritten then restored — include it in the "check `git diff`" list, not
+     automatically in the commit.
+   - **Font Lab's scaffolding** — `scaffold` files (the `layout.tsx` mount, `app/_fontlab/`,
+     `public/fontlab/`), plus `.mcp.json` / the AGENTS.md block if install added them. Safe for
+     production (the panel is dev-only and dead-code-eliminated) but it isn't their content:
+     offer it as a separate "chore: add Font Lab dev tooling" commit, or leave it uncommitted.
+   `.font-lab/` itself is runtime state and **ignores itself** (a `*` .gitignore inside it) — it
+   should never appear in their diff. If it does, the project predates the self-ignore and the
+   files are already tracked: `git rm -r --cached .font-lab` fixes it once.
 
 ## Copy edits — same endpoint, no extra setup
 
@@ -195,6 +211,9 @@ still has a clean next step instead of a dead end.
   `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
   font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.
+- **The human commits.** End the session by proposing the commit plan from `font_lab_status`'s
+  `sourceChanges` (their content edits separate from Font Lab's scaffolding) — but never run
+  `git commit` or `git push` yourself unless they explicitly ask.
 - **Headless needs a Chromium.** Font Lab ships a light Playwright driver (`playwright-core`, an
   optional dependency), so `font_lab_screenshot_directions` works out of the box — it drives
   **whatever Chromium is already on the machine** (the user's system Chrome/Edge, a pre-installed

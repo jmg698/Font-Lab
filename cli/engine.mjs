@@ -23,7 +23,7 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -790,6 +790,17 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   writePreviewSet(dir, dirs);
   writeMenuState(dir, { mode, count: dirs.length });
 
+  // Scaffolding is a source write too — logged under its own kind so the commit-time story can
+  // keep "Font Lab's dev tooling" separate from the human's copy/font work.
+  appendSourceEdit(dir, {
+    kind: "scaffold",
+    files: [
+      ...(mounted ? [path.relative(dir, layout)] : []),
+      path.relative(dir, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx")),
+      ...(built.fonts?.length ? ["public/fontlab/"] : []),
+    ],
+  });
+
   return {
     analysis,
     mode,
@@ -882,6 +893,10 @@ export function uninit(projectDir) {
   rmSync(path.join(appDir, "_fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, ".font-lab", "init-backup"), { recursive: true, force: true });
+  appendSourceEdit(dir, {
+    kind: "unscaffold",
+    files: [...(unmounted ? [path.relative(dir, layout)] : []), path.relative(dir, path.join(appDir, "_fontlab")) + "/", "public/fontlab/"],
+  });
   return {
     layout: path.relative(dir, layout),
     unmountedPanel: unmounted,

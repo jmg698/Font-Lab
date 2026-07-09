@@ -39,7 +39,7 @@ jobs:
       - name: Copy-edit write-back (source-map paths, HTML-entity round-trip)
         run: node copyedit-test.mjs
 
-      - name: State hygiene (.font-lab self-ignoring, backups capped)
+      - name: State hygiene (.font-lab self-ignoring, backups capped, source-edit log)
         run: node state-test.mjs
 
       - name: Panel keymap (every key handled is documented and vice-versa)

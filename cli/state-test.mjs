@@ -1,11 +1,12 @@
 // .font-lab hygiene — the state dir is born SELF-IGNORING (a `*` .gitignore inside it keeps
-// runtime state out of the human's git diff, without touching their root .gitignore) and
-// backups stay CAPPED (a copy-editing session writes one backup per saved retype; undo only
-// ever reads the run the latest pointer names, so older runs are prunable). This is what stops
-// a user reaching "commit my copy edits" and finding 100+ untracked Font Lab files.
-// Run: node state-test.mjs
+// runtime state out of the human's git diff, without touching their root .gitignore), backups
+// stay CAPPED (a copy-editing session writes one backup per saved retype; undo only ever reads
+// the run the latest pointer names, so older runs are prunable), and every SOURCE write is
+// LOGGED (edits.log.jsonl → sourceChanges) so status can answer "what do I actually commit?".
+// Together these are what stop a user reaching "commit my copy edits" and finding 100+
+// untracked Font Lab files with no map. Run: node state-test.mjs
 
-import { ensureFlDir, pruneBackups, writeMenuState, BACKUP_KEEP } from "./state.mjs";
+import { ensureFlDir, pruneBackups, writeMenuState, BACKUP_KEEP, appendSourceEdit, readSourceChanges, readHandoffState, editLogPath } from "./state.mjs";
 import { applyEdit, undoEdit } from "./copyedit.mjs";
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -98,6 +99,43 @@ console.log("\nthe real seam — a long retype session stays capped and undo sti
 
   const u = undoEdit(dir);
   ok("undo after pruning still restores the pre-latest text", readFileSync(file, "utf8").includes(`draft ${rounds - 1}`), JSON.stringify(u));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\nedits.log — the tool-side answer to "what do I actually commit?"\n');
+{
+  const dir = tmpProject();
+  appendSourceEdit(dir, { kind: "scaffold", files: ["app/layout.tsx", "app/_fontlab/FontLabDevPanel.tsx"] });
+  appendSourceEdit(dir, { kind: "text-edit", files: ["app/page.tsx"], runId: "edit-a", detail: '"a" → "b"' });
+  appendSourceEdit(dir, { kind: "font-apply", files: ["app/layout.tsx", "app/globals.css"], runId: "r1" });
+  appendSourceEdit(dir, { kind: "text-edit", files: ["app/page.tsx"], runId: "edit-b" });
+  const c = readSourceChanges(dir);
+  ok("every write counted", c.writes === 4);
+  ok("paths dedupe across writes", c.files.length === 4, c.files.map((f) => f.path).join(","));
+  ok("most recently touched first", c.files[0].path === "app/page.tsx");
+  const layout = c.files.find((f) => f.path === "app/layout.tsx");
+  ok("a path carries every kind that wrote it (scaffold + font-apply)",
+    !!layout && layout.kinds.includes("scaffold") && layout.kinds.includes("font-apply") && layout.writes === 2);
+  ok("the handoff snapshot surfaces sourceChanges (→ /status, font_lab_status)",
+    readHandoffState(dir).sourceChanges?.files?.length === 4);
+  ok("an empty project reads as no changes, not an error", readSourceChanges(tmpProject()).writes === 0);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\ncopy edits and undos land in the log automatically\n");
+{
+  const dir = tmpProject();
+  mkdirSync(path.join(dir, "app"), { recursive: true });
+  writeFileSync(path.join(dir, "app/page.tsx"), "export default () => <p>hello there</p>;\n");
+  const r = applyEdit(dir, { file: "app/page.tsx", oldText: "hello there", newText: "hi there", runIdSeed: "log1" });
+  ok("edit applied", r.ok, r.error);
+  undoEdit(dir);
+  const c = readSourceChanges(dir);
+  const page = c.files.find((f) => f.path === path.join("app", "page.tsx"));
+  ok("applyEdit logs a text-edit for the file", !!page && page.kinds.includes("text-edit"), JSON.stringify(c.files));
+  ok("undoEdit logs too — the file was rewritten either way", !!page && page.kinds.includes("undo-text-edit"));
+  ok('the raw log keeps the "before" → "after" session story',
+    /hello there.*hi there/.test(readFileSync(editLogPath(dir), "utf8")));
   rmSync(dir, { recursive: true, force: true });
 }
 

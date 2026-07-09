@@ -9,11 +9,12 @@
 //   mcp-heartbeat.json  refreshed on every MCP tool call — "an agent touched Font Lab recently"
 //   menu.json        how the mounted menu was built (composed vs fallback) — the provisional flag
 //   request.json     the human's in-panel "more options" ask, queued until an agent fulfills it
+//   edits.log.jsonl  append-only record of every SOURCE file Font Lab wrote — "what do I commit?"
 //
 // None of it is source. The dir ignores itself (see ensureFlDir), so a session's worth of
 // state never lands in the human's git diff at commit time.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, rmSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 export const FL_DIR = ".font-lab";
@@ -95,6 +96,64 @@ const readJson = (p) => {
     return null;
   }
 };
+
+// ---- the source-edit log -----------------------------------------------------------------
+// Font Lab knows exactly which source files it wrote (copy edits, font applies, rewires,
+// undos, panel scaffolding) — but it used to discard that the moment each toast faded, leaving
+// the human to reverse-engineer "what do I actually commit?" out of a 100-file git status.
+// Every source write now appends one JSON line here; readSourceChanges() folds the log into
+// the deduped list font_lab_status and GET /status expose.
+
+export const EDITLOG_FILE = "edits.log.jsonl";
+export const editLogPath = (projectDir) => path.join(flDir(projectDir), EDITLOG_FILE);
+
+// Best-effort by design: a logging failure must never fail the edit it records.
+export function appendSourceEdit(projectDir, { kind, files, runId, detail } = {}) {
+  try {
+    ensureFlDir(projectDir);
+    const entry = {
+      at: new Date().toISOString(),
+      kind: kind || "edit",
+      files: (files || []).filter(Boolean).map(String),
+      ...(runId ? { runId } : {}),
+      ...(detail ? { detail: String(detail).slice(0, 200) } : {}),
+    };
+    appendFileSync(editLogPath(projectDir), JSON.stringify(entry) + "\n");
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+// The deduped "what changed" view: every source path Font Lab has written, most recently
+// touched first, each carrying the kinds of writes that hit it. `scaffold`/`unscaffold`-only
+// paths are the dev-tooling pile (commit separately, or not at all); everything else is the
+// human's actual work. Undone writes stay listed on purpose — the file WAS rewritten (the
+// restore included), and `git diff` is the judge of whether it ended up back where it started.
+export function readSourceChanges(projectDir) {
+  let lines = [];
+  try {
+    lines = readFileSync(editLogPath(projectDir), "utf8").split("\n").filter(Boolean);
+  } catch {}
+  const byPath = new Map();
+  let lastAt = null;
+  let writes = 0;
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    writes++;
+    if (e.at) lastAt = e.at;
+    for (const p of e.files || []) {
+      const cur = byPath.get(p) || { path: p, kinds: [], writes: 0, lastAt: null };
+      if (e.kind && !cur.kinds.includes(e.kind)) cur.kinds.push(e.kind);
+      cur.writes++;
+      cur.lastAt = e.at || cur.lastAt;
+      byPath.delete(p); // re-insert so Map order is by most recent touch
+      byPath.set(p, cur);
+    }
+  }
+  return { writes, lastAt, files: [...byPath.values()].reverse() };
+}
 
 export function writeAppliedStamp(projectDir, result) {
   ensureFlDir(projectDir);
@@ -183,5 +242,7 @@ export function readHandoffState(projectDir) {
     agentWaiting: !!waiting || !!heartbeatFresh,
     waitingSince: waiting?.since ?? null,
     request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
+    // "What did Font Lab actually change?" — the deduped source files, for the commit moment.
+    sourceChanges: readSourceChanges(projectDir),
   };
 }
