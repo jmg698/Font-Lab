@@ -56,8 +56,16 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing (OIDC) needs a recent npm; node 22's bundled npm may predate it.
-      - run: npm install -g npm@latest
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22's bundled npm may predate it.
+      # PIN the version via Corepack — do NOT `npm install -g npm@latest`. On 2026-07-09 that
+      # pulled the day-old npm 12.0.0 (a new major) and the in-place self-upgrade left npm's
+      # bundled deps corrupt, so `--provenance` died with "Cannot find module 'sigstore'"
+      # (sigstore is only require()d on the provenance path — see npm/cli#9151, #9526). Corepack
+      # activates cleanly instead of overwriting the bundled tree in place, and a fixed version
+      # keeps release day deterministic. Bump this deliberately; never float back to @latest.
+      - run: corepack enable
+      - run: corepack prepare npm@11.16.0 --activate
+      - run: npm -v # fail loudly if the pin didn't take (must be >= 11.5.1 for OIDC publish)
 
       # Stamp the tag's version into package.json — the repo copy is a dev placeholder.
       - name: Stamp version
