@@ -9,8 +9,11 @@
 //   mcp-heartbeat.json  refreshed on every MCP tool call — "an agent touched Font Lab recently"
 //   menu.json        how the mounted menu was built (composed vs fallback) — the provisional flag
 //   request.json     the human's in-panel "more options" ask, queued until an agent fulfills it
+//
+// None of it is source. The dir ignores itself (see ensureFlDir), so a session's worth of
+// state never lands in the human's git diff at commit time.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 export const FL_DIR = ".font-lab";
@@ -29,6 +32,62 @@ export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
 export const requestPath = (projectDir) => path.join(flDir(projectDir), REQUEST_FILE);
 export const heartbeatPath = (projectDir) => path.join(flDir(projectDir), HEARTBEAT_FILE);
 
+// Every .font-lab writer funnels through here so the state dir is born self-ignoring: a `*`
+// .gitignore INSIDE it keeps all of this runtime state out of the human's git diff without ever
+// touching their root .gitignore (the .next / cargo-target pattern — git honors nested ignore
+// files even untracked). Existing installs heal on their next state write. Never overwrites a
+// .gitignore the human put there themselves; deleting ours is the opt-out.
+export function ensureFlDir(projectDir) {
+  const dir = flDir(projectDir);
+  mkdirSync(dir, { recursive: true });
+  const gi = path.join(dir, ".gitignore");
+  if (!existsSync(gi)) {
+    try {
+      writeFileSync(gi, "# Font Lab local state (backups, picks, heartbeats) — regenerated as needed; never commit.\n*\n");
+    } catch {} // a state write must not fail because the marker couldn't be written
+  }
+  return dir;
+}
+
+// Backups are undo state, not history: undo only ever restores the run named by latest.txt /
+// latest-edit.txt, and older runs exist purely as a manual-recovery courtesy. Left uncapped, a
+// copy-editing session leaves one edit-* folder per saved retype — the 50-folder wall a human
+// hits at commit time. So every backup() write prunes its own family (copy-edit runs vs apply
+// runs), oldest first, keeping the newest BACKUP_KEEP plus whatever the latest pointers name.
+export const BACKUP_KEEP = 20;
+export function pruneBackups(projectDir, { family, keep = BACKUP_KEEP } = {}) {
+  const dir = path.join(flDir(projectDir), "backups");
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return []; // no backups yet
+  }
+  // Runs named by a latest pointer are never deleted, whatever their mtime says.
+  const pinned = new Set(
+    ["latest.txt", "latest-edit.txt"]
+      .map((f) => { try { return readFileSync(path.join(dir, f), "utf8").trim(); } catch { return null; } })
+      .filter(Boolean),
+  );
+  const inFamily = (name) => (family === "edit" ? name.startsWith("edit-") : !name.startsWith("edit-"));
+  const runs = entries
+    .filter((e) => e.isDirectory() && inFamily(e.name))
+    .map((e) => { try { return { name: e.name, mtime: statSync(path.join(dir, e.name)).mtimeMs }; } catch { return null; } })
+    .filter(Boolean)
+    // newest first; both run-naming schemes (edit-<base36 ms>, ISO stamps) sort chronologically
+    // by name, so the name breaks mtime ties deterministically
+    .sort((a, b) => b.mtime - a.mtime || (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+  const pruned = [];
+  for (const { name } of runs.slice(Math.max(0, keep))) {
+    if (pinned.has(name)) continue;
+    try {
+      rmSync(path.join(dir, name), { recursive: true, force: true });
+      pruned.push(name);
+    } catch {} // pruning is best-effort; a locked dir must not fail the edit that triggered it
+  }
+  return pruned;
+}
+
 const readJson = (p) => {
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -38,7 +97,7 @@ const readJson = (p) => {
 };
 
 export function writeAppliedStamp(projectDir, result) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const stamp = {
     at: new Date().toISOString(),
     runId: result?.runId ?? null,
@@ -57,7 +116,7 @@ export const clearAppliedStamp = (projectDir) => rmSync(appliedPath(projectDir),
 // brief was gathered). This is the truth the panel, status, and apply read so a menu that was never
 // tailored to the project can't silently masquerade as one that was.
 export function writeMenuState(projectDir, { mode, count } = {}) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const state = { mode: mode || "composed", tailored: mode === "composed", count: count ?? null, at: new Date().toISOString() };
   writeFileSync(menuPath(projectDir), JSON.stringify(state, null, 2) + "\n");
   return state;
@@ -71,7 +130,7 @@ export const readMenuState = (projectDir) => readJson(menuPath(projectDir));
 // Persisting it means the ask survives an agent connecting late — it isn't lost if none is listening
 // at click time.
 export function writeRequest(projectDir, { brief, exclude } = {}) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const req = {
     status: "pending",
     brief: brief || {},
@@ -86,14 +145,14 @@ export const readRequest = (projectDir) => readJson(requestPath(projectDir));
 export const clearRequest = (projectDir) => rmSync(requestPath(projectDir), { force: true });
 
 export function setAgentWaiting(projectDir, on) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   if (on) writeFileSync(waitingPath(projectDir), JSON.stringify({ since: new Date().toISOString(), pid: process.pid }) + "\n");
   else rmSync(waitingPath(projectDir), { force: true });
 }
 
 export function refreshAgentHeartbeat(projectDir) {
   try {
-    mkdirSync(flDir(projectDir), { recursive: true });
+    ensureFlDir(projectDir);
     writeFileSync(heartbeatPath(projectDir), JSON.stringify({ at: Date.now(), pid: process.pid }) + "\n");
   } catch {}
 }

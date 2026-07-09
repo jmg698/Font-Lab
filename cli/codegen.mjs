@@ -27,6 +27,7 @@ import { analyzeProject } from "./analyzer.mjs";
 import { inCatalog, get as catalogGet } from "./catalog.mjs";
 import { normalize as normFamily, admit as admitFont, isShippable } from "./admit.mjs";
 import { buildParityBundles } from "./catalog-build.mjs";
+import { ensureFlDir, pruneBackups } from "./state.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
 const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
@@ -303,7 +304,7 @@ function cssInsertIndex(css) {
 // ---- backups / apply / undo ------------------------------------------------
 
 function backup(projectDir, files) {
-  const flDir = path.join(projectDir, ".font-lab");
+  const flDir = ensureFlDir(projectDir); // born self-ignoring — backups never reach the git diff
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(flDir, "backups", runId);
   const manifest = { runId, git: null, files: [] };
@@ -322,6 +323,8 @@ function backup(projectDir, files) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
   writeFileSync(path.join(flDir, "backups", "latest.txt"), runId);
+  // undo only ever reads the run latest.txt names — cap the older apply runs (never edit-*).
+  pruneBackups(projectDir, { family: "apply" });
   return { dir, runId };
 }
 

@@ -11,6 +11,7 @@ import { Project, Node, SyntaxKind } from "ts-morph";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { ensureFlDir, pruneBackups } from "./state.mjs";
 
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const norm = (s) => s.replace(/\s+/g, " ").trim();
@@ -140,10 +141,10 @@ function textChildrenOf(el, all) {
   });
 }
 
-// ---- backups (same shape as cli/codegen.mjs, self-contained for the spike) --
+// ---- backups (same shape as cli/codegen.mjs; the edit-* family of runs) -----
 
 function backup(projectDir, files, runIdSeed) {
-  const flDir = path.join(projectDir, ".font-lab");
+  const flDir = ensureFlDir(projectDir); // born self-ignoring — backups never reach the git diff
   const runId = "edit-" + runIdSeed;
   const dir = path.join(flDir, "backups", runId);
   const manifest = { runId, kind: "text-edit", files: [] };
@@ -157,6 +158,9 @@ function backup(projectDir, files, runIdSeed) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
   writeFileSync(path.join(flDir, "backups", "latest-edit.txt"), runId);
+  // One backup lands per saved retype, so a session would otherwise pile up dozens of folders;
+  // undo only ever reads the run latest-edit.txt names, so older ones are safe to trim.
+  pruneBackups(projectDir, { family: "edit" });
   return { dir, runId };
 }
 

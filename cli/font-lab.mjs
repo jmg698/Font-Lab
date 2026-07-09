@@ -16,7 +16,7 @@
 
 import http from "node:http";
 import path from "node:path";
-import { writeFileSync, appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, appendFileSync, readFileSync, existsSync } from "node:fs";
 
 // ---- subcommand dispatch ---------------------------------------------------
 // CRITICAL: a metadata probe must NEVER boot the long-running server. Agents routinely run
@@ -65,7 +65,7 @@ if (SUB === "install" || SUB === "uninstall") {
 
 async function runServe() {
 
-const { readHandoffState, writeAppliedStamp, writeRequest, readRequest } = await import("./state.mjs");
+const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, ensureFlDir } = await import("./state.mjs");
 const { VERSION } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
@@ -137,7 +137,7 @@ const broadcast = (event, data) => {
   const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) res.write(frame);
 };
-mkdirSync(FLDIR, { recursive: true });
+ensureFlDir(PROJECT); // also drops the self-ignoring .gitignore so state never hits the git diff
 let watchDebounce = null;
 try {
   watch(FLDIR, () => {
@@ -248,7 +248,7 @@ const server = http.createServer((req, res) => {
         // the instant selection.json lands, so sampling afterwards would tell the human
         // "no agent" right as their agent takes delivery.
         const wasWaiting = ONCE || statusPayload().agentWaiting;
-        mkdirSync(FLDIR, { recursive: true });
+        ensureFlDir(PROJECT);
         writeFileSync(SELECTION, JSON.stringify(sel, null, 2) + "\n");
         appendFileSync(
           PICKLOG,
