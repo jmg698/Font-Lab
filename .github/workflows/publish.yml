@@ -39,33 +39,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The tag IS the version. Accept v0.9.2 / V0.9.2 / 0.9.2; fail fast (before any
-      # publish) on anything that isn't semver, with a message that says how to fix it.
+      # The tag IS the version. Accept v0.9.2 / V0.9.2 / 0.9.2; fail fast (before any publish)
+      # on anything that isn't STRICT semver. The core numbers reject leading zeros — a manual
+      # `09.23.3` input previously slipped through the old `[0-9]+` pattern, and npm then quietly
+      # "cleaned" it to 9.23.3 and tried to publish that. Catch it here with a clear message.
       - name: Derive version from tag
         run: |
           RAW="${{ github.event.inputs.version || github.event.release.tag_name }}"
           VERSION="${RAW#v}"; VERSION="${VERSION#V}"
-          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
-            echo "::error::'$RAW' is not a semver version. Tag releases like v0.9.2." && exit 1
+          if ! echo "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-.][0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$RAW' is not a valid semver version (no leading zeros). Tag releases like v0.12.3." && exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Publishing version $VERSION"
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Node 24 bundles npm >= 11.5.1 (needed for the OIDC publish handshake) AND is immune to
+          # the Node 22.22 in-place npm-upgrade corruption (npm/cli#9151). Node 22 was the trap: its
+          # bundled npm is 10.9.x, too old for the handshake.
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22's bundled npm may predate it.
-      # PIN the version via Corepack — do NOT `npm install -g npm@latest`. On 2026-07-09 that
-      # pulled the day-old npm 12.0.0 (a new major) and the in-place self-upgrade left npm's
-      # bundled deps corrupt, so `--provenance` died with "Cannot find module 'sigstore'"
-      # (sigstore is only require()d on the provenance path — see npm/cli#9151, #9526). Corepack
-      # activates cleanly instead of overwriting the bundled tree in place, and a fixed version
-      # keeps release day deterministic. Bump this deliberately; never float back to @latest.
-      - run: corepack enable
-      - run: corepack prepare npm@11.16.0 --activate
-      - run: npm -v # fail loudly if the pin didn't take (must be >= 11.5.1 for OIDC publish)
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1 for the PUBLISH handshake. On an older npm the
+      # handshake fails, the registry treats the request as anonymous, and `npm publish` dies with a
+      # misleading "E404 Not Found - PUT .../font-lab" (NOT a missing package — it exists). That is
+      # exactly what sank the first 0.12.3 attempt: the publish ran on the runner's bundled npm 10.9.8.
+      #
+      # Pin an exact npm via `npm install -g` (the mechanism that actually overrides the bundled npm —
+      # `corepack prepare npm@…` does NOT: it left `npm -v` on 10.9.8). Do NOT float to @latest: on
+      # 2026-07-09 that pulled the day-old npm 12.0.0, whose in-place self-upgrade corrupted the bundled
+      # deps so `--provenance` couldn't require 'sigstore' (npm/cli#9151, #9526). Bump this deliberately.
+      - name: Pin npm (OIDC-capable, provenance-capable)
+        run: npm install -g npm@11.18.0
+      # Assert the pin took — never silently regress to a version that would 404 at publish time.
+      - name: Verify npm >= 11.5.1 (OIDC trusted publishing)
+        run: |
+          NPM_V="$(npm -v)"; MIN="11.5.1"
+          echo "npm $NPM_V"
+          if [ "$(printf '%s\n%s\n' "$MIN" "$NPM_V" | sort -V | head -n1)" != "$MIN" ]; then
+            echo "::error::npm $NPM_V < $MIN — OIDC trusted publishing would fail with a misleading E404." && exit 1
+          fi
+          echo "npm $NPM_V satisfies >= $MIN ✓"
 
       # Stamp the tag's version into package.json — the repo copy is a dev placeholder.
       - name: Stamp version
