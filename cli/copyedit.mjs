@@ -11,6 +11,7 @@ import { Project, Node, SyntaxKind } from "ts-morph";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { ensureFlDir, pruneBackups, appendSourceEdit } from "./state.mjs";
 
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const norm = (s) => s.replace(/\s+/g, " ").trim();
@@ -140,10 +141,10 @@ function textChildrenOf(el, all) {
   });
 }
 
-// ---- backups (same shape as cli/codegen.mjs, self-contained for the spike) --
+// ---- backups (same shape as cli/codegen.mjs; the edit-* family of runs) -----
 
 function backup(projectDir, files, runIdSeed) {
-  const flDir = path.join(projectDir, ".font-lab");
+  const flDir = ensureFlDir(projectDir); // born self-ignoring — backups never reach the git diff
   const runId = "edit-" + runIdSeed;
   const dir = path.join(flDir, "backups", runId);
   const manifest = { runId, kind: "text-edit", files: [] };
@@ -157,6 +158,9 @@ function backup(projectDir, files, runIdSeed) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
   writeFileSync(path.join(flDir, "backups", "latest-edit.txt"), runId);
+  // One backup lands per saved retype, so a session would otherwise pile up dozens of folders;
+  // undo only ever reads the run latest-edit.txt names, so older ones are safe to trim.
+  pruneBackups(projectDir, { family: "edit" });
   return { dir, runId };
 }
 
@@ -254,10 +258,15 @@ export function applyEdit(projectDir, { file, line, col, oldText, newText, runId
     return { ok: false, error: `verify failed (${verify.error ?? "text mismatch"}); restored backup`, runId };
   }
 
+  const relFile = path.relative(projectDir, abs);
+  // Record the source write so "what do I commit?" has an answer at the end of the session.
+  const clip = (s) => (s.length > 60 ? s.slice(0, 59) + "…" : s);
+  appendSourceEdit(projectDir, { kind: "text-edit", files: [relFile], runId, detail: `"${clip(before)}" → "${clip(norm(newText))}"` });
+
   return {
     ok: true,
     runId,
-    file: path.relative(projectDir, abs),
+    file: relFile,
     line: res.hit.line,
     kind: res.hit.kind,
     before,
@@ -274,7 +283,10 @@ export function undoEdit(projectDir) {
   const dir = path.join(flDir, "backups", runId);
   const manifest = JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8"));
   restore(projectDir, dir);
-  return { runId, restored: manifest.files.map((f) => f.path) };
+  const restored = manifest.files.map((f) => f.path);
+  // An undo rewrites the file too — log it, and let `git diff` judge whether it's back at HEAD.
+  appendSourceEdit(projectDir, { kind: "undo-text-edit", files: restored, runId });
+  return { runId, restored };
 }
 
 // Convenience for the string-search fallback: scan a project's .tsx/.jsx for a phrase, so

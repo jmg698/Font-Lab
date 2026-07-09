@@ -9,8 +9,12 @@
 //   mcp-heartbeat.json  refreshed on every MCP tool call — "an agent touched Font Lab recently"
 //   menu.json        how the mounted menu was built (composed vs fallback) — the provisional flag
 //   request.json     the human's in-panel "more options" ask, queued until an agent fulfills it
+//   edits.log.jsonl  append-only record of every SOURCE file Font Lab wrote — "what do I commit?"
+//
+// None of it is source. The dir ignores itself (see ensureFlDir), so a session's worth of
+// state never lands in the human's git diff at commit time.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, rmSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 export const FL_DIR = ".font-lab";
@@ -29,6 +33,62 @@ export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
 export const requestPath = (projectDir) => path.join(flDir(projectDir), REQUEST_FILE);
 export const heartbeatPath = (projectDir) => path.join(flDir(projectDir), HEARTBEAT_FILE);
 
+// Every .font-lab writer funnels through here so the state dir is born self-ignoring: a `*`
+// .gitignore INSIDE it keeps all of this runtime state out of the human's git diff without ever
+// touching their root .gitignore (the .next / cargo-target pattern — git honors nested ignore
+// files even untracked). Existing installs heal on their next state write. Never overwrites a
+// .gitignore the human put there themselves; deleting ours is the opt-out.
+export function ensureFlDir(projectDir) {
+  const dir = flDir(projectDir);
+  mkdirSync(dir, { recursive: true });
+  const gi = path.join(dir, ".gitignore");
+  if (!existsSync(gi)) {
+    try {
+      writeFileSync(gi, "# Font Lab local state (backups, picks, heartbeats) — regenerated as needed; never commit.\n*\n");
+    } catch {} // a state write must not fail because the marker couldn't be written
+  }
+  return dir;
+}
+
+// Backups are undo state, not history: undo only ever restores the run named by latest.txt /
+// latest-edit.txt, and older runs exist purely as a manual-recovery courtesy. Left uncapped, a
+// copy-editing session leaves one edit-* folder per saved retype — the 50-folder wall a human
+// hits at commit time. So every backup() write prunes its own family (copy-edit runs vs apply
+// runs), oldest first, keeping the newest BACKUP_KEEP plus whatever the latest pointers name.
+export const BACKUP_KEEP = 20;
+export function pruneBackups(projectDir, { family, keep = BACKUP_KEEP } = {}) {
+  const dir = path.join(flDir(projectDir), "backups");
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return []; // no backups yet
+  }
+  // Runs named by a latest pointer are never deleted, whatever their mtime says.
+  const pinned = new Set(
+    ["latest.txt", "latest-edit.txt"]
+      .map((f) => { try { return readFileSync(path.join(dir, f), "utf8").trim(); } catch { return null; } })
+      .filter(Boolean),
+  );
+  const inFamily = (name) => (family === "edit" ? name.startsWith("edit-") : !name.startsWith("edit-"));
+  const runs = entries
+    .filter((e) => e.isDirectory() && inFamily(e.name))
+    .map((e) => { try { return { name: e.name, mtime: statSync(path.join(dir, e.name)).mtimeMs }; } catch { return null; } })
+    .filter(Boolean)
+    // newest first; both run-naming schemes (edit-<base36 ms>, ISO stamps) sort chronologically
+    // by name, so the name breaks mtime ties deterministically
+    .sort((a, b) => b.mtime - a.mtime || (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+  const pruned = [];
+  for (const { name } of runs.slice(Math.max(0, keep))) {
+    if (pinned.has(name)) continue;
+    try {
+      rmSync(path.join(dir, name), { recursive: true, force: true });
+      pruned.push(name);
+    } catch {} // pruning is best-effort; a locked dir must not fail the edit that triggered it
+  }
+  return pruned;
+}
+
 const readJson = (p) => {
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -37,8 +97,66 @@ const readJson = (p) => {
   }
 };
 
+// ---- the source-edit log -----------------------------------------------------------------
+// Font Lab knows exactly which source files it wrote (copy edits, font applies, rewires,
+// undos, panel scaffolding) — but it used to discard that the moment each toast faded, leaving
+// the human to reverse-engineer "what do I actually commit?" out of a 100-file git status.
+// Every source write now appends one JSON line here; readSourceChanges() folds the log into
+// the deduped list font_lab_status and GET /status expose.
+
+export const EDITLOG_FILE = "edits.log.jsonl";
+export const editLogPath = (projectDir) => path.join(flDir(projectDir), EDITLOG_FILE);
+
+// Best-effort by design: a logging failure must never fail the edit it records.
+export function appendSourceEdit(projectDir, { kind, files, runId, detail } = {}) {
+  try {
+    ensureFlDir(projectDir);
+    const entry = {
+      at: new Date().toISOString(),
+      kind: kind || "edit",
+      files: (files || []).filter(Boolean).map(String),
+      ...(runId ? { runId } : {}),
+      ...(detail ? { detail: String(detail).slice(0, 200) } : {}),
+    };
+    appendFileSync(editLogPath(projectDir), JSON.stringify(entry) + "\n");
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+// The deduped "what changed" view: every source path Font Lab has written, most recently
+// touched first, each carrying the kinds of writes that hit it. `scaffold`/`unscaffold`-only
+// paths are the dev-tooling pile (commit separately, or not at all); everything else is the
+// human's actual work. Undone writes stay listed on purpose — the file WAS rewritten (the
+// restore included), and `git diff` is the judge of whether it ended up back where it started.
+export function readSourceChanges(projectDir) {
+  let lines = [];
+  try {
+    lines = readFileSync(editLogPath(projectDir), "utf8").split("\n").filter(Boolean);
+  } catch {}
+  const byPath = new Map();
+  let lastAt = null;
+  let writes = 0;
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    writes++;
+    if (e.at) lastAt = e.at;
+    for (const p of e.files || []) {
+      const cur = byPath.get(p) || { path: p, kinds: [], writes: 0, lastAt: null };
+      if (e.kind && !cur.kinds.includes(e.kind)) cur.kinds.push(e.kind);
+      cur.writes++;
+      cur.lastAt = e.at || cur.lastAt;
+      byPath.delete(p); // re-insert so Map order is by most recent touch
+      byPath.set(p, cur);
+    }
+  }
+  return { writes, lastAt, files: [...byPath.values()].reverse() };
+}
+
 export function writeAppliedStamp(projectDir, result) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const stamp = {
     at: new Date().toISOString(),
     runId: result?.runId ?? null,
@@ -57,7 +175,7 @@ export const clearAppliedStamp = (projectDir) => rmSync(appliedPath(projectDir),
 // brief was gathered). This is the truth the panel, status, and apply read so a menu that was never
 // tailored to the project can't silently masquerade as one that was.
 export function writeMenuState(projectDir, { mode, count } = {}) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const state = { mode: mode || "composed", tailored: mode === "composed", count: count ?? null, at: new Date().toISOString() };
   writeFileSync(menuPath(projectDir), JSON.stringify(state, null, 2) + "\n");
   return state;
@@ -71,7 +189,7 @@ export const readMenuState = (projectDir) => readJson(menuPath(projectDir));
 // Persisting it means the ask survives an agent connecting late — it isn't lost if none is listening
 // at click time.
 export function writeRequest(projectDir, { brief, exclude } = {}) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   const req = {
     status: "pending",
     brief: brief || {},
@@ -86,14 +204,14 @@ export const readRequest = (projectDir) => readJson(requestPath(projectDir));
 export const clearRequest = (projectDir) => rmSync(requestPath(projectDir), { force: true });
 
 export function setAgentWaiting(projectDir, on) {
-  mkdirSync(flDir(projectDir), { recursive: true });
+  ensureFlDir(projectDir);
   if (on) writeFileSync(waitingPath(projectDir), JSON.stringify({ since: new Date().toISOString(), pid: process.pid }) + "\n");
   else rmSync(waitingPath(projectDir), { force: true });
 }
 
 export function refreshAgentHeartbeat(projectDir) {
   try {
-    mkdirSync(flDir(projectDir), { recursive: true });
+    ensureFlDir(projectDir);
     writeFileSync(heartbeatPath(projectDir), JSON.stringify({ at: Date.now(), pid: process.pid }) + "\n");
   } catch {}
 }
@@ -124,5 +242,7 @@ export function readHandoffState(projectDir) {
     agentWaiting: !!waiting || !!heartbeatFresh,
     waitingSince: waiting?.since ?? null,
     request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
+    // "What did Font Lab actually change?" — the deduped source files, for the commit moment.
+    sourceChanges: readSourceChanges(projectDir),
   };
 }

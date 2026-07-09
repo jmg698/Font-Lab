@@ -27,6 +27,7 @@ import { analyzeProject } from "./analyzer.mjs";
 import { inCatalog, get as catalogGet } from "./catalog.mjs";
 import { normalize as normFamily, admit as admitFont, isShippable } from "./admit.mjs";
 import { buildParityBundles } from "./catalog-build.mjs";
+import { ensureFlDir, pruneBackups, appendSourceEdit } from "./state.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
 const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
@@ -303,7 +304,7 @@ function cssInsertIndex(css) {
 // ---- backups / apply / undo ------------------------------------------------
 
 function backup(projectDir, files) {
-  const flDir = path.join(projectDir, ".font-lab");
+  const flDir = ensureFlDir(projectDir); // born self-ignoring — backups never reach the git diff
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(flDir, "backups", runId);
   const manifest = { runId, git: null, files: [] };
@@ -322,6 +323,8 @@ function backup(projectDir, files) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
   writeFileSync(path.join(flDir, "backups", "latest.txt"), runId);
+  // undo only ever reads the run latest.txt names — cap the older apply runs (never edit-*).
+  pruneBackups(projectDir, { family: "apply" });
   return { dir, runId };
 }
 
@@ -621,11 +624,17 @@ export async function applySelection(projectDir, opts = {}) {
   // The analyzer picks the branch; codegen never re-guesses.
   const analysis = analyzeProject(projectDir);
 
+  // Every apply is a source write — log it so "what do I commit?" has an answer at session end.
+  const logApplied = (r) => {
+    appendSourceEdit(projectDir, { kind: "font-apply", files: r.edited, runId: r.runId, detail: r.direction?.name ? `direction "${r.direction.name}"` : undefined });
+    return r;
+  };
+
   // Framework-agnostic CSS-entry branch (TanStack/Vite/Astro/… on Tailwind v4, no next/font).
   if (analysis.applyMode === "css-entry") {
     const cssPath = analysis.cssFile ? path.join(projectDir, analysis.cssFile) : null;
     if (!cssPath || !existsSync(cssPath)) throw new Error("css-entry apply: no CSS entry resolved");
-    return applyCssEntry(projectDir, selection, analysis, cssPath, opts);
+    return logApplied(await applyCssEntry(projectDir, selection, analysis, cssPath, opts));
   }
 
   if (analysis.applyMode !== "next-font")
@@ -637,9 +646,9 @@ export async function applySelection(projectDir, opts = {}) {
   const css = analysis.cssFile ? path.join(projectDir, analysis.cssFile) : null;
   if (!layout || !css || !existsSync(layout) || !existsSync(css)) {
     const t = resolveTargets(projectDir);
-    return applyResolved(projectDir, selection, analysis, t.layout, t.css);
+    return logApplied(await applyResolved(projectDir, selection, analysis, t.layout, t.css));
   }
-  return applyResolved(projectDir, selection, analysis, layout, css);
+  return logApplied(await applyResolved(projectDir, selection, analysis, layout, css));
 }
 
 async function applyResolved(projectDir, selection, analysis, layout, css) {
@@ -729,7 +738,9 @@ export function rewireCoverage(projectDir) {
   for (const f of manifest.files) f.appliedSha256 = sha(readFileSync(path.join(projectDir, f.path)));
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
-  return { runId, rewired, edited: [path.relative(projectDir, css)], backupDir: path.relative(projectDir, backupDir) };
+  const edited = [path.relative(projectDir, css)];
+  appendSourceEdit(projectDir, { kind: "rewire", files: edited, runId, detail: rewired.map((r) => r.role).join(", ") });
+  return { runId, rewired, edited, backupDir: path.relative(projectDir, backupDir) };
 }
 
 export function undo(projectDir) {
@@ -747,5 +758,8 @@ export function undo(projectDir) {
     }
   }
   restore(projectDir, dir);
-  return { runId, restored: manifest.files.map((f) => f.path), warnings };
+  const restored = manifest.files.map((f) => f.path);
+  // An undo rewrites the files too — log it, and let `git diff` judge what's back at HEAD.
+  appendSourceEdit(projectDir, { kind: "undo-apply", files: restored, runId });
+  return { runId, restored, warnings };
 }

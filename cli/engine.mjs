@@ -23,7 +23,7 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -111,7 +111,7 @@ function admittedCache(projectDir) {
     get: (k) => map.get(k),
     set: (k, v) => {
       map.set(k, v);
-      mkdirSync(path.dirname(p), { recursive: true });
+      ensureFlDir(projectDir);
       writeFileSync(p, JSON.stringify(Object.fromEntries(map), null, 2) + "\n");
     },
   };
@@ -283,7 +283,7 @@ function previewSetPath(dir) {
 }
 function writePreviewSet(dir, dirs) {
   const p = previewSetPath(dir);
-  mkdirSync(path.dirname(p), { recursive: true });
+  ensureFlDir(dir);
   writeFileSync(p, JSON.stringify(dirs, null, 2) + "\n");
 }
 function readPreviewSet(dir) {
@@ -374,8 +374,7 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
   const title = path.basename(dir);
 
   const html = buildSpecimenHtml({ directions: specimenDirections(dirs, stacks), faceCss, palette, copy, title });
-  const outPath = path.join(dir, ".font-lab", "preview.html");
-  mkdirSync(path.dirname(outPath), { recursive: true });
+  const outPath = path.join(ensureFlDir(dir), "preview.html");
   writeFileSync(outPath, html);
 
   return {
@@ -399,7 +398,7 @@ export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executa
   let html = htmlPath;
   if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline })).path;
   const chromium = await loadChromium();
-  const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
+  const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
   const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
@@ -477,7 +476,7 @@ export async function waitForPick(projectDir, { timeoutMs = 240_000, ignoreExist
   const immediate = current();
   if (immediate) return { picked: true, selection: immediate, waitedMs: 0 };
 
-  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  ensureFlDir(dir);
   setAgentWaiting(dir, true);
   try {
     const selection = await new Promise((resolve) => {
@@ -532,7 +531,7 @@ export async function waitForRequest(projectDir, { timeoutMs = 240_000 } = {}) {
   const immediate = current();
   if (immediate) return { requested: true, request: immediate, waitedMs: 0 };
 
-  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  ensureFlDir(dir);
   setAgentWaiting(dir, true);
   try {
     const request = await new Promise((resolve) => {
@@ -593,7 +592,7 @@ export async function waitForEvent(projectDir, { timeoutMs = 240_000, ignoreExis
   const immReq = currentRequest();
   if (immReq) return { event: "request", requested: true, request: immReq, waitedMs: 0 };
 
-  mkdirSync(path.join(dir, ".font-lab"), { recursive: true });
+  ensureFlDir(dir);
   setAgentWaiting(dir, true);
   try {
     const result = await new Promise((resolve) => {
@@ -770,7 +769,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   const appDir = resolveAppDir(dir);
   const layout = path.join(appDir, "layout.tsx");
 
-  const backupDir = path.join(dir, ".font-lab", "init-backup");
+  const backupDir = path.join(ensureFlDir(dir), "init-backup");
   mkdirSync(backupDir, { recursive: true });
   const backupLayout = path.join(backupDir, "layout.tsx");
   if (!existsSync(backupLayout)) copyFileSync(layout, backupLayout); // never clobber the original
@@ -790,6 +789,17 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   const mounted = mountPanel(layout);
   writePreviewSet(dir, dirs);
   writeMenuState(dir, { mode, count: dirs.length });
+
+  // Scaffolding is a source write too — logged under its own kind so the commit-time story can
+  // keep "Font Lab's dev tooling" separate from the human's copy/font work.
+  appendSourceEdit(dir, {
+    kind: "scaffold",
+    files: [
+      ...(mounted ? [path.relative(dir, layout)] : []),
+      path.relative(dir, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx")),
+      ...(built.fonts?.length ? ["public/fontlab/"] : []),
+    ],
+  });
 
   return {
     analysis,
@@ -883,6 +893,10 @@ export function uninit(projectDir) {
   rmSync(path.join(appDir, "_fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
   rmSync(path.join(dir, ".font-lab", "init-backup"), { recursive: true, force: true });
+  appendSourceEdit(dir, {
+    kind: "unscaffold",
+    files: [...(unmounted ? [path.relative(dir, layout)] : []), path.relative(dir, path.join(appDir, "_fontlab")) + "/", "public/fontlab/"],
+  });
   return {
     layout: path.relative(dir, layout),
     unmountedPanel: unmounted,
@@ -925,8 +939,7 @@ export function selectDirection(projectDir, { directionId, directions, vibe, cou
     pickedAt: new Date().toISOString(),
     via: "headless",
   };
-  const flDir = path.join(dir, ".font-lab");
-  mkdirSync(flDir, { recursive: true });
+  const flDir = ensureFlDir(dir);
   writeFileSync(path.join(flDir, "selection.json"), JSON.stringify(selection, null, 2) + "\n");
   // Never block the human's pick — but hand back an honest heads-up if it reads generic, so the
   // agent can relay it. The selection.json contract on disk stays clean (warnings aren't shipped).
@@ -1072,7 +1085,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, {});
-  const out = outDir ? path.resolve(outDir) : path.join(dir, ".font-lab", "previews");
+  const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
   const base = baseUrl.replace(/\/+$/, "");
   const route = routes[0] || "/";
