@@ -132,5 +132,45 @@ console.log("\ninline markup — a bare run edits without disturbing its <br/>/<
   rmSync(dir, { recursive: true, force: true });
 }
 
+// The panel sends back contenteditable textContent, which picks up stray spaces around <br/> /
+// inline-element boundaries. Written verbatim, those became trailing spaces on <br /> lines —
+// harmless in the browser, dirty in the diff of a tool whose promise is byte-honesty. Two ways
+// a retype used to dirty it: (1) the panel sends contenteditable textContent, which picks up
+// stray spaces around <br/> / inline boundaries, written verbatim; (2) ts-morph's node-level
+// replaceWithText re-indented the sibling line AFTER the edit (a 6-space `<br />` ballooning to
+// 16). The engine now tidies the retype and swaps text at the file level.
+console.log("\nwhitespace hygiene — a retype never dirties the diff\n");
+{
+  const dir = mkdtempSync(path.join(tmpdir(), "fl-ws-"));
+  mkdirSync(path.join(dir, "app"), { recursive: true });
+  const SRC =
+    `export default function Hero() {\n  return (\n    <h1 className="hero">\n` +
+    `      You pick the type.\n      <br />\n      <em>Your agent ships it.</em>\n    </h1>\n  );\n}\n`;
+  const file = path.join(dir, "app/page.tsx");
+  writeFileSync(file, SRC);
+
+  // A textContent-shaped payload: trailing space (the <br/> boundary) + a doubled interior run.
+  const r = applyEdit(dir, { file: "app/page.tsx", oldText: "You pick the type.", newText: "You  choose the type. " });
+  ok("retype with stray spaces still applies", r.ok, JSON.stringify(r));
+  const out = readFileSync(file, "utf8");
+  ok("  interior runs collapse to single spaces", out.includes("You choose the type."));
+  ok("  no trailing space lands before the <br /> line", out.includes("      You choose the type.\n      <br />"));
+  ok("  the <br /> sibling keeps its own indentation (no ts-morph re-indent)", !/ {7,}<br \/>/.test(out), JSON.stringify(out));
+  ok("  the edit is the ONLY change to the file", out === SRC.replace("You pick the type.", "You choose the type."), JSON.stringify(out));
+  ok("  reported `after` matches what was written", r.after === "You choose the type.");
+
+  // {"…"} string literals keep their spacing verbatim — whitespace there is source-meaningful
+  // ({" "} separators); only JsxText, where rendering collapses it anyway, gets tidied.
+  writeFileSync(file, `export default () => <p>{"exact  spacing"}</p>;\n`);
+  const r2 = applyEdit(dir, { file: "app/page.tsx", oldText: "exact spacing", newText: "still  exact " });
+  ok("string-literal exprs write the retype verbatim", r2.ok && readFileSync(file, "utf8").includes(`{"still  exact "}`), readFileSync(file, "utf8"));
+
+  // NBSP renders differently from a space (no wrap) — it's the human's call, never tidied away.
+  writeFileSync(file, "export default () => <p>keep\u00A0me</p>;\n");
+  const r3 = applyEdit(dir, { file: "app/page.tsx", oldText: "keep\u00A0me", newText: "keep\u00A0me " });
+  ok("nbsp survives; the trailing ASCII space still goes", r3.ok && readFileSync(file, "utf8").includes("<p>keep\u00A0me</p>"), readFileSync(file, "utf8"));
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "✗" : "✓"} copyedit: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

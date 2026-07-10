@@ -16,6 +16,14 @@ import { ensureFlDir, pruneBackups, appendSourceEdit } from "./state.mjs";
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const norm = (s) => s.replace(/\s+/g, " ").trim();
 
+// A contenteditable retype picks up stray ASCII whitespace around <br/> / inline-element
+// boundaries — trailing spaces, doubled runs — that JSX would collapse at render anyway, but
+// that lands in source as diff noise (trailing spaces on <br /> lines) if written verbatim.
+// Collapse it before write-back: the rendered words are identical, the diff stays clean.
+// NBSP is preserved on purpose: unlike a plain space it renders differently (no wrap), so a
+// U+00A0 in the retype is the human's call, not whitespace noise.
+const tidyRetype = (s) => s.replace(/[ \t\r\n\f\v]+/g, " ").replace(/^ +| +$/g, "");
+
 // ---- HTML character references in JSX text ---------------------------------
 
 // JSX text renders HTML character references exactly like a browser does, so the words the panel
@@ -86,11 +94,17 @@ function editableTextNodes(sf) {
       text,
       line: t.getStartLineNumber(),
       setText: (next) => {
-        // keep leading / trailing whitespace, swap the meaningful core (re-encoded so it's valid
-        // JSX text and matches the file's existing &apos;/&amp; convention)
+        // keep leading / trailing whitespace, swap the meaningful core (tidied of retype noise,
+        // re-encoded so it's valid JSX text and matches the file's existing &apos;/&amp; convention).
+        // Swap at the FILE level, not the node level: ts-morph's node replaceWithText re-indents
+        // the line after a multi-line replacement, silently bloating a <br /> / <em> sibling's
+        // indentation — the "extra whitespace on <br /> lines" a reviewer sees in the diff. A
+        // wholesale text swap can't write anything but the exact bytes we computed.
         const lead = raw.match(/^\s*/)[0];
         const trail = raw.match(/\s*$/)[0];
-        t.replaceWithText(lead + encodeJsxText(next) + trail);
+        const sf = t.getSourceFile();
+        const full = sf.getFullText();
+        sf.replaceWithText(full.slice(0, t.getStart()) + lead + encodeJsxText(tidyRetype(next)) + trail + full.slice(t.getEnd()));
       },
     });
   }
