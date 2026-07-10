@@ -178,8 +178,9 @@ lands.
 ## Sequenced path
 
 - **Spike (days, decides the direction):** census + cluster + paint against the dogfood
-  site's dev server. No ship-code changes. Exit criteria (per tech-lead review — the spike
-  validates the preview half AND must not lie about the ship half):
+  site's dev server. No ship-code changes. **Outcome (2026-07-10): all five criteria PASS
+  — see `spike/cluster-paint/RESULTS.md`.** Exit criteria (per tech-lead review — the
+  spike validates the preview half AND must not lie about the ship half):
   1. **Preview:** one keystroke changes ≥90% of visible heading-like text on `/` *and*
      `/fontlab` (manual eyeball + automated count from the census).
   2. **Stability:** paint survives HMR, scroll-in lazy content, and panel open/close
