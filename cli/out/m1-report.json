@@ -8,32 +8,32 @@
     {
       "name": "current body is Inter",
       "pass": true,
-      "extra": "Inter, \"Inter Fallback\", ui-sans-serif, system-ui, sans-serif, __fl_body"
+      "extra": "Inter, \"Inter Fallback\", ui-sans-serif, system-ui, sans-serif"
     },
     {
-      "name": "ArrowRight selects editorial-serif",
+      "name": "ArrowRight selects modern-serif",
       "pass": true,
-      "extra": "editorial-serif"
+      "extra": "modern-serif"
     },
     {
-      "name": "body swapped to Libre Franklin",
+      "name": "body swapped to Public Sans",
       "pass": true,
-      "extra": "\"FL Libre Franklin\", \"FL Libre Franklin Fallback\", sans-serif, __fl_body"
+      "extra": "\"FL Public Sans\", \"FL Public Sans Fallback\", sans-serif"
     },
     {
-      "name": "click selects modern-grotesque",
+      "name": "click selects quiet-minimal",
       "pass": true,
       "extra": ""
     },
     {
-      "name": "body swapped to Figtree",
+      "name": "body swapped to Onest",
       "pass": true,
-      "extra": "\"FL Figtree\", \"FL Figtree Fallback\", sans-serif, __fl_body"
+      "extra": "\"FL Onest\", \"FL Onest Fallback\", sans-serif"
     },
     {
-      "name": "display swapped to Bricolage",
+      "name": "display swapped to Onest",
       "pass": true,
-      "extra": "\"FL Bricolage Grotesque\", \"FL Bricolage Grotesque Fallback\", sans-serif, __fl_display"
+      "extra": "\"FL Onest\", \"FL Onest Fallback\", sans-serif"
     },
     {
       "name": "selection.json written",
@@ -41,22 +41,22 @@
       "extra": ""
     },
     {
-      "name": "direction id = modern-grotesque",
+      "name": "direction id = quiet-minimal",
       "pass": true,
       "extra": ""
     },
     {
-      "name": "body family = Figtree",
+      "name": "body family = Onest",
       "pass": true,
       "extra": ""
     },
     {
-      "name": "display family = Bricolage Grotesque",
+      "name": "display family = Onest",
       "pass": true,
       "extra": ""
     },
     {
-      "name": "mono family = JetBrains Mono",
+      "name": "mono family = Spline Sans Mono",
       "pass": true,
       "extra": ""
     },
@@ -71,7 +71,12 @@
       "extra": ""
     },
     {
-      "name": "Enter re-picks editorial-serif",
+      "name": "pick declares cluster-paint scope",
+      "pass": true,
+      "extra": "\"cluster-paint\""
+    },
+    {
+      "name": "Enter re-picks modern-serif",
       "pass": true,
       "extra": ""
     },
@@ -83,16 +88,16 @@
   ],
   "finalSelection": {
     "version": 1,
-    "pickedAt": "2026-07-06T14:29:45.334Z",
+    "pickedAt": "2026-07-11T15:44:33.427Z",
     "direction": {
-      "id": "editorial-serif",
-      "name": "Editorial",
+      "id": "modern-serif",
+      "name": "Modern Serif",
       "vibe": "editorial",
-      "rationale": "Warm high-contrast serif headlines over a clean grotesque body. (replaces Inter.)"
+      "rationale": "A contemporary text serif headline over a neutral, readable body. (replaces Inter.)"
     },
     "roles": {
       "display": {
-        "family": "Fraunces",
+        "family": "Newsreader",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -101,7 +106,7 @@
         ]
       },
       "body": {
-        "family": "Libre Franklin",
+        "family": "Public Sans",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -110,7 +115,7 @@
         ]
       },
       "mono": {
-        "family": "JetBrains Mono",
+        "family": "Spline Sans Mono",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -130,6 +135,128 @@
       "styling": "tailwind",
       "tailwindVersion": 4,
       "fontWiring": "css-variables"
+    },
+    "preview": {
+      "mechanism": "cluster-paint",
+      "route": "/",
+      "census": [
+        {
+          "id": "c0",
+          "label": "Bodys — Inter",
+          "family": "Inter",
+          "voice": "body",
+          "prov": "css@global",
+          "elements": 7,
+          "chars": 1359,
+          "share": 78.4,
+          "sample": "AI removed the labor of implementation, but in doing so it quiet",
+          "folded": 0
+        },
+        {
+          "id": "c1",
+          "label": "Headings — Inter",
+          "family": "Inter",
+          "voice": "heading",
+          "prov": "css@global",
+          "elements": 3,
+          "chars": 190,
+          "share": 11,
+          "sample": "The moment of choice is the only part that needed you.",
+          "folded": 0
+        },
+        {
+          "id": "c2",
+          "label": "Labels — JetBrains Mono",
+          "family": "JetBrains Mono",
+          "voice": "label",
+          "prov": "css@global",
+          "elements": 4,
+          "chars": 185,
+          "share": 10.7,
+          "sample": "Field Notes · Issue 07",
+          "folded": 0
+        }
+      ],
+      "scope": [
+        {
+          "role": "display",
+          "voice": "heading",
+          "target": "Newsreader",
+          "rendersToday": "Inter",
+          "declaredInSource": "Inter",
+          "autoShipSeam": {
+            "var": "--fl-display",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c1",
+              "label": "Headings — Inter",
+              "family": "Inter",
+              "voice": "heading",
+              "prov": "css@global",
+              "elements": 3,
+              "chars": 190,
+              "share": 11,
+              "sample": "The moment of choice is the only part that needed you.",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        },
+        {
+          "role": "body",
+          "voice": "body",
+          "target": "Public Sans",
+          "rendersToday": "Inter",
+          "declaredInSource": "Inter",
+          "autoShipSeam": {
+            "var": "--fl-sans",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c0",
+              "label": "Bodys — Inter",
+              "family": "Inter",
+              "voice": "body",
+              "prov": "css@global",
+              "elements": 7,
+              "chars": 1359,
+              "share": 78.4,
+              "sample": "AI removed the labor of implementation, but in doing so it quiet",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        },
+        {
+          "role": "mono",
+          "voice": "label",
+          "target": "Spline Sans Mono",
+          "rendersToday": "JetBrains Mono",
+          "declaredInSource": "JetBrains Mono",
+          "autoShipSeam": {
+            "var": "--font-jbmono",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c2",
+              "label": "Labels — JetBrains Mono",
+              "family": "JetBrains Mono",
+              "voice": "label",
+              "prov": "css@global",
+              "elements": 4,
+              "chars": 185,
+              "share": 10.7,
+              "sample": "Field Notes · Issue 07",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        }
+      ]
     }
   }
 }

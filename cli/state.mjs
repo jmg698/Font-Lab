@@ -209,6 +209,23 @@ export function setAgentWaiting(projectDir, on) {
   else rmSync(waitingPath(projectDir), { force: true });
 }
 
+// The dev server's origin, as reported by the panel itself (EventSource connect carries
+// ?origin=location.origin). The panel is the only party that KNOWS the dev URL for certain —
+// and it can't report the server being DOWN (no server, no panel), so the record here is what
+// lets font_lab_status health-check it after the fact, and what verify/screenshots default
+// their baseUrl to.
+export const DEVSERVER_FILE = "devserver.json";
+export const devServerPath = (projectDir) => path.join(flDir(projectDir), DEVSERVER_FILE);
+
+export function writeDevServer(projectDir, origin) {
+  try {
+    ensureFlDir(projectDir);
+    writeFileSync(devServerPath(projectDir), JSON.stringify({ origin, at: new Date().toISOString() }) + "\n");
+  } catch {}
+}
+
+export const readDevServer = (projectDir) => readJson(devServerPath(projectDir));
+
 export function refreshAgentHeartbeat(projectDir) {
   try {
     ensureFlDir(projectDir);
@@ -218,6 +235,59 @@ export function refreshAgentHeartbeat(projectDir) {
 
 export function clearAgentHeartbeat(projectDir) {
   try { rmSync(heartbeatPath(projectDir), { force: true }); } catch {}
+}
+
+// ---- the undelivered pick ------------------------------------------------------------------
+// The durable-delivery predicate: a selection newer than the last apply stamp is a pick the
+// human made that no agent has shipped yet. It has NO expiry — a pick is a standing decision,
+// and auto-expiring it would re-lose the very thing this exists to deliver. Past a week we say
+// it's old so the agent confirms it still stands instead of silently applying.
+
+const formatAge = (ms) => {
+  const m = Math.round(ms / 60_000);
+  if (m < 1) return "moments";
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+};
+
+// Render the pick's ship scope (declared by the panel at pick time — selection.preview.scope)
+// into one agent-readable sentence: which roles auto-ship, which the agent wires, and which
+// island clusters global wiring can't reach. Null when the pick predates scope declaration
+// (e.g. written by font_lab_select rather than the panel).
+export function describePickScope(selection) {
+  const scope = selection?.preview?.scope;
+  if (!Array.isArray(scope) || !scope.length) return null;
+  const auto = scope.filter((s) => s.autoShipSeam).map((s) => s.role);
+  const wired = scope.filter((s) => !s.autoShipSeam).map((s) => s.role);
+  const islands = scope.flatMap((s) => (s.islands || []).map((c) => c.label || `${s.role} island`));
+  const route = selection.preview?.route || "/";
+  const parts = [];
+  if (auto.length) parts.push(`auto-ships: ${auto.join(", ")}`);
+  if (wired.length) parts.push(`agent wires: ${wired.join(", ")} (no auto-ship seam — font_lab_apply won't reach these)`);
+  if (islands.length)
+    parts.push(
+      `${islands.length} island cluster${islands.length === 1 ? "" : "s"} on ${route} (${[...new Set(islands)].slice(0, 3).join(" · ")}) — ask the human before changing intentional per-route fonts`,
+    );
+  return parts.length ? parts.join("; ") : null;
+}
+
+export function pendingPick(projectDir) {
+  const selection = readJson(selectionPath(projectDir));
+  if (!selection) return null;
+  const applied = readJson(appliedPath(projectDir));
+  if (applied && Date.parse(applied.at || 0) >= Date.parse(selection.pickedAt || 0)) return null;
+  const ageMs = Math.max(0, Date.now() - (Date.parse(selection.pickedAt || "") || Date.now()));
+  return {
+    direction: selection.direction ?? null,
+    pickedAt: selection.pickedAt ?? null,
+    age: formatAge(ageMs),
+    stale: ageMs > 7 * 24 * 3600_000,
+    roles: selection.roles ?? null,
+    route: selection.preview?.route ?? null,
+    scope: describePickScope(selection),
+  };
 }
 
 // One assembled snapshot of the handoff — what the panel's status pill and font_lab_status

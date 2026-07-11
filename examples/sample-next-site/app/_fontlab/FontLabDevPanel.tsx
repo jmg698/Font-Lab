@@ -3,19 +3,22 @@
 // Font Lab dev panel — "Galley", the editor's proof slip. Portable build, installed by
 // `font-lab init` into a real project. Design spec: docs/PANEL-VISION.md.
 //
-// The swap applies through the analyzer's `wiring`: for each role it overrides the project's
-// OWN leaf next/font variable (e.g. --font-bricolage) on the element next/font uses (<html>
-// or <body>). That's what makes the live preview honest on any site — it moves the exact
-// variable that ship rewrites. A role with no wiring is shown as not-previewable (its pick
-// still records; apply wires it).
+// THE CENSUS (render-first, RFC-ROLES-AND-COVERAGE rev 2.1; ./fl-census.ts): at mount the
+// panel reads the RENDERED page — every visible text element's computed family/size/weight —
+// and clusters it into the site's actual voices (heading / body / label), each cluster keyed by
+// (rendered style, structural voice, provenance). A flip PAINTS a voice's clusters through one
+// injected stylesheet (`[data-flv=…]{font-family:… !important}`) instead of overriding the
+// site's CSS variables — so the preview works identically on healthy wiring, dead variable
+// chains, inline-style brand islands, and system-stack mono. Preview is structurally unable to
+// no-op; the analyzer's `wiring` is kept only as SHIP-scope honesty (a role with no live seam
+// previews fine and is badged "agent wires on ship" — the pick carries the census + scope so
+// the shipping agent knows exactly what to touch).
 //
-// THE SENTINEL SCAN (the primitive both centerpieces ride on): every value this panel writes
-// into a role variable carries a trailing, nonexistent fallback family ("__fl_display" etc.).
-// Rendering is untouched — the sentinel is last in the stack and no such font exists — but
-// getComputedStyle(el).fontFamily now names, for ANY element, which role variable it actually
-// consumes. Ground truth, zero deps. It powers: inspect (hover the page → the chip names the
-// role/font), the role x-ray, the all-roles map, per-flip change flashes + edge ticks +
-// row verdicts ("what changed AND what didn't"), coverage stats, and J-jump.
+// The census also powers what the sentinel scan used to: inspect (hover the page → the chip
+// names the voice/font), the role x-ray, the all-roles map, per-flip change flashes + edge
+// ticks + row verdicts ("what changed AND what didn't"), coverage stats, and J-jump.
+// Paint is STYLE-ONLY (attributes + one stylesheet, never wraps/creates/edits nodes) — the
+// contract that keeps the copy-edit machinery below intact.
 //
 // Copy edits ride the same slip: double-click any all-text element, retype, Enter. The panel
 // reads the React 19 fiber `_debugStack` call-site frame and POSTs it to the endpoint's
@@ -28,7 +31,8 @@
 // Dev-only (mounted behind a NODE_ENV guard in layout). Shadow-DOM isolated. Zero deps.
 
 import { useEffect } from "react";
-import { catalogFontFaceCss, directions, replaces, target, wiring, type Direction } from "./catalog.generated";
+import { catalogFontFaceCss, directions, replaces, target, wiring, menuMode, type Direction } from "./catalog.generated";
+import "./fl-census"; // side-effect module: window.__flCensus (census / cluster / paint)
 
 const ENDPOINT = "http://localhost:7777";
 const STORE_KEY = "fontlab.working.v1";
@@ -44,15 +48,21 @@ const cmpVersions = (a: string, b: string) => {
 };
 const ROLES = ["display", "body", "mono"] as const;
 type Role = (typeof ROLES)[number];
-const SENTINEL: Record<Role, string> = { display: "__fl_display", body: "__fl_body", mono: "__fl_mono" };
+// The census speaks structural voices; the curation language stays display/body/mono. This map
+// is the bridge: flipping a role paints every cluster of its voice.
+const VOICE: Record<Role, string> = { display: "heading", body: "body", mono: "label" };
+const ROLE_OF: Record<string, Role> = { heading: "display", body: "body", label: "mono" };
 
 type Cand = { family: string; stack: string; weights: number[]; source: string; parity: string; tag?: string };
 type Conn = "offline" | "ready" | "agent";
 type Dir = { id: string; name: string; vibe: string; rationale: string; roles: Record<Role, Cand> };
 const wir = (wiring || {}) as Partial<Record<Role, { var: string; el: string } | null>>;
 
-function currentLabel(): string {
-  const fams = [replaces?.display, replaces?.body].filter(Boolean) as string[];
+function currentLabel(rendered?: Partial<Record<Role, { family: string }>>): string {
+  const fams = [
+    rendered?.display?.family ?? replaces?.display,
+    rendered?.body?.family ?? replaces?.body,
+  ].filter(Boolean) as string[];
   const uniq = [...new Set(fams)];
   return uniq.length ? `Current — ${uniq.join(" / ")}` : "Current";
 }
@@ -84,15 +94,40 @@ export function FontLabDevPanel() {
     };
     rebuildCands();
 
-    const elFor = (role: Role) => (wir[role]?.el === "body" ? document.body : document.documentElement);
-    const canSwap = (role: Role) => !!wir[role];
-    // Capture each wired role's project-default stack BEFORE we ever touch the variable, so
-    // "Current" re-sets the identical value (plus sentinel) instead of guessing.
-    const defaultStack: Partial<Record<Role, string>> = {};
-    for (const role of ROLES) {
-      if (!canSwap(role)) continue;
-      const v = getComputedStyle(elFor(role)).getPropertyValue(wir[role]!.var).trim();
-      if (v) defaultStack[role] = v;
+    // Every role PREVIEWS (paint reaches everything that renders). `wiring` is ship-scope
+    // honesty only: a role with no live seam is badged "agent wires on ship", never disabled.
+    const shipWired = (role: Role) => !!wir[role];
+    const flc = () => (window as unknown as { __flCensus?: any }).__flCensus;
+    // The rendered "Current" per role — measured by the census (what eyes see), NOT `replaces`
+    // (what source declares). On a dead-chain site the two disagree; the census wins.
+    const renderedCurrent: Partial<Record<Role, { family: string; stack: string }>> = {};
+    let censusDone = false;
+    function captureCurrent() {
+      const fc = flc();
+      if (!fc) return;
+      const fams = fc.renderedFamilies() as Record<string, string>;
+      const paintedNow = (fc.paintedVoices?.() ?? {}) as Record<string, string>;
+      for (const role of ROLES) {
+        const fam = fams[VOICE[role]];
+        if (!fam) continue;
+        const el = document.querySelector(`[data-flv="${VOICE[role]}"]`);
+        // While that voice is painted, an element's computed stack is OUR preview face — keep the
+        // previously captured site stack (or the bare family) instead of laundering paint as "current".
+        const stack = paintedNow[VOICE[role]]
+          ? (renderedCurrent[role]?.stack ?? `'${fam}'`)
+          : el ? getComputedStyle(el).fontFamily : `'${fam}'`;
+        renderedCurrent[role] = { family: fam, stack };
+      }
+      // Truthful before-label on the TOC's row 0 — rendered families, not declared ones.
+      const t0 = shadow.querySelector('.toc-row[data-idx="0"] .tname') as HTMLElement | null;
+      if (t0) t0.textContent = currentLabel(renderedCurrent);
+    }
+    function ensureCensus() {
+      const fc = flc();
+      if (!fc || censusDone) return;
+      fc.census();
+      censusDone = true;
+      captureCurrent();
     }
 
     const FACE_ID = "fontlab-catalog-faces";
@@ -150,9 +185,10 @@ export function FontLabDevPanel() {
     };
     const BEFORE_SEL: Record<Role, number> = { display: -1, body: -1, mono: -1 };
 
-    const famOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (replaces?.[role] ?? "current") : CANDS[role][sel[role]].family);
+    const famOf = (role: Role, sel = state.sel) =>
+      sel[role] < 0 ? (renderedCurrent[role]?.family ?? replaces?.[role] ?? "current") : CANDS[role][sel[role]].family;
     const candOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? null : CANDS[role][sel[role]]);
-    const stackOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (defaultStack[role] ?? "") : CANDS[role][sel[role]].stack);
+    const stackOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (renderedCurrent[role]?.stack ?? "") : CANDS[role][sel[role]].stack);
     const trio = (sel = state.sel) => ROLES.map((r) => famOf(r, sel)).join(" / ");
     const onCurrent = (sel = state.sel) => ROLES.every((r) => sel[r] < 0);
     const matchedDir = (sel = state.sel): Dir | null =>
@@ -166,41 +202,51 @@ export function FontLabDevPanel() {
     const workingParity = (sel = effSel()): "guaranteed" | "best-effort" =>
       ROLES.some((r) => { const c = candOf(r, sel); return !!c && c.parity !== "guaranteed"; }) ? "best-effort" : "guaranteed";
 
-    // ---- page wiring + sentinel scan -----------------------------------------------------
-    function setRoleVar(role: Role, sel: Record<Role, number>) {
-      if (!canSwap(role)) return;
-      const v = wir[role]!.var;
-      if (sel[role] < 0) {
-        if (defaultStack[role]) elFor(role).style.setProperty(v, defaultStack[role] + ", " + SENTINEL[role]);
-        else elFor(role).style.removeProperty(v); // no readable default → behave exactly like before
-      } else {
-        elFor(role).style.setProperty(v, CANDS[role][sel[role]].stack + ", " + SENTINEL[role]);
-      }
+    // ---- paint (the preview mechanism) ---------------------------------------------------
+    // A flip paints the role's VOICE through fl-census's single stylesheet — attribute
+    // selectors + !important reach dead chains, inline-style islands, and system-stack mono
+    // identically. sel < 0 clears the voice back to the site's own rendering.
+    function paintRole(role: Role, sel: Record<Role, number>) {
+      const fc = flc();
+      if (!fc) return;
+      fc.paintVoice(VOICE[role], sel[role] < 0 ? null : CANDS[role][sel[role]].stack);
     }
 
     type ScanHit = { el: HTMLElement; role: Role; chars: number };
     let scanCache: ScanHit[] | null = null;
     const OURS = (el: Element) => !!(el.closest("#fontlab-panel-host") || el.closest("#fontlab-overlay-host"));
+    // The census stamps every classified element with its voice (data-flv); scan() is a cached
+    // view over those stamps in role terms — same shape the sentinel scan used to return, so
+    // coverage/x-ray/flash/J-jump ride it unchanged.
     function scan(): ScanHit[] {
       if (scanCache) return scanCache;
+      ensureCensus();
       const out: ScanHit[] = [];
-      const walk = (node: Element) => {
-        for (const child of Array.from(node.children)) {
-          if (OURS(child) || child.tagName === "SCRIPT" || child.tagName === "STYLE") continue;
-          const hasText = Array.from(child.childNodes).some((n) => n.nodeType === 3 && n.textContent!.trim());
-          if (hasText) {
-            const fam = getComputedStyle(child).fontFamily;
-            const role = ROLES.find((r) => fam.includes(SENTINEL[r]));
-            if (role) out.push({ el: child as HTMLElement, role, chars: child.textContent!.trim().length });
-          }
-          walk(child);
-        }
-      };
-      walk(document.body);
+      document.querySelectorAll<HTMLElement>("[data-flv]").forEach((el) => {
+        const role = ROLE_OF[el.getAttribute("data-flv") || ""];
+        if (!role || OURS(el)) return;
+        let chars = 0;
+        for (const n of Array.from(el.childNodes)) if (n.nodeType === 3) chars += n.textContent!.trim().length;
+        if (chars > 0) out.push({ el, role, chars });
+      });
       scanCache = out;
       return out;
     }
     const invalidateScan = () => { scanCache = null; };
+    // Keep the stamps alive through hydration churn, HMR, lazy content, and client-side route
+    // changes: restamp new nodes into existing clusters; when too much text no longer matches
+    // any known cluster (a route change brought a new voice), take a fresh census — paint rules
+    // are voice-keyed, so they re-attach to the new stamps automatically.
+    const maintain = () => {
+      invalidateScan();
+      const fc = flc();
+      if (!fc || !censusDone || editingEl) return; // never fight the caret; endEdit catches up
+      const r = fc.restamp();
+      if (r.unmatchedChars > Math.max(40, r.totalChars * 0.1)) {
+        fc.recensus();
+        captureCurrent();
+      }
+    };
     let moDebounce: ReturnType<typeof setTimeout> | null = null;
     const inOurs = (n: Node) => {
       const el = n.nodeType === 1 ? (n as Element) : n.parentElement;
@@ -209,7 +255,7 @@ export function FontLabDevPanel() {
     const mo = new MutationObserver((muts) => {
       if (muts.every((m) => inOurs(m.target))) return;
       if (moDebounce) clearTimeout(moDebounce);
-      moDebounce = setTimeout(invalidateScan, 300);
+      moDebounce = setTimeout(maintain, 300);
     });
     mo.observe(document.body, { childList: true, subtree: true, characterData: true });
 
@@ -306,6 +352,9 @@ export function FontLabDevPanel() {
         .sect .rule { flex: 1; border-top: 1px solid rgba(242,239,229,.14); }
         .sect .counter { font-size: 10px; font-variant-numeric: tabular-nums; color: rgba(242,239,229,.58); }
         .sect .counter b { color: #E7FF3B; font-weight: 600; }
+        .sect .starter { font-size: 8.5px; letter-spacing: .12em; font-weight: 700; text-transform: uppercase;
+          color: #100F0D; background: #E9A88F; border-radius: 3px; padding: 2px 6px; cursor: help; white-space: nowrap; }
+        .sect .starter[hidden] { display: none; }
         .toc { max-height: 148px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(242,239,229,.2) transparent;
           -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 12px), transparent 100%); }
@@ -322,6 +371,37 @@ export function FontLabDevPanel() {
         .toc-row .vibe { font-size: 9px; letter-spacing: .1em; color: rgba(242,239,229,.5); flex: none; }
         .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
         .toc-cue[data-show="true"] { display: block; }
+
+        /* "none of these — ask for more" — the in-panel demand channel */
+        .more-trigger { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; padding: 7px 10px; text-align: left;
+          background: none; border: 1px dashed rgba(242,239,229,.22); border-radius: 4px; color: rgba(242,239,229,.72);
+          font-size: 10.5px; letter-spacing: .02em; cursor: pointer; }
+        .more-trigger:hover { border-color: rgba(242,239,229,.4); color: #F2EFE5; background: #191813; }
+        .more-sheet { margin: 0 14px 10px; padding: 12px; background: #17160f; border: 1px solid rgba(242,239,229,.14); border-radius: 5px; }
+        .more-sheet[hidden] { display: none; }
+        .more-sheet .mh { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,239,229,.6); font-weight: 600; margin-bottom: 8px; }
+        .more-q { margin-bottom: 9px; }
+        .more-q .ql { font-size: 10.5px; color: rgba(242,239,229,.82); font-family: ${SERIF_I}; font-style: italic; margin-bottom: 5px; }
+        .more-q .ql .qhint { font-family: ${MONO}; font-style: normal; font-size: 8px; letter-spacing: .1em; text-transform: uppercase;
+          color: rgba(242,239,229,.42); margin-left: 6px; white-space: nowrap; }
+        .more-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+        .more-chip { font-size: 10px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(242,239,229,.2);
+          background: none; color: rgba(242,239,229,.75); cursor: pointer; white-space: nowrap; }
+        .more-chip:hover { border-color: rgba(242,239,229,.45); color: #F2EFE5; }
+        .more-chip[aria-pressed="true"] { background: #E7FF3B; border-color: #E7FF3B; color: #100F0D; font-weight: 600; }
+        .more-note { width: 100%; margin-top: 2px; padding: 7px 9px; background: #100F0D; border: 1px solid rgba(242,239,229,.2);
+          border-radius: 4px; color: #F2EFE5; font-size: 11px; font-family: inherit; resize: vertical; min-height: 34px; box-sizing: border-box; }
+        .more-note:focus { outline: none; border-color: #B7CC00; }
+        .more-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+        .more-send { flex: none; background: #F2EFE5; color: #100F0D; border: 0; border-radius: 4px; padding: 6px 14px;
+          font-weight: 700; font-size: 10.5px; letter-spacing: .06em; cursor: pointer; }
+        .more-send:hover { background: #fff; }
+        .more-cancel { background: none; border: 0; color: rgba(242,239,229,.55); font: inherit; font-size: 10px; cursor: pointer; padding: 0; }
+        .more-cancel:hover { color: #F2EFE5; }
+        .more-ack { margin-top: 9px; font-size: 10.5px; line-height: 1.5; color: rgba(242,239,229,.8); }
+        .more-ack[data-tone="good"] { color: #9BE7B8; } .more-ack[data-tone="warn"] { color: #E9A88F; }
+        .more-ack .offramp { display: block; margin-top: 6px; }
+        .more-ack .linkish { color: #E7FF3B; text-decoration: underline; cursor: pointer; background: none; border: 0; font: inherit; padding: 0; }
 
         .standfirst { padding: 10px 14px 12px; border-top: 1px solid rgba(242,239,229,.1); font-family: ${SERIF_I}; font-style: italic;
           font-size: 13.5px; line-height: 1.45; color: rgba(242,239,229,.88); min-height: 40px; letter-spacing: .01em; }
@@ -353,7 +433,6 @@ export function FontLabDevPanel() {
         .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; transition: color 1.6s ease; }
         .row .fam[data-just="true"] { color: #E7FF3B; transition: color .05s; }
         .row[data-role="body"] .fam { font-size: 16px; } .row[data-role="mono"] .fam { font-size: 13.5px; }
-        .row[data-unwired="true"] .fam { opacity: .55; }
         .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; min-height: 0; }
         .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
@@ -367,7 +446,7 @@ export function FontLabDevPanel() {
         .row .step:hover:not(:disabled) { background: #232219; }
         .row .step:disabled { opacity: .25; cursor: not-allowed; }
         .row .bkt { visibility: hidden; font-size: 8.5px; letter-spacing: .04em; color: rgba(242,239,229,.4); margin-right: 2px; }
-        .row[data-focus="true"]:not([data-unwired="true"]) .bkt { visibility: visible; }
+        .row[data-focus="true"] .bkt { visibility: visible; }
         .row[data-dimmed="true"] { opacity: .7; }
 
         .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); display: flex; gap: 8px; }
@@ -449,10 +528,31 @@ export function FontLabDevPanel() {
           <div class="nb" id="noticeBody"></div>
         </div>
         <div class="sect">
-          <span class="lab u">DIRECTION</span><span class="rule"></span>
+          <span class="lab u">DIRECTION</span>
+          <span class="starter" id="starter" hidden title="This is Font Lab's starter menu — the same deterministic set every project falls back to, not yet tailored to this one. For options chosen for what you're going for, ask your agent to run intake and compose a tailored menu.">STARTER · NOT TAILORED</span>
+          <span class="rule"></span>
           <span class="counter" id="counter"></span>
         </div>
         <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
+        <button class="more-trigger" id="moreTrigger">None of these? Tell Font Lab what you want →</button>
+        <div class="more-sheet" id="moreSheet" hidden>
+          <div class="mh">What are you looking for?</div>
+          <div class="more-q" data-q="feeling" data-multi="true"><div class="ql">What should the type feel like?<span class="qhint">combine any</span></div><div class="more-chips" role="group" aria-label="What should the type feel like — combine any that apply">
+            <button class="more-chip" data-v="editorial &amp; literary">editorial</button><button class="more-chip" data-v="technical &amp; precise">technical</button><button class="more-chip" data-v="warm &amp; human">warm</button><button class="more-chip" data-v="bold &amp; expressive">bold</button><button class="more-chip" data-v="quiet &amp; minimal">minimal</button><button class="more-chip" data-v="classic &amp; trustworthy">classic</button>
+          </div></div>
+          <div class="more-q" data-q="departure"><div class="ql">How far from the current look?</div><div class="more-chips">
+            <button class="more-chip" data-v="a subtle refinement">subtle</button><button class="more-chip" data-v="a clear shift">a clear shift</button><button class="more-chip" data-v="a dramatic rebrand">dramatic</button>
+          </div></div>
+          <div class="more-q" data-q="brand"><div class="ql">A brand or aesthetic to evoke — or avoid?</div>
+            <textarea class="more-note" id="moreBrand" rows="1" placeholder="e.g. like a respected magazine · not another SaaS template"></textarea></div>
+          <div class="more-q"><div class="ql">Anything else? (optional)</div>
+            <textarea class="more-note" id="moreNote" rows="2" placeholder="what you're going for, in your words"></textarea></div>
+          <div class="more-actions">
+            <button class="more-send" id="moreSend">Get more →</button>
+            <button class="more-cancel" id="moreCancel">cancel</button>
+          </div>
+          <div class="more-ack" id="moreAck" hidden></div>
+        </div>
         <div class="standfirst" id="standfirst"></div>
         <div class="spread" id="spread"></div>
         <div class="pickwrap">
@@ -475,6 +575,11 @@ export function FontLabDevPanel() {
     const $ = <T extends HTMLElement = HTMLElement>(id: string) => shadow.getElementById(id) as unknown as T;
     const slip = shadow.querySelector(".slip") as HTMLElement;
     const esc = (s: unknown) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+    // Badge the starter (deterministic fallback) menu as provisional — a menu that was never
+    // tailored to this project shouldn't pass itself off as one that was. (Older generated modules
+    // predate `menuMode`; treat a missing value as composed and stay quiet.)
+    if (menuMode === "fallback") { const s = $("starter"); if (s) s.hidden = false; }
 
     // Pick-guard hints must never stomp a real message (save acks, edit acks, receipts).
     let statusKind: "" | "guard" | "msg" = "";
@@ -545,7 +650,7 @@ export function FontLabDevPanel() {
     }
 
     function reportChange(prevSel: Record<Role, number>, nextSel: Record<Role, number>, changedRoles: Role[]) {
-      const liveChanged = changedRoles.filter((r) => canSwap(r));
+      const liveChanged = changedRoles; // paint previews every role — nothing is preview-dead
       lastChangedRoles = liveChanged;
       const cov = coverage();
       for (const role of ROLES) {
@@ -554,8 +659,7 @@ export function FontLabDevPanel() {
         const a = famOf(role, prevSel), b = famOf(role, nextSel);
         const v = row.querySelector(".cov") as HTMLElement;
         if (a !== b) {
-          v.textContent = !canSwap(role) ? "→ applies on ship"
-            : role === "body" ? `→ ${cov.count.body} elements changed`
+          v.textContent = role === "body" ? `→ ${cov.count.body} elements changed`
             : `→ ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} changed`;
           v.dataset.verdict = "changed";
           (row.querySelector(".fam") as HTMLElement).dataset.just = "true";
@@ -598,9 +702,10 @@ export function FontLabDevPanel() {
     }
 
     function applyToPage(prevSel: Record<Role, number> | null, nextSel: Record<Role, number>, opts: { silent?: boolean } = {}) {
+      ensureCensus(); // clusters must exist before the first paint
       const changed: Role[] = [];
       for (const role of ROLES) {
-        setRoleVar(role, nextSel);
+        paintRole(role, nextSel);
         if (prevSel && famOf(role, prevSel) !== famOf(role, nextSel)) changed.push(role);
       }
       invalidateScan();
@@ -681,7 +786,7 @@ export function FontLabDevPanel() {
       const trapped = editable && !!hoverHit.el.closest(INTERACTIVE);
       const role = hoverHit.role;
       // name the live font in its own typeface — the same touch the panel rows use
-      const specimen = canSwap(role) ? (stackOf(role, effSel()) || MONO) : MONO;
+      const specimen = stackOf(role, effSel()) || MONO;
       hoverChip.style.display = "block";
       hoverChip.innerHTML =
         `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")};font-size:13px;line-height:1">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
@@ -925,6 +1030,7 @@ export function FontLabDevPanel() {
       editingEl = null;
       editingSourceEl = null;
       editingWrap = null;
+      setTimeout(maintain, 300); // census catch-up: restamps were suspended while the caret was live
       return { editEl, sourceEl: sourceEl || editEl, wrap };
     }
     // Collapse a temporary edit-wrap span back to a plain text node once editing ends, so the page DOM
@@ -1029,7 +1135,7 @@ export function FontLabDevPanel() {
         row.innerHTML = `
           <div class="margin">${role[0].toUpperCase()}</div>
           <div class="mid">
-            <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden>WIRED ON SHIP</span><span class="cov"></span></div>
+            <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden title="This role has no live variable seam — the preview is real (painted on the rendered page), and on ship your agent wires the change into source (the pick carries the exact scope).">AGENT WIRES ON SHIP</span><span class="cov"></span></div>
             <div class="spec"><span class="fam" data-fl-fam="${role}"></span></div>
             <div class="tagline"></div>
           </div>
@@ -1081,35 +1187,32 @@ export function FontLabDevPanel() {
       for (const role of ROLES) {
         const row = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement;
         const cand = candOf(role, eff);
-        const unwired = !canSwap(role);
+        // Paint previews every role; "unwired" survives only as SHIP scope (badge, never a gate).
+        const agentShips = !shipWired(role);
         row.dataset.focus = String(state.focus === role);
-        row.dataset.unwired = String(unwired);
         const famEl = row.querySelector(".fam") as HTMLElement;
         famEl.textContent = famOf(role, eff);
-        famEl.style.fontFamily = unwired ? MONO : stackOf(role, eff) || "";
-        famEl.style.fontSize = unwired ? "12px" : "";
+        famEl.style.fontFamily = stackOf(role, eff) || "";
         const parityEl = row.querySelector(".parity") as HTMLElement;
         parityEl.hidden = !(cand && cand.parity !== "guaranteed");
         parityEl.title = "best-effort — may render slightly differently once shipped";
         parityEl.setAttribute("aria-label", "best-effort — may render slightly differently once shipped"); // title alone is invisible to keyboard/SR
-        (row.querySelector(".wtag") as HTMLElement).hidden = !unwired;
+        (row.querySelector(".wtag") as HTMLElement).hidden = !agentShips;
         if (!verdictActive) {
           const covEl = row.querySelector(".cov") as HTMLElement;
           covEl.dataset.verdict = "";
           const pct = cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0;
-          covEl.textContent = unwired ? ""
-            : role === "body" ? `${pct}% of page text`
+          covEl.textContent = role === "body" ? `${pct}% of page text`
             : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on page`;
           // a zero is pinned always-visible — an invisible pick is exactly what must never hide
-          covEl.dataset.pin = String(!unwired && (role === "body" ? pct === 0 : cov.count[role] === 0));
+          covEl.dataset.pin = String(role === "body" ? pct === 0 : cov.count[role] === 0);
         }
-        (row.querySelector(".tagline") as HTMLElement).textContent = unwired
-          ? "previews after ship · pick records."
-          : cand?.tag ? cand.tag + "." : "";
+        (row.querySelector(".tagline") as HTMLElement).textContent =
+          cand?.tag ? cand.tag + "." : agentShips ? "previews live · no auto-ship seam — your agent wires it." : "";
         const n = CANDS[role].length;
         (row.querySelector(".pos") as HTMLElement).textContent =
           "font " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
-        row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = unwired || state.beforeView));
+        row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = state.beforeView));
       }
 
       // ≈ honesty: no separate band (it restated the chip, then auto-faded — a caution that
@@ -1175,7 +1278,6 @@ export function FontLabDevPanel() {
       if (active) active.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
     }
     function cycleRole(role: Role, d: number) {
-      if (!canSwap(role)) return;
       if (state.beforeView) state.beforeView = false;
       state.focus = role;
       if (onCurrent(state.sel)) { selectEntry(1); return; }
@@ -1250,7 +1352,35 @@ export function FontLabDevPanel() {
       const direction = md
         ? { id: md.id, name: md.name, vibe: md.vibe, rationale: md.rationale }
         : { id: "mixed", name: "Mixed", vibe: "mixed", rationale: `Custom pairing — ${fams.filter(Boolean).join(" / ")}.` };
-      const selection = { version: 1, pickedAt: new Date().toISOString(), direction, roles: { display: roleObj("display"), body: roleObj("body"), mono: roleObj("mono") }, replaces, target };
+      // Ship scope, declared AT PICK TIME (never a surprise in a receipt): the census names every
+      // cluster this direction touches — with provenance — and which roles have an auto-ship seam
+      // vs. need the agent. The shipping agent reads this instead of re-deriving the site.
+      const fc = flc();
+      const census = fc && censusDone ? fc.report() : [];
+      const scope = ROLES.map((r) => {
+        const clusters = census.filter((c: { voice: string }) => c.voice === VOICE[r]);
+        return {
+          role: r,
+          voice: VOICE[r],
+          target: roleObj(r).family,
+          rendersToday: renderedCurrent[r]?.family ?? null,
+          declaredInSource: replaces?.[r] ?? null,
+          autoShipSeam: shipWired(r) ? wir[r] : null, // null → the agent wires this role into source
+          clusters,
+          // islands: text this direction should reach that global wiring can't (inline styles /
+          // route-scoped fonts) — each needs either an agent edit or an explicit "keep it" call.
+          islands: clusters.filter((c: { prov: string }) => c.prov !== "css@global"),
+        };
+      });
+      const selection = {
+        version: 1,
+        pickedAt: new Date().toISOString(),
+        direction,
+        roles: { display: roleObj("display"), body: roleObj("body"), mono: roleObj("mono") },
+        replaces,
+        target,
+        preview: { mechanism: "cluster-paint", route: location.pathname, census, scope },
+      };
       state.saving = true;
       render();
       try {
@@ -1263,12 +1393,22 @@ export function FontLabDevPanel() {
         state.shipped = null;
         root.setAttribute("data-fontlab-picked", direction.id);
         $("pick").dataset.just = "true"; // one checkmark draw, then settle
-        setStatus(
-          ack.autoApply ? `Saved — shipping “${direction.name}” now…`
-            : ack.agentWaiting ? `Saved — your agent has “${direction.name}” from here.`
-            : `Saved “${direction.name}” — tell your agent, or run npx font-lab-apply.`,
-          "good",
-        );
+        if (ack.autoApply) setStatus(`Saved — shipping “${direction.name}” now…`, "good");
+        else if (ack.agentWaiting) setStatus(`Sent to your agent ✓ — “${direction.name}” ships from here.`, "good");
+        else {
+          // Unarmed is the NORMAL case, not a failure: the pick is durable and piggybacks on the
+          // agent's next Font Lab call — say so, and hand the human the exact words that trigger it.
+          setStatusHTML(
+            `Saved ✓ — your agent will see “${esc(direction.name)}” on its next Font Lab call, or just say <button class="linkish" id="pickCopy">“apply my font pick”</button>`,
+            "good",
+          );
+          shadow.getElementById("pickCopy")?.addEventListener("click", async () => {
+            const btn = shadow.getElementById("pickCopy");
+            if (!btn) return;
+            try { await navigator.clipboard.writeText("apply my font pick"); btn.textContent = "Copied ✓"; }
+            catch { btn.textContent = "“apply my font pick”"; }
+          });
+        }
         render();
       } catch {
         state.saving = false;
@@ -1277,20 +1417,139 @@ export function FontLabDevPanel() {
       }
     }
 
+    // ---- "more options" — the in-panel demand channel ------------------------------------
+    // The human didn't like what's on the menu (or they're on the seeded STARTER menu and want
+    // ones tailored to them). They tell Font Lab what they're after; we hand that mini-brief to a
+    // listening agent (which composes fresh directions and appends them live). If NO agent is
+    // listening, we say so honestly and give a ready-to-paste prompt as the off-ramp — the ask is
+    // saved either way, so an agent that connects later still fulfills it.
+    function setupMore() {
+      const sheet = $("moreSheet"), trigger = $("moreTrigger"), ack = $("moreAck");
+      const openSheet = (open: boolean) => {
+        sheet.hidden = !open;
+        trigger.textContent = open ? "Never mind — hide this" : "None of these? Tell Font Lab what you want →";
+        if (open) sheet.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+      };
+      trigger.addEventListener("click", () => openSheet(sheet.hidden));
+      $("moreCancel").addEventListener("click", () => { openSheet(false); ack.hidden = true; });
+      // Chip toggle. A question marked data-multi keeps every pressed chip — the human can want
+      // "technical AND minimal" — while the rest stay single-select (a new press clears the group).
+      shadow.querySelectorAll<HTMLElement>(".more-q[data-q] .more-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const on = chip.getAttribute("aria-pressed") === "true";
+          const group = chip.closest(".more-q") as HTMLElement;
+          if (group.dataset.multi !== "true")
+            group.querySelectorAll(".more-chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
+          chip.setAttribute("aria-pressed", String(!on));
+        });
+      });
+      // A chip's value is its rich data-v phrase ("technical & precise") — the vocabulary the design
+      // brief speaks — falling back to its short label. Multi-select questions yield every pressed value.
+      const chipValue = (c: Element) => (c as HTMLElement).dataset.v?.trim() || (c as HTMLElement).textContent?.trim() || "";
+      const chosenAll = (q: string): string[] =>
+        [...shadow.querySelectorAll(`.more-q[data-q="${q}"] .more-chip[aria-pressed="true"]`)].map(chipValue).filter(Boolean);
+      const chosenOne = (q: string): string => chosenAll(q)[0] || "";
+      const gatherBrief = () => ({
+        feeling: chosenAll("feeling"),      // multi-select — one or more vibes to combine
+        departure: chosenOne("departure"),  // single-select
+        brand: ($("moreBrand") as HTMLTextAreaElement).value.trim(),
+        note: ($("moreNote") as HTMLTextAreaElement).value.trim(),
+      });
+      const excludeFamilies = () => [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles[r].family)))];
+
+      // The paste-to-your-agent off-ramp: a self-contained instruction with the brief filled in.
+      // feeling arrives as an array (multi-select) — join it, and treat an empty array as "unset".
+      const agentPrompt = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        const has = (v: string | string[]) => (Array.isArray(v) ? v.length > 0 : !!v);
+        const fmt = (v: string | string[]) => (Array.isArray(v) ? v.join(", ") : v);
+        const lines = Object.entries(brief).filter(([, v]) => has(v)).map(([k, v]) => `  ${k}: ${fmt(v)}`);
+        return [
+          "In this project (the one running the Font Lab dev panel), the human wants MORE font options —",
+          "they didn't pick from the current menu. What they're going for:",
+          lines.length ? lines.join("\n") : "  (no specifics given — surprise them, but keep it tasteful and distinctive)",
+          "",
+          `Compose fresh directions that AVOID these already-shown families: ${exclude.join(", ") || "(none)"}.`,
+          "Reach past the overexposed defaults (Inter, Geist, Space Grotesk, …). Then append them to the live",
+          "panel: call font_lab_compose_directions, then font_lab_more_directions. The human still makes the final pick.",
+        ].join("\n");
+      };
+
+      const setAck = (html: string, tone: "" | "good" | "warn" = "") => { ack.hidden = false; ack.dataset.tone = tone; ack.innerHTML = html; };
+      const wireCopy = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        shadow.getElementById("moreCopy")?.addEventListener("click", async () => {
+          const text = agentPrompt(brief, exclude);
+          const btn = shadow.getElementById("moreCopy")!;
+          try { await navigator.clipboard.writeText(text); btn.textContent = "Copied ✓ — paste it to your agent"; }
+          catch { btn.textContent = "Copy blocked — it's in the console"; console.log("[Font Lab] ask your agent:\n" + text); }
+        });
+      };
+      // Same delivery semantics as a pick: the ask is durable and rides the agent's next Font Lab
+      // call — the copy must read as a designed handoff, not a failure. The header varies because
+      // only one path (endpoint down) actually failed to save.
+      const showOfframp = (
+        brief: Record<string, string | string[]>,
+        exclude: string[],
+        head = `<b>Saved for your agent ✓</b> — none is connected right now, so nothing composes these instantly; your agent sees the request on its next Font Lab call. Faster paths:`,
+      ) => {
+        setAck(
+          head +
+            `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +
+            `<span class="offramp">2 · Have your agent listen live: <code>npx font-lab serve --once</code> in the background (or <code>font_lab_wait</code>), then click Get more again.</span>`,
+          "warn",
+        );
+        wireCopy(brief, exclude);
+      };
+      const showSelfServe = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        setAck(
+          `<b>No agent connected</b> — Font Lab is adding options from its own catalog, tuned to your answers. They'll appear here shortly. Your agent will also see this request on its next Font Lab call.` +
+            `<span class="offramp">These aren't agent-composed — for options tailored to your full brief: <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button></span>`,
+          "good",
+        );
+        wireCopy(brief, exclude);
+      };
+
+      $("moreSend").addEventListener("click", async () => {
+        const brief = gatherBrief();
+        const exclude = excludeFamilies();
+        setAck("Sending…");
+        try {
+          const res = await fetch(ENDPOINT + "/request", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ brief, exclude }),
+          });
+          const j = await res.json().catch(() => ({}) as any);
+          if (!res.ok || !j.ok) { setAck(`Couldn't send — ${esc(j.error || res.status)}.`, "warn"); return; }
+          if (j.agentWaiting) setAck("<b>Sent to your agent ✓</b> — new options will appear here in a moment.", "good");
+          else if (j.selfServe) showSelfServe(brief, exclude);
+          else showOfframp(brief, exclude);
+        } catch {
+          // endpoint down entirely — the ask was NOT saved; say so, and still give the off-ramp
+          showOfframp(brief, excludeFamilies(),
+            `<b>Endpoint offline</b> — this request was NOT saved. Run <code>npx font-lab</code> in your site's folder, then send again. Meanwhile:`);
+        }
+      });
+    }
+
     // ---- live handoff state (SSE) --------------------------------------------------------
     const setConn = (next: Conn) => { if (state.conn === next) return; state.conn = next; render(); };
     const ver = (v: string) => String(v || "").replace(/[^0-9A-Za-z.\-]/g, "");
-    const checkVersion = (running: string) => {
-      const stale = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
-      $("notice").dataset.show = String(stale);
-      if (stale) {
+    const checkVersion = (running: string, installed?: string) => {
+      // Two distinct drifts, same notice slot: the endpoint outran this panel (re-init), or the
+      // package on disk outran the running endpoint (npm install doesn't restart :7777).
+      const stalePanel = isRealVersion(PANEL_VERSION) && isRealVersion(running) && cmpVersions(running, PANEL_VERSION) > 0;
+      const staleEndpoint = isRealVersion(running) && isRealVersion(installed || "") && cmpVersions(installed!, running) > 0;
+      $("notice").dataset.show = String(stalePanel || staleEndpoint);
+      if (staleEndpoint) {
+        $("noticeHead").innerHTML = `ENDPOINT OUTDATED — <code>${ver(running)}</code> RUNNING · <code>${ver(installed!)}</code> INSTALLED`;
+        $("noticeBody").innerHTML = `The :7777 endpoint predates the installed package. Restart it: <code>npx font-lab</code>.`;
+      } else if (stalePanel) {
         $("noticeHead").innerHTML = `STALE PANEL — <code>${ver(PANEL_VERSION)}</code> SET · <code>${ver(running)}</code> RUNNING`;
         $("noticeBody").innerHTML = `This panel was set by an older version. Re-run <code>font_lab_init</code> to refresh it.`;
       }
     };
     let es: EventSource | null = null;
     const handleStatus = (s: any) => {
-      if (s.version) checkVersion(s.version);
+      if (s.version) checkVersion(s.version, s.installed);
       setConn(s.agentWaiting ? "agent" : "ready");
       if (s.selection?.direction?.id && !state.savedId) state.savedId = s.selection.direction.id; // survive reloads
       state.shipped = s.applied ? { current: !!s.applied.current } : null;
@@ -1305,16 +1564,25 @@ export function FontLabDevPanel() {
       render();
     };
     try {
-      es = new EventSource(ENDPOINT + "/events");
+      // The origin identifies the dev server this panel is served from — the endpoint records it
+      // so font_lab_status can health-check the dev server (and verify can default its baseUrl).
+      es = new EventSource(ENDPOINT + "/events?origin=" + encodeURIComponent(location.origin));
       es.addEventListener("status", (ev) => { try { handleStatus(JSON.parse((ev as MessageEvent).data)); } catch {} });
       es.addEventListener("applied", () => { handleStatus({ agentWaiting: state.conn === "agent", applied: { current: true }, selection: null }); });
       es.onerror = () => setConn("offline"); // EventSource auto-reconnects; we just narrate
     } catch { setConn("offline"); }
 
     // ---- keyboard — captured only while expanded; suspended while retyping ---------------
+    // The panel lives in a shadow root, so a document-level listener sees e.target RETARGETED to the
+    // host element — never the <input>/<textarea> the human is actually typing in (the brand/note
+    // fields). composedPath()[0] is the true innermost target across the shadow boundary; without it
+    // our single-key shortcuts (space = snap back, s = save, b = before, …) eat characters mid-typing.
+    const typingInField = (e: Event) => {
+      const t = (e.composedPath()[0] as HTMLElement | null) ?? (e.target as HTMLElement | null);
+      return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+    };
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (typingInField(e)) return;
       if (!state.expanded) { if (e.key === "`") { toggleCollapsed(); e.preventDefault(); } return; }
       const k = e.key;
       // while the back page is up, the first key just flips it back — nothing else. It appeared
@@ -1338,7 +1606,7 @@ export function FontLabDevPanel() {
       else if (k === "Enter") { e.preventDefault(); void doPick(); }
       else if (k === "`") { e.preventDefault(); toggleCollapsed(); }
     };
-    const onKeyUp = (e: KeyboardEvent) => { if (e.key === "b" || e.key === "B") bUp(); };
+    const onKeyUp = (e: KeyboardEvent) => { if (typingInField(e)) return; if (e.key === "b" || e.key === "B") bUp(); };
     document.addEventListener("keydown", onKey);
     document.addEventListener("keyup", onKeyUp);
 
@@ -1379,6 +1647,7 @@ export function FontLabDevPanel() {
     });
     $("toc").addEventListener("scroll", updateTocCue);
     $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
+    setupMore();
     const onResize = () => invalidateScan();
     addEventListener("resize", onResize);
 
@@ -1423,11 +1692,13 @@ export function FontLabDevPanel() {
       removeEventListener("resize", onResize);
       mo.disconnect();
       es?.close();
-      // leave the page exactly as found
-      for (const role of ROLES) if (canSwap(role)) {
-        if (defaultStack[role]) elFor(role).style.setProperty(wir[role]!.var, defaultStack[role]!);
-        else elFor(role).style.removeProperty(wir[role]!.var);
-      }
+      // leave the page exactly as found: clear the paint stylesheet and strip census stamps
+      flc()?.clearPaint();
+      document.getElementById("__fl_paint")?.remove();
+      document.querySelectorAll("[data-flc],[data-flv]").forEach((el) => {
+        el.removeAttribute("data-flc");
+        el.removeAttribute("data-flv");
+      });
       for (const { el } of scanCache ?? []) el.classList.remove("__fl_hit", "__fl_other", "__fl_hover", "__fl_flash", "__fl_flash_soft", "__fl_spot");
       overlay.remove();
       host.remove();

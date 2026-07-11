@@ -50,40 +50,49 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // ("skill" = Claude's skills dir; "agents" = an AGENTS.md block in the project). `detect` is a
 // cheap "does this agent appear installed?" check used by auto-detection.
 
+// `mcpScope` says whether the host's MCP config travels WITH the project ("project": a file
+// inside the repo, launched with cwd = project root) or lives once per machine ("global") — it
+// decides which pinning form the registration gets (see mcpEntryFor).
 const HOSTS = {
   claude: {
     label: "Claude Code",
     mcp: (project) => ({ file: path.join(project, ".mcp.json"), format: "json", key: "mcpServers" }),
+    mcpScope: "project",
     instructions: "skill",
     detect: (project) => existsSync(path.join(HOME, ".claude")) || !!process.env.CLAUDE_CONFIG_DIR || existsSync(path.join(project, ".mcp.json")),
   },
   cursor: {
     label: "Cursor",
     mcp: () => ({ file: path.join(HOME, ".cursor", "mcp.json"), format: "json", key: "mcpServers" }),
+    mcpScope: "global",
     instructions: "agents",
     detect: () => existsSync(path.join(HOME, ".cursor")),
   },
   codex: {
     label: "Codex",
     mcp: () => ({ file: path.join(HOME, ".codex", "config.toml"), format: "toml" }),
+    mcpScope: "global",
     instructions: "agents",
     detect: () => existsSync(path.join(HOME, ".codex")),
   },
   windsurf: {
     label: "Windsurf",
     mcp: () => ({ file: path.join(HOME, ".codeium", "windsurf", "mcp_config.json"), format: "json", key: "mcpServers" }),
+    mcpScope: "global",
     instructions: "agents",
     detect: () => existsSync(path.join(HOME, ".codeium", "windsurf")),
   },
   vscode: {
     label: "VS Code",
     mcp: (project) => ({ file: path.join(project, ".vscode", "mcp.json"), format: "json", key: "servers" }),
+    mcpScope: "project",
     instructions: "agents",
     detect: (project) => existsSync(path.join(project, ".vscode")),
   },
   gemini: {
     label: "Gemini CLI",
     mcp: () => ({ file: path.join(HOME, ".gemini", "settings.json"), format: "json", key: "mcpServers" }),
+    mcpScope: "global",
     instructions: "agents",
     detect: () => existsSync(path.join(HOME, ".gemini")),
   },
@@ -104,12 +113,22 @@ function selectHosts(project) {
   return detected.length ? detected : ["claude"]; // back-compat default
 }
 
-// The command the agent's host will run to launch the MCP server.
-//   published (default):  npx -y font-lab mcp
-//   --local (dev/test):   node <abs>/cli/mcp.mjs
-function mcpEntry() {
-  if (has("--local")) return { command: "node", args: [path.join(HERE, "mcp.mjs")] };
-  return { command: "npx", args: ["-y", PKG_NAME, "mcp"] };
+// The command the agent's host will run to launch the MCP server. Version drift lives or dies
+// here: `npx -y font-lab` freezes at whatever the npx cache resolved FIRST and never follows
+// `npm install font-lab@latest` — the dogfood's "MCP 0.11 while the panel is 0.13" trap. So:
+//   project-scoped configs, font-lab installed as a dep:
+//       node node_modules/font-lab/mcp.mjs     — npm install IS the MCP upgrade (relative path:
+//                                                these configs launch with cwd = project root,
+//                                                and the committed file stays portable)
+//   global configs (and no local dep):
+//       npx -y font-lab@latest mcp             — @latest re-resolves per session instead of
+//                                                serving the first-cached version forever
+//   --local (dev/test): node <this-checkout>/mcp.mjs
+export function mcpEntryFor(host, project, { local = has("--local") } = {}) {
+  if (local) return { command: "node", args: [path.join(HERE, "mcp.mjs")] };
+  if (HOSTS[host]?.mcpScope === "project" && existsSync(path.join(project, "node_modules", PKG_NAME, "mcp.mjs")))
+    return { command: "node", args: [path.join("node_modules", PKG_NAME, "mcp.mjs")] };
+  return { command: "npx", args: ["-y", `${PKG_NAME}@latest`, "mcp"] };
 }
 
 function readJson(file) {
@@ -152,15 +171,24 @@ function tomlBlock(entry) {
   return `[mcp_servers.${MCP_KEY}]\ncommand = ${JSON.stringify(entry.command)}\nargs = ${JSON.stringify(entry.args)}\n`;
 }
 
-// Minimal TOML merge (line/section based, not a full parser): append our section if absent, strip
-// it on removal. We never rewrite the rest of the file, so other servers/settings are preserved.
+// Minimal TOML merge (line/section based, not a full parser): append our section if absent,
+// REPLACE it when the registration changed (so upgrades re-pin instead of silently keeping a
+// stale launch command), strip it on removal. We never rewrite the rest of the file, so other
+// servers/settings are preserved.
 export function writeTomlMcp(file, entry, dry) {
   const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
-  if (existing.includes(`[mcp_servers.${MCP_KEY}]`)) return false; // already present
+  const block = tomlBlock(entry);
+  if (existing.includes(`[mcp_servers.${MCP_KEY}]`)) {
+    const re = new RegExp(`\\n*\\[mcp_servers\\.${escapeRe(MCP_KEY)}\\][\\s\\S]*?(?=\\n\\[|$)`);
+    const current = (existing.match(re) || [""])[0].trim();
+    if (current === block.trim()) return false; // already pinned to this exact entry
+    if (!dry) writeFileSync(file, existing.replace(re, "\n" + block.trimEnd() + "\n").replace(/\n{3,}/g, "\n\n"));
+    return true;
+  }
   if (!dry) {
     mkdirSync(path.dirname(file), { recursive: true });
     const pad = existing ? (existing.endsWith("\n") ? "\n" : "\n\n") : "";
-    writeFileSync(file, existing + pad + tomlBlock(entry));
+    writeFileSync(file, existing + pad + block);
   }
   return true;
 }
@@ -215,7 +243,7 @@ export function agentsBlock() {
     "",
     "1. **Start & intake** — `font_lab_start({ projectDir })` analyzes the project and returns a design brief. **Ask the human its framing questions first** (what feeling? how bold a departure? brand to evoke or avoid?) and wait for answers before proposing any fonts.",
     "2. **Compose for their brief** — `font_lab_compose_directions(...)` with tailored directions (display + body + mono, each with a one-line rationale). Reach PAST the overexposed defaults (Inter, Geist, Space Grotesk, …). You're not limited to the catalog — any of ~1,500 Google fonts works; confirm uncertain faces with `font_lab_check_fonts`. (`font_lab_curate` is the no-brief fallback.)",
-    "3. **Let the human choose** — `font_lab_screenshot_directions` (works anywhere) or the live panel. **Never auto-pick** — the human always makes the taste decision. On the live path, receive the pick by running `npx font-lab serve --once` as a background task (it exits when the pick lands) or by calling `font_lab_wait_for_pick` (blocks; re-call on timeout). Never \"check back later\" — idle agents can't poll. `font_lab_status` says where the loop stands anytime.",
+    "3. **Let the human choose** — `font_lab_screenshot_directions` (works anywhere) or the live panel. **Never auto-pick** — the human always makes the taste decision. On the live path, **ARM FIRST, INVITE SECOND**: the LAST thing you do before telling the human to open their site is enter the listen state — `npx font-lab serve --once` as a background task (exits on the first panel event; use when your harness wakes you on background-task exit) or park on `font_lab_wait` (blocks; re-call immediately on EVERY timeout). Ending your setup turn unarmed is how picks get missed. If the timing misses anyway, nothing is lost: the pick piggybacks on every font_lab_* result as `pendingHumanPick` (with its ship scope) until applied — act on it when you see it. Never \"check back later\" — idle agents can't poll. `font_lab_status` says where the loop stands anytime.",
     "4. **Ship** — `font_lab_apply` writes the exact next/font + Tailwind code, reversibly (`font_lab_undo`). It verifies every family is buildable before writing; after applying, run the project's build to confirm and report honestly.",
     "",
     "**Copy edits ride the same endpoint:** with the panel up and `:7777` running, the human can double-click any text on the page, retype it, and it saves to their source (reversibly). If edits appear to save then revert, it's almost always one of: the endpoint isn't running, it's pointed at the wrong folder (`--project` must be the site root), or the site isn't in dev mode — tell the human which to fix rather than leaving it looking broken.",
@@ -252,10 +280,111 @@ export function removeAgents(project, dry) {
   return true;
 }
 
-function writeMcpFor(host, project, entry, dry) {
+// ---- host-native turn-start delivery ----------------------------------------------------
+// Claude Code: a UserPromptSubmit hook whose stdout is injected into context — the agent
+// learns about an undelivered pick on the human's next message, whatever it says. This is the
+// strongest delivery layer on hosts with real hooks. Cursor has no reliable hook today, so it
+// gets an always-applied rules file (soft: the model must comply) — do not advertise
+// "next-turn automatic" on Cursor; the MCP piggyback is the floor there.
+
+const HOOK_MARK = "font-lab/pending-pick-hook.mjs"; // identifies our entry for idempotency/removal
+
+export function writeClaudeHook(project, dry, { local = has("--local") } = {}) {
+  // Only when there's a stable script path to point at: the project's own install, or this
+  // checkout under --local. An npx-cache path would go stale on the next upgrade.
+  const script = local
+    ? path.join(HERE, "pending-pick-hook.mjs")
+    : existsSync(path.join(project, "node_modules", PKG_NAME, "pending-pick-hook.mjs"))
+      ? ["$CLAUDE_PROJECT_DIR", "node_modules", PKG_NAME, "pending-pick-hook.mjs"].join("/")
+      : null;
+  if (!script) return { file: null, changed: false, skipped: "needs font-lab installed in the project (npm i -D font-lab) for a stable hook path" };
+  const file = path.join(project, ".claude", "settings.json");
+  const json = (existsSync(file) && readJson(file)) || {};
+  json.hooks = json.hooks && typeof json.hooks === "object" ? json.hooks : {};
+  const arr = (json.hooks.UserPromptSubmit = Array.isArray(json.hooks.UserPromptSubmit) ? json.hooks.UserPromptSubmit : []);
+  const command = `node "${script}"`;
+  let changed = false;
+  const ours = arr.flatMap((m) => m?.hooks || []).filter((h) => String(h?.command || "").includes(HOOK_MARK));
+  if (ours.length) {
+    for (const h of ours) if (h.command !== command) { h.command = command; changed = true; } // re-pin
+  } else {
+    arr.push({ hooks: [{ type: "command", command }] });
+    changed = true;
+  }
+  if (!dry && changed) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+  }
+  return { file, changed };
+}
+
+export function removeClaudeHook(project, dry) {
+  const file = path.join(project, ".claude", "settings.json");
+  if (!existsSync(file)) return false;
+  const json = readJson(file);
+  const arr = json?.hooks?.UserPromptSubmit;
+  if (!Array.isArray(arr)) return false;
+  let changed = false;
+  for (const m of arr) {
+    const before = (m?.hooks || []).length;
+    m.hooks = (m?.hooks || []).filter((h) => !String(h?.command || "").includes(HOOK_MARK));
+    if (m.hooks.length !== before) changed = true;
+  }
+  if (!changed) return false;
+  if (!dry) {
+    json.hooks.UserPromptSubmit = arr.filter((m) => (m.hooks || []).length);
+    if (!json.hooks.UserPromptSubmit.length) delete json.hooks.UserPromptSubmit;
+    if (!Object.keys(json.hooks).length) delete json.hooks;
+    if (!Object.keys(json).length) rmSync(file, { force: true });
+    else writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+  }
+  return true;
+}
+
+const CURSOR_RULES_REL = path.join(".cursor", "rules", "font-lab.mdc");
+
+export function cursorRulesContent() {
+  return [
+    "---",
+    "description: Font Lab — pick delivery and typography workflow",
+    "alwaysApply: true",
+    "---",
+    "",
+    "<!-- managed by `font-lab install`; removed by `font-lab uninstall` -->",
+    "",
+    "Before ANY reply about fonts/typography — or when the user mentions picking something in the",
+    "Font Lab panel — call `font_lab_status({ projectDir })` (this project's root) FIRST. The human",
+    "may have picked in the live panel while no agent was listening: an unapplied pick shows up",
+    "there, and rides every font_lab_* tool result as `pendingHumanPick` with its ship scope.",
+    "When you see one, offer `font_lab_apply`, then `font_lab_verify` for the convergence receipt.",
+    "",
+  ].join("\n");
+}
+
+export function writeCursorRules(project, dry) {
+  const file = path.join(project, CURSOR_RULES_REL);
+  const content = cursorRulesContent();
+  const existing = existsSync(file) ? readFileSync(file, "utf8") : null;
+  const changed = existing !== content;
+  if (!dry && changed) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, content);
+  }
+  return { file, changed };
+}
+
+export function removeCursorRules(project, dry) {
+  const file = path.join(project, CURSOR_RULES_REL);
+  if (!existsSync(file)) return false;
+  if (!dry) rmSync(file, { force: true });
+  return true;
+}
+
+function writeMcpFor(host, project, dry) {
+  const entry = mcpEntryFor(host, project);
   const m = HOSTS[host].mcp(project);
   const changed = m.format === "toml" ? writeTomlMcp(m.file, entry, dry) : writeJsonMcp(m.file, m.key, entry, dry);
-  return { file: m.file, changed };
+  return { file: m.file, changed, entry };
 }
 
 // ---- install / uninstall ---------------------------------------------------
@@ -266,7 +395,6 @@ export function runInstall() {
   const doMcp = !has("--no-mcp");
   const project = path.resolve(arg("--project", process.cwd()));
   const hosts = selectHosts(project);
-  const entry = mcpEntry();
   const tag = dry ? " (dry-run, nothing written)" : "";
   const steps = [];
 
@@ -275,8 +403,9 @@ export function runInstall() {
 
   if (doMcp) {
     for (const h of hosts) {
-      const { file, changed } = writeMcpFor(h, project, entry, dry);
-      steps.push(`mcp[${h}]  → ${tildify(file)}${changed ? "" : "  (already set)"}`);
+      const { file, changed, entry } = writeMcpFor(h, project, dry);
+      const cmd = [entry.command, ...entry.args].join(" ");
+      steps.push(`mcp[${h}]  → ${tildify(file)}  (${cmd})${changed ? "" : "  (already set)"}`);
     }
   }
 
@@ -295,6 +424,14 @@ export function runInstall() {
         cpSync(src, dest, { recursive: true });
       }
       steps.push(`skill   → ${tildify(dest)}`);
+      const hk = writeClaudeHook(project, dry);
+      steps.push(hk.file
+        ? `hook    → ${rel(hk.file)}${hk.changed ? "" : "  (already set)"}  (undelivered pick surfaces at turn start)`
+        : `hook    skipped — ${hk.skipped}`);
+    }
+    if (hosts.includes("cursor")) {
+      const cr = writeCursorRules(project, dry);
+      steps.push(`rules   → ${rel(cr.file)}${cr.changed ? "" : "  (already current)"}  (check font_lab_status before font replies)`);
     }
     if (hosts.some((h) => HOSTS[h].instructions === "agents")) {
       const { file, changed } = writeAgents(project, dry);
@@ -344,6 +481,16 @@ export function runUninstall() {
   // the AGENTS.md block
   if (removeAgents(project, dry)) {
     console.log(`  removed agents  ${rel(path.join(project, "AGENTS.md"))}`);
+    any = true;
+  }
+
+  // host-native turn-start delivery (Claude Code hook, Cursor rules)
+  if (removeClaudeHook(project, dry)) {
+    console.log(`  removed hook    ${rel(path.join(project, ".claude", "settings.json"))} (pending-pick entry)`);
+    any = true;
+  }
+  if (removeCursorRules(project, dry)) {
+    console.log(`  removed rules   ${rel(path.join(project, CURSOR_RULES_REL))}`);
     any = true;
   }
 
