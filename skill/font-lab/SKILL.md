@@ -36,10 +36,13 @@ and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Nei
 The goal is that the human does nothing you could have done for them — you handle setup, scaffolding,
 and shipping; they keep the taste decision.
 
-**After upgrading Font Lab** (npm install of a new version), three things hold the OLD version until
-restarted: the `:7777` endpoint (kill + relaunch it), the MCP server (the human reloads the
-IDE/session so new tools appear), and the installed panel (`font_lab_init` re-stamps it).
-`font_lab_status` reports all three drifts — check it after any version bump.
+**Upgrading Font Lab is one command: `npx font-lab upgrade`.** It installs the new package,
+re-pins the MCP registration to the project's own install, re-stamps the panel (keeping the
+directions the human already has), and shuts down a stale `:7777` endpoint (the new `serve`
+also takes the port over from a stale one automatically). The only step it can't do: the human
+reloads the agent session so the MCP server restarts. `font_lab_status` reports every drift
+(endpoint, panel, MCP vs installed package, dev server) — check it after any version bump, and
+act on the `mcpVersionDrift` warning if it rides your tool results.
 
 ## The loop
 
@@ -102,15 +105,25 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
 
    - **Live (best — when the human has a real browser on this machine):** you're in a local
      terminal / IDE (Mac or Linux terminal, VS Code, Cursor, the Claude Code IDE extension).
-     Also start the pick endpoint, then tell the human to open their site and flip the panel
-     (← →, `↑↓`+`[ ]` to mix, `B` for before/after) and **pick one**.
+     Also start the pick endpoint. Then **ARM FIRST, INVITE SECOND**: the LAST thing you do
+     before telling the human to open their site is enter the listen state (table below).
+     Setting everything up, saying "open your site and pick!", and ending your turn unarmed is
+     exactly how picks get missed — the human browses for 10–20 minutes; your turn is long over.
+     Once armed, tell them to open the site and flip the panel (← →, `↑↓`+`[ ]` to mix, `B` for
+     before/after) and **pick one**.
 
      **How to receive panel events — turn-based agents can't poll while idle, so pick ONE
      mechanism (never "check back later"):**
      | Your harness | Do this |
      |---|---|
-     | Background terminals available (Claude Code, Cursor, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits on the first panel event** — a pick OR a "Get more" request — with the event JSON as its final stdout line (`{ event: "pick", selection }` or `{ event: "request", request }`); the exit wakes you. On a pick → `font_lab_apply`. On a request → compose directions for `request.brief`, call `font_lab_more_directions`, **then relaunch `serve --once` and end your turn** so the next event reaches you too. |
-     | MCP-only / no background terminals | Start the endpoint however you can (`npx font-lab serve`; the panel needs it), then call **`font_lab_wait`** — it blocks up to 240s for a pick OR a request (whichever comes first) and lights up "agent listening" in the panel. On `{ event: "timeout" }`, call it again. |
+     | Background-task exit WAKES you (Claude Code, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits on the first panel event** — a pick OR a "Get more" request — with the event JSON as its final stdout line (`{ event: "pick", selection }` or `{ event: "request", request }`); the exit wakes you. On a pick → `font_lab_apply`. On a request → compose directions for `request.brief`, call `font_lab_more_directions`, **then relaunch `serve --once` and end your turn** so the next event reaches you too. |
+     | Exit does NOT wake you (Cursor, MCP-only, …) | Start the endpoint (`npx font-lab serve`; the panel needs it), then park on **`font_lab_wait`** — it blocks up to 240s for a pick OR a request (whichever comes first) and lights up "agent listening" in the panel. On `{ event: "timeout" }`, **call it again immediately**, for as long as your harness allows. |
+
+     **If the timing misses anyway, nothing is lost.** The pick is durable: it piggybacks on
+     every `font_lab_*` result as `pendingHumanPick` — with its ship scope (which roles
+     auto-ship, which you wire, which island clusters need a human call) — until an apply
+     postdates it. When you see one, act on it: offer `font_lab_apply`, then `font_lab_verify`.
+     The human may also just say "apply my font pick" — the panel tells them to.
 
      Resuming a session, or unsure where things stand? **`font_lab_status`** returns the pick,
      whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by

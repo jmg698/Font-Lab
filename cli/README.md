@@ -45,12 +45,20 @@ pattern):
 
 1. **Skill** → copies the `font-lab` skill into `~/.claude/skills/font-lab`, so the agent
    *discovers* it every session. You just say "pick new fonts" and it reaches for Font Lab.
-2. **MCP server** → registers `font-lab` in the project's `.mcp.json` so the agent has the
-   `font_lab_*` tools to drive the loop. (A newly registered MCP server is picked up on the
-   next session/MCP reload.)
+   On Claude Code it also wires a **turn-start hook** (when font-lab is installed in the
+   project): an undelivered pick surfaces in the agent's context on your next message,
+   whatever you type.
+2. **MCP server** → registers `font-lab` so the agent has the `font_lab_*` tools. The
+   registration is **pinned against version drift**: project-scoped configs run the project's
+   own install (`node node_modules/font-lab/mcp.mjs` — so `npm install` IS the MCP upgrade),
+   and global configs use `npx -y font-lab@latest` (re-resolves per session instead of
+   freezing at the npx cache's first answer). (A newly registered MCP server is picked up on
+   the next session/MCP reload.)
 
 ```bash
-npx font-lab uninstall      # remove the skill + the .mcp.json entry
+npx font-lab uninstall      # remove the skill, hook, rules, and every MCP entry
+npx font-lab upgrade        # one-command upgrade: package + MCP re-pin + panel re-stamp
+                            # + stale-endpoint shutdown (then reload your agent session)
 ```
 
 **Works across agents, not just Claude Code.** With no `--host`, install **auto-detects** which
@@ -59,8 +67,8 @@ plus a skill (Claude) or an `AGENTS.md` protocol block (everyone else):
 
 | Host | MCP config | Instructions |
 |---|---|---|
-| Claude Code | project `.mcp.json` | `~/.claude/skills/font-lab` |
-| Cursor | `~/.cursor/mcp.json` | `AGENTS.md` |
+| Claude Code | project `.mcp.json` | `~/.claude/skills/font-lab` + turn-start hook |
+| Cursor | `~/.cursor/mcp.json` | `AGENTS.md` + `.cursor/rules/font-lab.mdc` |
 | Codex | `~/.codex/config.toml` | `AGENTS.md` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | `AGENTS.md` |
 | VS Code | `.vscode/mcp.json` (`servers`) | `AGENTS.md` |
@@ -92,6 +100,14 @@ Once installed, just ask *"use Font Lab to pick fonts."* The agent runs a consis
 
 Every direction is gated for **preview == ship**: *guaranteed* (byte-for-byte), or *best-effort*
 with an honest "may render slightly differently once applied" note so you decide with eyes open.
+
+**Your pick always reaches the agent** — delivery is layered, not a timing gamble:
+an armed agent (`font_lab_wait`, or `serve --once` parked in the background) gets it in
+seconds; on Claude Code a turn-start hook surfaces it on your next message; and as the
+always-on floor, an unapplied pick rides **every** `font_lab_*` tool result as
+`pendingHumanPick` — with its ship scope (what auto-ships, what the agent wires, which
+island routes need a human call) — until an apply lands. Miss every window and you can
+still just say *"apply my font pick."*
 
 ## The choosing moment: Headless vs Live
 

@@ -23,7 +23,7 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -290,7 +290,9 @@ function writePreviewSet(dir, dirs) {
   ensureFlDir(dir);
   writeFileSync(p, JSON.stringify(dirs, null, 2) + "\n");
 }
-function readPreviewSet(dir) {
+// Exported for `font-lab upgrade`: a panel re-stamp must rebuild from the directions the human
+// was ALREADY browsing, never replace a tailored menu with the starter one.
+export function readPreviewSet(dir) {
   const p = previewSetPath(dir);
   if (!existsSync(p)) return [];
   try {
@@ -673,7 +675,23 @@ export async function status(projectDir, { port = 7777 } = {}) {
     const runId = readFileSync(path.join(dir, ".font-lab", "backups", "latest.txt"), "utf8").trim();
     backups = { latestRunId: runId };
   } catch {}
-  return { ...state, endpoint, backups, menu: readMenuState(dir), versions: panelDrift(dir) };
+  // Dev-server health, seeded by the panel's own origin report (the panel can't report the
+  // server being DOWN — no server, no panel — so the agent learns it here and restarts it).
+  let devServer = null;
+  const ds = readDevServer(dir);
+  if (ds?.origin) {
+    let up = false;
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 800);
+      const res = await fetch(ds.origin, { signal: ctl.signal, redirect: "manual" });
+      clearTimeout(t);
+      up = res.status < 500;
+    } catch {}
+    devServer = { url: ds.origin, up, lastSeen: ds.at ?? null };
+    if (!up) devServer.hint = `The dev server at ${ds.origin} is not responding — restart it (as a background task) before the live panel, screenshots, or verify can work.`;
+  }
+  return { ...state, endpoint, backups, devServer, menu: readMenuState(dir), versions: panelDrift(dir) };
 }
 
 // Compare the version that installed the project's panel against the running tool. Surfaces the
@@ -1089,7 +1107,8 @@ async function launchBrowser(chromium, { executablePath } = {}) {
 // the images are faithful to what ships. Requires init() done and a dev server running at baseUrl.
 // Makes no project edits — it only reads the running site. Returns a manifest the agent shows.
 export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath } = {}) {
-  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
+  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
+  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000) — none recorded yet (the panel reports it once opened with the endpoint up)");
   const chromium = await loadChromium();
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
@@ -1172,7 +1191,10 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
 const RECEIPT_VOICE = { display: "heading", body: "body", mono: "label" };
 
 export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets, executablePath } = {}) {
-  if (!baseUrl) throw new Error("verifyShip: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
+  // The panel reports its origin to the endpoint on every connect — use it so the receipt
+  // doesn't demand a URL the system already knows.
+  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
+  if (!baseUrl) throw new Error("verifyShip: baseUrl is required (your running dev server, e.g. http://localhost:3000) — none recorded yet (the panel reports it once opened with the endpoint up)");
   const dir = path.resolve(projectDir);
   const sel = readSelection(dir);
   const tg = targets || {

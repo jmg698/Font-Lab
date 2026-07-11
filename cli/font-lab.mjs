@@ -16,6 +16,7 @@
 
 import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { writeFileSync, appendFileSync, readFileSync, existsSync } from "node:fs";
 
 // ---- subcommand dispatch ---------------------------------------------------
@@ -28,7 +29,7 @@ const isServeFlag = (a) => ["--project", "--port", "--host", "--once", "--apply"
 let SUB;
 if (!first || ["help", "--help", "-h"].includes(first)) SUB = "help";
 else if (["--version", "-v", "version"].includes(first)) SUB = "version";
-else if (["install", "uninstall", "mcp", "serve"].includes(first)) SUB = first;
+else if (["install", "uninstall", "mcp", "serve", "upgrade"].includes(first)) SUB = first;
 else if (isServeFlag(first)) SUB = "serve";
 else SUB = "help"; // unknown word or flag -> help; never surprise-boot the server
 
@@ -36,6 +37,8 @@ if (SUB === "install" || SUB === "uninstall") {
   const { runInstall, runUninstall } = await import("./install.mjs");
   if (SUB === "install") runInstall();
   else runUninstall();
+} else if (SUB === "upgrade") {
+  await runUpgrade();
 } else if (SUB === "mcp") {
   await import("./mcp.mjs"); // self-runs the stdio server on import
 } else if (SUB === "version") {
@@ -51,6 +54,8 @@ if (SUB === "install" || SUB === "uninstall") {
       "Font Lab",
       "  font-lab install [--host <list|all>] [--project <dir>] [--no-mcp] [--no-skill] [--local] [--dry-run]",
       "  font-lab uninstall [--project <dir>]",
+      "  font-lab upgrade [--project <dir>]  one-command upgrade: package install + panel re-stamp +",
+      "                 endpoint shutdown + MCP/skill re-pin (then reload your agent session)",
       "  font-lab mcp                      run the MCP server (stdio)",
       "  font-lab serve [--project <dir>] [--port <n>] [--host <ip>] [--once] [--apply]",
       "                 pick write-back endpoint (loopback-only by default; --once exits on the",
@@ -63,10 +68,95 @@ if (SUB === "install" || SUB === "uninstall") {
   runServe();
 }
 
+// ---- upgrade: the four version copies, moved in one command --------------------------------
+// One version of font-lab lives in four places that update independently — node_modules (npm),
+// the MCP registration (host config), the running :7777 endpoint (boot-time), and the panel
+// stamped into the repo (init). This is the single verb that moves them together; every runtime
+// drift detector (endpoint /status, the MCP piggyback warning, the panel banner) points here.
+// NOT a postinstall hook on purpose: npm hides dependency script output, --ignore-scripts and
+// CI make hooks unreliable, and a dependency editing the repo from postinstall is wrong.
+async function runUpgrade() {
+  const arg = (flag, def) => {
+    const i = process.argv.indexOf(flag);
+    return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
+  };
+  const PROJECT = path.resolve(arg("--project", process.cwd()));
+  const PORT = Number(arg("--port", "7777"));
+  const CONTINUE = process.argv.includes("--continue");
+  const { spawnSync } = await import("node:child_process");
+  const freshEntry = path.join(PROJECT, "node_modules", "font-lab", "font-lab.mjs");
+
+  if (!CONTINUE) {
+    console.log(`Font Lab — upgrade (${PROJECT})`);
+    // 1) the package: install @latest as a project dep — the local install is also what the
+    //    pinned MCP registration runs, so this step IS the MCP upgrade once pinned.
+    const pm = existsSync(path.join(PROJECT, "pnpm-lock.yaml")) ? ["pnpm", "add"]
+      : existsSync(path.join(PROJECT, "yarn.lock")) ? ["yarn", "add"]
+      : existsSync(path.join(PROJECT, "bun.lockb")) || existsSync(path.join(PROJECT, "bun.lock")) ? ["bun", "add"]
+      : ["npm", "install"];
+    console.log(`  1/4  ${pm.join(" ")} font-lab@latest`);
+    const r = spawnSync(pm[0], [pm[1], "font-lab@latest"], { cwd: PROJECT, stdio: "inherit" });
+    if (r.status !== 0) {
+      console.error(`  ✗ package install failed — fix that, then rerun \`npx font-lab upgrade\`.`);
+      process.exit(1);
+    }
+    // 2-4) hand off to the NEWLY installed package so the rest runs on new logic, not this
+    //      (possibly stale) copy. --continue skips the install and never re-delegates.
+    if (existsSync(freshEntry) && path.resolve(freshEntry) !== path.resolve(fileURLToPath(import.meta.url))) {
+      const rc = spawnSync(process.execPath, [freshEntry, "upgrade", "--continue", "--project", PROJECT, "--port", String(PORT)], { stdio: "inherit" });
+      process.exit(rc.status ?? 0);
+    }
+    // dev checkout / no local install — continue with this copy
+  }
+
+  const { VERSION } = await import("./version.mjs");
+  const engine = await import("./engine.mjs");
+
+  // 2) MCP registration + skill/AGENTS block, re-pinned by the new package's own installer
+  console.log(`  2/4  re-pin MCP + instructions (install)`);
+  const { runInstall } = await import("./install.mjs");
+  try { runInstall(); } catch (e) { console.error(`  ⚠ install step failed: ${e.message}`); }
+
+  // 3) the panel stamped into the repo — re-stamp from the directions the human already has
+  console.log(`  3/4  re-stamp the project panel`);
+  const panelPath = ["app", "src/app"].map((d) => path.join(PROJECT, d, "_fontlab", "FontLabDevPanel.tsx")).find((p) => existsSync(p));
+  if (!panelPath) console.log(`       no panel installed here — skipped (font_lab_init mounts one)`);
+  else {
+    try {
+      const current = engine.readPreviewSet(PROJECT);
+      const res = await engine.init(PROJECT, current.length ? { directions: current, log: () => {} } : { allowFallback: true, log: () => {} });
+      console.log(`       panel re-stamped at v${VERSION} (${res.directions.length} directions kept)`);
+    } catch (e) {
+      console.error(`  ⚠ panel re-stamp failed: ${e.message} — run font_lab_init to refresh it.`);
+    }
+  }
+
+  // 4) the running endpoint keeps its boot-time version — shut a stale same-project one down
+  console.log(`  4/4  check the :${PORT} endpoint`);
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/status`, { signal: AbortSignal.timeout(1200) });
+    const st = r.ok ? await r.json() : null;
+    if (st?.ok && (!st.project || path.resolve(st.project) === PROJECT)) {
+      if (st.version !== VERSION) {
+        const down = await fetch(`http://127.0.0.1:${PORT}/shutdown`, { method: "POST", signal: AbortSignal.timeout(1200) }).then((x) => x.ok).catch(() => false);
+        console.log(down
+          ? `       stale endpoint (v${st.version}) shut down — restart it when needed: npx font-lab serve --project ${PROJECT}`
+          : `       stale endpoint (v${st.version}) predates graceful shutdown — kill it (lsof -ti:${PORT} | xargs kill) and relaunch; new versions take the port over automatically.`);
+      } else console.log(`       endpoint already on v${st.version} — left running`);
+    } else if (st?.ok) console.log(`       :${PORT} serves a different project — left alone`);
+    else console.log(`       endpoint not running — nothing to restart`);
+  } catch {
+    console.log(`       endpoint not running — nothing to restart`);
+  }
+
+  console.log(`\n  ✓ upgraded to v${VERSION}.`);
+  console.log(`  Last step (only you can): RELOAD your agent session so the MCP server restarts on the new version.`);
+}
+
 async function runServe() {
 
-const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, ensureFlDir } = await import("./state.mjs");
-const { VERSION } = await import("./version.mjs");
+const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, ensureFlDir, writeDevServer } = await import("./state.mjs");
+const { VERSION, cmpVersions, isRealVersion } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
 const arg = (flag, def) => {
@@ -116,6 +206,7 @@ const statusPayload = () => ({
   autoApply: AUTO_APPLY,
   version: VERSION, // running tool version — the panel compares it against its own stamp
   installed: installedVersion(), // package version on disk — differs from `version` after an un-restarted upgrade
+  project: PROJECT, // which project this endpoint serves — the port-takeover triage reads it
   ...readHandoffState(PROJECT),
   // --once means an agent parked a process on this pick; count it as a listening agent.
   agentWaiting: ONCE || readHandoffState(PROJECT).agentWaiting,
@@ -169,7 +260,34 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(statusPayload()));
   }
-  if (req.method === "GET" && req.url === "/events") {
+  // Graceful takeover seam: a NEWER `font-lab serve` (or `font-lab upgrade`) asks this stale
+  // endpoint to step aside instead of leaving the human an EADDRINUSE + lsof-and-kill dance.
+  // Loopback-only even under --host 0.0.0.0 — it's a local upgrade affordance, not a remote
+  // kill switch.
+  if (req.method === "POST" && req.url === "/shutdown") {
+    const ra = req.socket.remoteAddress || "";
+    if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra)) {
+      res.writeHead(403, { "content-type": "application/json" });
+      return res.end('{"ok":false,"error":"shutdown is loopback-only"}');
+    }
+    console.log(`\n  ↻ shutdown requested (version takeover) — freeing :${PORT} for the newer endpoint`);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, version: VERSION }));
+    setTimeout(() => {
+      for (const c of sseClients) { try { c.destroy(); } catch {} }
+      try { server.close(); } catch {}
+      setTimeout(() => process.exit(0), 80);
+    }, 60);
+    return;
+  }
+  if (req.method === "GET" && req.url.startsWith("/events")) {
+    // The panel identifies its dev server here (?origin=location.origin) — the one party that
+    // knows the URL for certain. Recorded so font_lab_status can health-check the dev server
+    // later (a dead dev server can't report itself) and verify/screenshots can default baseUrl.
+    try {
+      const origin = new URL(req.url, "http://x").searchParams.get("origin");
+      if (origin && /^https?:\/\/[^\s]+$/.test(origin)) writeDevServer(PROJECT, origin);
+    } catch {}
     res.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-store",
@@ -406,7 +524,14 @@ async function resolveFrame({ url, line, column }) {
   return { file: normalizeSourcePath(orig.source), line: orig.line, col: orig.column };
 }
 
-  server.listen(PORT, HOST, () => {
+  // ---- self-healing bind: EADDRINUSE is triaged, not thrown at the human --------------------
+  // The post-upgrade trap from the dogfood: `npm install` doesn't restart a running endpoint, so
+  // the next `npx font-lab` hits EADDRINUSE and the human (or agent) starts SIGKILL theater.
+  // Instead: ask the squatter what it is. Same project + current → idempotent success (or, for
+  // --once, park on the event FILES the healthy endpoint writes — the exit contract survives).
+  // Same project + stale → POST /shutdown and take the port over. Anything else → a named error.
+  let takeoverDeadline = 0;
+  const tryListen = () => server.listen(PORT, HOST, () => {
     console.log(`Font Lab — pick endpoint`);
     console.log(`  endpoint  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}  (POST /select /edit /undo /request · GET /selection /request /status /events)`);
     console.log(`  project   ${PROJECT}`);
@@ -416,4 +541,59 @@ async function resolveFrame({ url, line, column }) {
     console.log(`  Open your dev site, flip directions in the panel (← →), and hit Pick.`);
     console.log(`  Waiting for a pick…`);
   });
+  server.on("error", async (err) => {
+    if (err.code !== "EADDRINUSE") {
+      console.error(`  ✗ serve: ${err.message}`);
+      process.exit(1);
+    }
+    if (takeoverDeadline) {
+      // mid-takeover: the old endpoint is exiting — keep retrying until the deadline
+      if (Date.now() < takeoverDeadline) return void setTimeout(tryListen, 300);
+      console.error(`  ✗ :${PORT} didn't free up after the old endpoint acknowledged shutdown — check it manually (lsof -ti:${PORT}).`);
+      process.exit(1);
+    }
+    let st = null;
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/status`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) st = await r.json();
+    } catch {}
+    if (!st || st.ok !== true || st.version === undefined) {
+      console.error(`  ✗ :${PORT} is taken by something that isn't a Font Lab endpoint. Free the port or pass --port <n>.`);
+      process.exit(1);
+    }
+    if (st.project && path.resolve(st.project) !== PROJECT) {
+      console.error(`  ✗ :${PORT} already serves a DIFFERENT project (${st.project}).`);
+      console.error(`    Stop that endpoint first, or run this one with --port <n> (the panel expects :7777, so prefer stopping the other).`);
+      process.exit(1);
+    }
+    const squatterStale = isRealVersion(st.version) && isRealVersion(VERSION) && cmpVersions(VERSION, st.version) > 0;
+    if (!squatterStale) {
+      if (ONCE) {
+        console.log(`  endpoint already running on :${PORT} (v${st.version}, same project) — parking on .font-lab events instead`);
+        const engine = await import("./engine.mjs");
+        for (;;) {
+          const ev = await engine.waitForEvent(PROJECT, { timeoutMs: 3600_000, ignoreExistingPick: true });
+          if (ev.event !== "timeout") {
+            console.log(JSON.stringify(ev));
+            process.exit(0);
+          }
+        }
+      }
+      console.log(`  ✓ endpoint already running on :${PORT} (v${st.version}, same project) — nothing to do.`);
+      process.exit(0);
+    }
+    console.log(`  ↻ :${PORT} runs a stale endpoint (v${st.version} < v${VERSION}, same project) — taking over…`);
+    let acked = false;
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/shutdown`, { method: "POST", signal: AbortSignal.timeout(1500) });
+      acked = r.ok;
+    } catch {}
+    if (!acked) {
+      console.error(`  ✗ the old endpoint predates graceful shutdown (pre-0.14) — kill it manually (lsof -ti:${PORT} | xargs kill), then rerun.`);
+      process.exit(1);
+    }
+    takeoverDeadline = Date.now() + 6000;
+    setTimeout(tryListen, 300);
+  });
+  tryListen();
 }

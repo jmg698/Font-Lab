@@ -27,7 +27,9 @@ try {
     console.log(`\nFont Lab — initialized ${rel(PROJECT)}`);
     console.log(`  directions  ${r.directions.map((d) => d.name).join(", ")}`);
     console.log(`  wiring      ${["display", "body", "mono"].map((role) => `${role}:${r.wiring[role] ? r.wiring[role].var + "@" + r.wiring[role].el : "—"}`).join("  ")}`);
-    if (r.deadRoles.length) console.log(`  note        ${r.deadRoles.join(", ")} won't preview (dead on this site — \`font-lab rewire\` fixes it)`);
+    // Dead wiring is SHIP scope, not a preview gate — the panel previews every role by painting
+    // the rendered page (v2.0); what a dead chain changes is how the pick ships.
+    if (r.deadRoles.length) console.log(`  note        ${r.deadRoles.join(", ")}: previews fine (painted on the rendered page), but the source wiring is dead — shipping is wired by your agent, or \`font-lab rewire\` repairs the chain (reversible)`);
     console.log(`  panel       ${r.mounted ? "mounted in" : "already in"} ${r.layout} (dev only)`);
     console.log(`\n  next:  run your dev server, then \`node cli/font-lab.mjs --project ${rel(PROJECT)}\` — flip, Pick, then \`node cli/apply.mjs\`.`);
     console.log(`         undo:  \`node cli/init.mjs --project ${rel(PROJECT)} --undo\``);

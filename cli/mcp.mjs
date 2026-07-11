@@ -10,8 +10,10 @@
 // and so it understands the contract (the HUMAN picks; the agent curates and ships).
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import * as engine from "./engine.mjs";
-import { refreshAgentHeartbeat, clearAgentHeartbeat } from "./state.mjs";
+import { refreshAgentHeartbeat, clearAgentHeartbeat, pendingPick } from "./state.mjs";
+import { cmpVersions, isRealVersion } from "./version.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
 // Version comes from package.json (stamped from the release tag in CI) — never hardcode it here.
@@ -111,7 +113,7 @@ const TOOLS = [
   {
     name: "font_lab_init",
     description:
-      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reports dead roles (offer font_lab_rewire_dead_roles).",
+      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reported dead roles are SHIP scope, not a preview problem: the panel previews every role by painting the rendered page; a dead chain just means shipping that role needs font_lab_rewire_dead_roles or an agent edit (the pick declares this scope).",
     inputSchema: {
       type: "object",
       properties: {
@@ -206,7 +208,7 @@ const TOOLS = [
   {
     name: "font_lab_status",
     description:
-      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands. Its `sourceChanges` field lists every SOURCE file Font Lab wrote this session (copy edits, font applies, rewires, undos, panel scaffolding) — read it when the human is done to tell them exactly what to commit, keeping their content edits separate from Font Lab's own scaffolding.",
+      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands. Its `devServer` field health-checks the dev server the panel last reported — if `devServer.up` is false, RESTART the dev server (background task) before the live panel, screenshots, or verify can work; a dead dev server cannot report itself. Its `sourceChanges` field lists every SOURCE file Font Lab wrote this session (copy edits, font applies, rewires, undos, panel scaffolding) — read it when the human is done to tell them exactly what to commit, keeping their content edits separate from Font Lab's own scaffolding.",
     inputSchema: { type: "object", properties: { projectDir: proj, port: { type: "number", description: "Pick-endpoint port (default 7777)." } }, required: ["projectDir"] },
     handler: (a) => engine.status(a.projectDir, { port: a.port ?? 7777 }),
   },
@@ -232,7 +234,7 @@ const TOOLS = [
       type: "object",
       properties: {
         projectDir: proj,
-        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000." },
+        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000. Optional: defaults to the dev server the panel last reported (recorded whenever the panel is open with the endpoint up)." },
         routes: { type: "array", items: { type: "string" }, description: "Routes to measure; default ['/']. Include island routes (e.g. '/fontlab')." },
         targets: {
           type: "object",
@@ -241,7 +243,7 @@ const TOOLS = [
         },
         executablePath: { type: "string", description: "Optional Chrome/Chromium binary path (usually unnecessary)." },
       },
-      required: ["projectDir", "baseUrl"],
+      required: ["projectDir"],
     },
     handler: (a) => engine.verifyShip(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, targets: a.targets, executablePath: a.executablePath }),
   },
@@ -266,12 +268,12 @@ const TOOLS = [
       type: "object",
       properties: {
         projectDir: proj,
-        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000." },
+        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000. Optional: defaults to the dev server the panel last reported (recorded whenever the panel is open with the endpoint up)." },
         routes: { type: "array", items: { type: "string" }, description: "Route(s) to capture; defaults to ['/']." },
         outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
         executablePath: { type: "string", description: "Optional path to a Chrome/Chromium binary. Usually unnecessary — it finds a system/pre-installed browser automatically." },
       },
-      required: ["projectDir", "baseUrl"],
+      required: ["projectDir"],
     },
     handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir, executablePath: a.executablePath }),
   },
@@ -353,18 +355,55 @@ async function handle(msg) {
         // touches Font Lab, instead of the ask rotting on disk. Skip the tools that receive or
         // fulfill it themselves.
         let payload = out;
-        if (args.projectDir && out && typeof out === "object" && !Array.isArray(out) && !/wait|more_directions/.test(tool.name)) {
+        const piggybackable = args.projectDir && out && typeof out === "object" && !Array.isArray(out);
+        if (piggybackable && !/wait|more_directions/.test(tool.name)) {
           try {
             const pending = engine.readMoreRequest(args.projectDir);
             if (pending)
               payload = {
-                ...out,
+                ...payload,
                 pendingHumanRequest: {
                   note: "UNFULFILLED: the human clicked 'Get more' in the panel and is waiting. Compose new directions honoring request.brief (avoiding request.exclude), then call font_lab_more_directions.",
                   request: pending,
                 },
               };
           } catch {}
+        }
+        // Same durable-delivery treatment for PICKS — the lost-pick class from the dogfood: the
+        // human picks while no agent is parked, and the pick rots in selection.json. An unapplied
+        // pick now rides every result until an apply postdates it, WITH its ship scope, so the
+        // agent that finds it neither misses it nor blindly applies into island routes that
+        // auto-ship can't reach. Skipped on the tools that receive or fulfill the pick themselves.
+        if (piggybackable && !/wait|more_directions|read_pick|select|apply|undo|verify/.test(tool.name)) {
+          try {
+            const pick = pendingPick(args.projectDir);
+            if (pick) {
+              payload = {
+                ...payload,
+                pendingHumanPick:
+                  lastNudgedPick === pick.pickedAt
+                    ? { note: `Reminder: the human's pick "${pick.direction?.name ?? "?"}" (${pick.age} ago) is still unapplied — offer font_lab_apply.`, pickedAt: pick.pickedAt }
+                    : {
+                        note:
+                          `UNDELIVERED PICK: the human picked "${pick.direction?.name ?? "?"}" ${pick.age} ago in the live panel and it has NOT been applied.` +
+                          (pick.stale ? " The pick is old — confirm with the human that it still stands before applying." : "") +
+                          (pick.scope ? ` Ship scope: ${pick.scope}.` : "") +
+                          " Offer font_lab_apply; after applying, run font_lab_verify (dev server running) for the convergence receipt — anything apply can't reach comes back as a ready-to-execute work order.",
+                        direction: pick.direction,
+                        pickedAt: pick.pickedAt,
+                        roles: pick.roles,
+                      },
+              };
+              lastNudgedPick = pick.pickedAt;
+            }
+          } catch {}
+        }
+        // Version drift is delivery-critical — a stale MCP server is missing tools and behaviors
+        // the installed package already has (the "0.11 MCP, 0.13 panel" trap). Warn on every
+        // result until the human reloads the agent session onto the new version.
+        if (piggybackable) {
+          const drift = mcpDrift(args.projectDir);
+          if (drift) payload = { ...payload, mcpVersionDrift: drift };
         }
         return reply(id, { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] });
       } catch (e) {
@@ -376,6 +415,28 @@ async function handle(msg) {
   } catch (e) {
     if (!isNotification) fail(id, -32603, e.message);
   }
+}
+
+// Noise control for the pick piggyback: the FULL nudge (scope + next steps) rides once per
+// pick per MCP process; after that a one-liner keeps the reminder cheap. Keyed by pickedAt so
+// a NEW pick gets the full treatment again.
+let lastNudgedPick = null;
+
+// Compare this server's version against the project's own node_modules install — the npx cache
+// serves whatever it froze at first run, so the two drift after `npm install font-lab@latest`.
+// Cached per project: the answer can't change within one server process (both versions are
+// fixed for its lifetime).
+const driftCache = new Map();
+function mcpDrift(projectDir) {
+  if (driftCache.has(projectDir)) return driftCache.get(projectDir);
+  let warn = null;
+  try {
+    const local = JSON.parse(readFileSync(path.join(projectDir, "node_modules", "font-lab", "package.json"), "utf8"));
+    if (isRealVersion(local.version) && isRealVersion(VERSION) && cmpVersions(local.version, VERSION) > 0)
+      warn = `This MCP server is running font-lab ${VERSION}, but the project has ${local.version} installed — tools and fixes are missing. Have the human reload the agent session so the MCP server restarts on the new version, and run \`npx font-lab install\` once to pin the registration to the project's own install.`;
+  } catch {} // font-lab isn't a project-local dep here — nothing to compare against
+  driftCache.set(projectDir, warn);
+  return warn;
 }
 
 let lastProjectDir = null;

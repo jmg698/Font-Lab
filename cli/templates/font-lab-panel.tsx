@@ -1393,12 +1393,22 @@ export function FontLabDevPanel() {
         state.shipped = null;
         root.setAttribute("data-fontlab-picked", direction.id);
         $("pick").dataset.just = "true"; // one checkmark draw, then settle
-        setStatus(
-          ack.autoApply ? `Saved — shipping “${direction.name}” now…`
-            : ack.agentWaiting ? `Saved — your agent has “${direction.name}” from here.`
-            : `Saved “${direction.name}” — tell your agent, or run npx font-lab-apply.`,
-          "good",
-        );
+        if (ack.autoApply) setStatus(`Saved — shipping “${direction.name}” now…`, "good");
+        else if (ack.agentWaiting) setStatus(`Sent to your agent ✓ — “${direction.name}” ships from here.`, "good");
+        else {
+          // Unarmed is the NORMAL case, not a failure: the pick is durable and piggybacks on the
+          // agent's next Font Lab call — say so, and hand the human the exact words that trigger it.
+          setStatusHTML(
+            `Saved ✓ — your agent will see “${esc(direction.name)}” on its next Font Lab call, or just say <button class="linkish" id="pickCopy">“apply my font pick”</button>`,
+            "good",
+          );
+          shadow.getElementById("pickCopy")?.addEventListener("click", async () => {
+            const btn = shadow.getElementById("pickCopy");
+            if (!btn) return;
+            try { await navigator.clipboard.writeText("apply my font pick"); btn.textContent = "Copied ✓"; }
+            catch { btn.textContent = "“apply my font pick”"; }
+          });
+        }
         render();
       } catch {
         state.saving = false;
@@ -1473,18 +1483,25 @@ export function FontLabDevPanel() {
           catch { btn.textContent = "Copy blocked — it's in the console"; console.log("[Font Lab] ask your agent:\n" + text); }
         });
       };
-      const showOfframp = (brief: Record<string, string | string[]>, exclude: string[]) => {
+      // Same delivery semantics as a pick: the ask is durable and rides the agent's next Font Lab
+      // call — the copy must read as a designed handoff, not a failure. The header varies because
+      // only one path (endpoint down) actually failed to save.
+      const showOfframp = (
+        brief: Record<string, string | string[]>,
+        exclude: string[],
+        head = `<b>Saved for your agent ✓</b> — none is connected right now, so nothing composes these instantly; your agent sees the request on its next Font Lab call. Faster paths:`,
+      ) => {
         setAck(
-          `<b>No agent is listening right now</b>, so nothing will compose these automatically. Two ways forward:` +
+          head +
             `<span class="offramp">1 · <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button> then paste it into Cursor / Claude Code / your agent.</span>` +
-            `<span class="offramp">2 · Reconnect an agent: have it run <code>npx font-lab serve --once</code> in the background (or call <code>font_lab_wait</code>), then click Get more again. Your request is saved either way.</span>`,
+            `<span class="offramp">2 · Have your agent listen live: <code>npx font-lab serve --once</code> in the background (or <code>font_lab_wait</code>), then click Get more again.</span>`,
           "warn",
         );
         wireCopy(brief, exclude);
       };
       const showSelfServe = (brief: Record<string, string | string[]>, exclude: string[]) => {
         setAck(
-          `<b>No agent connected</b> — Font Lab is adding options from its own catalog, tuned to your answers. They'll appear here shortly.` +
+          `<b>No agent connected</b> — Font Lab is adding options from its own catalog, tuned to your answers. They'll appear here shortly. Your agent will also see this request on its next Font Lab call.` +
             `<span class="offramp">These aren't agent-composed — for options tailored to your full brief: <button class="linkish" id="moreCopy">Copy a prompt for your agent →</button></span>`,
           "good",
         );
@@ -1506,9 +1523,9 @@ export function FontLabDevPanel() {
           else if (j.selfServe) showSelfServe(brief, exclude);
           else showOfframp(brief, exclude);
         } catch {
-          // endpoint down entirely — still give them the off-ramp so it's never a dead end
-          setAck(`<b>Endpoint offline</b> — run <code>npx font-lab</code> in your site's folder to reconnect. Meanwhile:`, "warn");
-          showOfframp(brief, excludeFamilies());
+          // endpoint down entirely — the ask was NOT saved; say so, and still give the off-ramp
+          showOfframp(brief, excludeFamilies(),
+            `<b>Endpoint offline</b> — this request was NOT saved. Run <code>npx font-lab</code> in your site's folder, then send again. Meanwhile:`);
         }
       });
     }
@@ -1547,7 +1564,9 @@ export function FontLabDevPanel() {
       render();
     };
     try {
-      es = new EventSource(ENDPOINT + "/events");
+      // The origin identifies the dev server this panel is served from — the endpoint records it
+      // so font_lab_status can health-check the dev server (and verify can default its baseUrl).
+      es = new EventSource(ENDPOINT + "/events?origin=" + encodeURIComponent(location.origin));
       es.addEventListener("status", (ev) => { try { handleStatus(JSON.parse((ev as MessageEvent).data)); } catch {} });
       es.addEventListener("applied", () => { handleStatus({ agentWaiting: state.conn === "agent", applied: { current: true }, selection: null }); });
       es.onerror = () => setConn("offline"); // EventSource auto-reconnects; we just narrate
