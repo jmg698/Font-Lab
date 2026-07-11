@@ -1,0 +1,272 @@
+{
+  "startedAt": "2026-07-10T19:16:23.844Z",
+  "project": "/home/user/jack-mcgovern-site",
+  "criteria": {
+    "c1_preview": {
+      "pass": true
+    },
+    "c3_clusterSanity": {
+      "pass": true,
+      "counts": {
+        "/": 3,
+        "/fontlab": 4
+      }
+    },
+    "c2_stability": {
+      "pass": true,
+      "scrollThen": 100,
+      "hmrPct": 100,
+      "afterRevert": 100,
+      "cycled": 100,
+      "restamps": 0
+    },
+    "c4_copyEdit": {
+      "pass": true,
+      "results": [
+        {
+          "route": "/",
+          "pass": true,
+          "structureIntact": true,
+          "resolved": {
+            "file": "components/qr-card.tsx",
+            "line": 18,
+            "col": 102,
+            "via": "frame"
+          },
+          "editVisible": true,
+          "undoOk": true,
+          "paintAfterEditPct": 100,
+          "why": null
+        },
+        {
+          "route": "/fontlab",
+          "pass": true,
+          "structureIntact": true,
+          "resolved": {
+            "file": "app/fontlab/page.tsx",
+            "via": "phrase"
+          },
+          "editVisible": true,
+          "undoOk": true,
+          "paintAfterEditPct": 100,
+          "why": null
+        }
+      ]
+    },
+    "c5_restore": {
+      "pass": true,
+      "cleanBefore": "",
+      "cleanAfter": ""
+    },
+    "c5_shipTruth": {
+      "pass": true,
+      "receipts": {
+        "/": {
+          "afterApply": {
+            "heading": {
+              "voice": "heading",
+              "family": "Fraunces",
+              "totalChars": 182,
+              "hitChars": 0,
+              "pct": 0
+            },
+            "body": {
+              "voice": "body",
+              "family": "Public Sans",
+              "totalChars": 977,
+              "hitChars": 977,
+              "pct": 100
+            },
+            "label": {
+              "voice": "label",
+              "family": "JetBrains Mono",
+              "totalChars": 35,
+              "hitChars": 0,
+              "pct": 0
+            }
+          },
+          "afterRewire": {
+            "heading": {
+              "voice": "heading",
+              "family": "Fraunces",
+              "totalChars": 182,
+              "hitChars": 182,
+              "pct": 100
+            },
+            "body": {
+              "voice": "body",
+              "family": "Public Sans",
+              "totalChars": 977,
+              "hitChars": 977,
+              "pct": 100
+            },
+            "label": {
+              "voice": "label",
+              "family": "JetBrains Mono",
+              "totalChars": 35,
+              "hitChars": 0,
+              "pct": 0
+            }
+          }
+        },
+        "/fontlab": {
+          "afterApply": {
+            "heading": {
+              "voice": "heading",
+              "family": "Fraunces",
+              "totalChars": 444,
+              "hitChars": 47,
+              "pct": 10.6
+            },
+            "body": {
+              "voice": "body",
+              "family": "Public Sans",
+              "totalChars": 277,
+              "hitChars": 133,
+              "pct": 48
+            },
+            "label": {
+              "voice": "label",
+              "family": "JetBrains Mono",
+              "totalChars": 6745,
+              "hitChars": 6745,
+              "pct": 100
+            }
+          },
+          "afterRewire": {
+            "heading": {
+              "voice": "heading",
+              "family": "Fraunces",
+              "totalChars": 444,
+              "hitChars": 47,
+              "pct": 10.6
+            },
+            "body": {
+              "voice": "body",
+              "family": "Public Sans",
+              "totalChars": 277,
+              "hitChars": 133,
+              "pct": 48
+            },
+            "label": {
+              "voice": "label",
+              "family": "JetBrains Mono",
+              "totalChars": 6745,
+              "hitChars": 6745,
+              "pct": 100
+            }
+          }
+        }
+      }
+    }
+  },
+  "routes": {
+    "/": {
+      "clusters": [
+        {
+          "id": "c0",
+          "label": "Bodys — Hanken Grotesk",
+          "family": "Hanken Grotesk",
+          "voice": "body",
+          "prov": "css@global",
+          "elements": 15,
+          "chars": 977,
+          "share": 81.8,
+          "sample": "Product Manager · Builder · Probably Drinking Co"
+        },
+        {
+          "id": "c1",
+          "label": "Headings — Hanken Grotesk",
+          "family": "Hanken Grotesk",
+          "voice": "heading",
+          "prov": "css@global",
+          "elements": 13,
+          "chars": 182,
+          "share": 15.2,
+          "sample": "Jack McGovern"
+        },
+        {
+          "id": "c2",
+          "label": "Labels — Hanken Grotesk",
+          "family": "Hanken Grotesk",
+          "voice": "label",
+          "prov": "css@global",
+          "elements": 2,
+          "chars": 35,
+          "share": 2.9,
+          "sample": "jack-mcgovern.com"
+        }
+      ],
+      "headingFlip": {
+        "voice": "heading",
+        "family": "Georgia",
+        "totalChars": 182,
+        "hitChars": 182,
+        "pct": 100
+      },
+      "widthsBefore": 1843.6,
+      "widthsAfter": 1787.4,
+      "metricsMoved": true
+    },
+    "/fontlab": {
+      "clusters": [
+        {
+          "id": "c0",
+          "label": "Labels — ui-monospace",
+          "family": "ui-monospace",
+          "voice": "label",
+          "prov": "css@global",
+          "elements": 101,
+          "chars": 6745,
+          "share": 90.3,
+          "sample": "← JACK McGOVERN"
+        },
+        {
+          "id": "c1",
+          "label": "Headings — Instrument Serif (inline)",
+          "family": "Instrument Serif",
+          "voice": "heading",
+          "prov": "inline@global",
+          "elements": 17,
+          "chars": 444,
+          "share": 5.9,
+          "sample": "Pick the fonts. Fix the words.Your agent does th"
+        },
+        {
+          "id": "c2",
+          "label": "Bodys — Hanken Grotesk (inline)",
+          "family": "Hanken Grotesk",
+          "voice": "body",
+          "prov": "inline@global",
+          "elements": 2,
+          "chars": 146,
+          "share": 2,
+          "sample": "The right typeface gets out of the way while you"
+        },
+        {
+          "id": "c3",
+          "label": "Bodys — Instrument Serif (inline)",
+          "family": "Instrument Serif",
+          "voice": "body",
+          "prov": "inline@global",
+          "elements": 3,
+          "chars": 131,
+          "share": 1.8,
+          "sample": "Aa"
+        }
+      ],
+      "headingFlip": {
+        "voice": "heading",
+        "family": "Georgia",
+        "totalChars": 444,
+        "hitChars": 444,
+        "pct": 100
+      },
+      "widthsBefore": 5103.1,
+      "widthsAfter": 5653.5,
+      "metricsMoved": true
+    }
+  },
+  "notes": [],
+  "durationSec": 52
+}

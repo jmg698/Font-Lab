@@ -27,6 +27,10 @@ import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
+// The census (render-first classifier) — ONE source, consumed two ways: init copies it next to
+// the panel (module import), and verifyShip injects the same file into a headless page (it is
+// deliberately plain JS in a .ts wrapper). Panel voices and receipt voices can never drift.
+const CENSUS_TEMPLATE = fileURLToPath(new URL("./templates/fl-census.ts", import.meta.url));
 
 const ROLES = ["display", "body", "mono"];
 const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -451,6 +455,9 @@ export async function apply(projectDir, opts = {}) {
   if (menu?.mode === "fallback")
     result.menuWarning =
       "Heads up: this pick came from the deterministic starter menu, not one tailored to this project's brief. If the human wanted options tailored to what they're going for, run intake → compose → prepare_preview and let them pick again — reversible via font_lab_undo.";
+  // Files written ≠ pixels changed. The receipt (font_lab_verify) is what closes a font ship.
+  result.verifyNext =
+    "apply edited files — it did not prove pixels changed. With the dev server running, call font_lab_verify (on the routes the human cares about) for the convergence receipt; anything apply couldn't reach comes back as a ready-to-execute work order.";
   return result;
 }
 
@@ -786,6 +793,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   // Stamp the installing tool's version into the panel so it can later notice when it's stale.
   const panelSrc = readFileSync(PANEL_TEMPLATE, "utf8").replace(/__FONTLAB_VERSION__/g, VERSION);
   writeFileSync(path.join(appDir, "_fontlab", "FontLabDevPanel.tsx"), panelSrc);
+  writeFileSync(path.join(appDir, "_fontlab", "fl-census.ts"), readFileSync(CENSUS_TEMPLATE, "utf8"));
   const mounted = mountPanel(layout);
   writePreviewSet(dir, dirs);
   writeMenuState(dir, { mode, count: dirs.length });
@@ -797,6 +805,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
     files: [
       ...(mounted ? [path.relative(dir, layout)] : []),
       path.relative(dir, path.join(appDir, "_fontlab", "FontLabDevPanel.tsx")),
+      path.relative(dir, path.join(appDir, "_fontlab", "fl-census.ts")),
       ...(built.fonts?.length ? ["public/fontlab/"] : []),
     ],
   });
@@ -1150,4 +1159,131 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   } finally {
     await browser.close();
   }
+}
+
+// ── the ship receipt (v2.2): measure convergence on rendered pixels, not on files written ────
+// After apply (and/or rewire, and/or the agent's own edits), re-render the running site and
+// census it: what fraction of each voice's text ACTUALLY renders the picked family now? The
+// honesty invariant lives here — "by verification" instead of "by construction". Whatever did
+// not converge comes back as a named, provenance-carrying work order for the coding agent, so
+// partial convergence is a first-class state with a next step, never a silent no-op.
+//
+// Requires the project's dev server running (like captureDirections). Makes no edits.
+const RECEIPT_VOICE = { display: "heading", body: "body", mono: "label" };
+
+export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets, executablePath } = {}) {
+  if (!baseUrl) throw new Error("verifyShip: baseUrl is required (your running dev server, e.g. http://localhost:3000)");
+  const dir = path.resolve(projectDir);
+  const sel = readSelection(dir);
+  const tg = targets || {
+    display: sel?.roles?.display?.family || null,
+    body: sel?.roles?.body?.family || null,
+    mono: sel?.roles?.mono?.family || null,
+  };
+  if (!Object.values(tg).some(Boolean))
+    throw new Error("verifyShip: nothing to verify — no selection.json (pick first) and no explicit targets {display,body,mono}");
+
+  const chromium = await loadChromium();
+  const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
+  const base = baseUrl.replace(/\/+$/, "");
+  const { browser, via } = await launchBrowser(chromium, { executablePath });
+  const routesOut = [];
+  try {
+    // bypassCSP: a strict dev CSP (connect-src 'self', upgrade-insecure-requests) must not be
+    // able to block the measurement script. (The same CSP is a product hazard for the live
+    // panel — see spike/cluster-paint/RESULTS.md finding 1.)
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 1280, height: 900 } });
+    for (const route of routes.length ? routes : ["/"]) {
+      const page = await ctx.newPage();
+      await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
+      await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
+      await page.waitForTimeout(400); // hydration settle
+      await page.addScriptTag({ content: censusSrc }); // no-ops if the panel already loaded it
+      const measured = await page.evaluate((args) => {
+        const fc = window.__flCensus;
+        fc.clearPaint(); // ship truth: never measure through a preview paint
+        const clusters = fc.recensus();
+        const voices = {};
+        const residue = [];
+        for (const role of Object.keys(args.targets)) {
+          const fam = args.targets[role];
+          if (!fam) continue;
+          voices[role] = fc.voiceCoverage(args.voice[role], fam);
+          for (const c of fc.residueFor(args.voice[role], fam)) residue.push({ role, target: fam, ...c });
+        }
+        return { clusters, voices, residue };
+      }, { targets: tg, voice: RECEIPT_VOICE });
+      routesOut.push({ route, ...measured });
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+
+  const residue = routesOut.flatMap((r) => r.residue.map((c) => ({ route: r.route, ...c })));
+  const converged = residue.length === 0;
+  const receipt = {
+    at: new Date().toISOString(),
+    baseUrl: base,
+    targets: tg,
+    converged,
+    routes: routesOut.map((r) => ({ route: r.route, voices: r.voices, clusters: r.clusters })),
+    residue,
+    browser: via,
+  };
+  const receiptPath = path.join(ensureFlDir(dir), "receipt.json");
+  writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+  const workOrder = converged ? null : buildWorkOrder(dir, sel, receipt);
+  return {
+    converged,
+    receipt,
+    receiptPath: path.relative(dir, receiptPath),
+    workOrder,
+    nextStep: converged
+      ? "Converged — every measured voice renders the pick on these routes. Tell the human, then font_lab_status → sourceChanges for what to commit."
+      : "Not fully converged. The workOrder names every unreached spot with provenance — execute it (ask the human first about intentional brand islands), then re-run font_lab_verify until converged.",
+  };
+}
+
+// The residue, written as a paste-ready instruction for the coding agent — Font Lab is
+// agent-native, so "here is exactly what still renders the old font, and where it comes from"
+// turns partial convergence into a work order instead of a dead end. Mirrors the copy-edit
+// agentHandoff pattern (font-lab.mjs).
+function buildWorkOrder(dir, sel, receipt) {
+  const project = path.basename(dir);
+  let deadRoles = [];
+  try {
+    deadRoles = analyzeProject(dir).coverage?.deadRoles || [];
+  } catch {}
+  const lines = [
+    `In the ${project} project, Font Lab shipped the font pick "${sel?.direction?.name ?? "(targets passed directly)"}" and then re-rendered the site to verify. ${receipt.residue.length} spot(s) still render the OLD fonts. Finish the ship:`,
+  ];
+  for (const r of receipt.residue) {
+    const isInline = r.prov.startsWith("inline");
+    const routeM = r.prov.match(/route:([a-z0-9-]+)/i);
+    // Server-component fibers carry no debug stack (spike finding), so chunk-derived provenance
+    // often reads "global" on RSC pages — the receipt's ROUTE is the reliable locator there.
+    const whereHint = routeM
+      ? `app/${routeM[1]}/`
+      : r.route && r.route !== "/"
+        ? `app${r.route}/ (this route's page + components)`
+        : "the global layout/CSS";
+    lines.push(
+      "",
+      `- on ${r.route} — ${r.label}: ${r.unconverged} of ${r.elements} element(s) still render "${r.family}"; target ${r.target} (${r.role} role).`,
+      `    sample text: ${JSON.stringify(r.sample)}`,
+      `    provenance: ${isInline ? "inline-style / route-scoped font declarations" : "stylesheet-driven"} — look under ${whereHint}.`,
+    );
+    if (isInline)
+      lines.push(
+        `    This looks like a per-route font island. ASK THE HUMAN first: adopt ${r.target} here too, or keep this page's own fonts on purpose? Only edit if they want it adopted.`,
+      );
+  }
+  if (deadRoles.length)
+    lines.push(
+      "",
+      `Note: the analyzer flags dead role variable chain(s): ${deadRoles.join(", ")}. Run font_lab_rewire_dead_roles FIRST (reversible) — it usually closes the global gap without hand edits.`,
+    );
+  lines.push("", "After editing, re-run font_lab_verify with the same routes and confirm converged: true before telling the human the ship is done.");
+  return lines.join("\n");
 }
