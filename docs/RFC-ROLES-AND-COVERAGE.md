@@ -195,12 +195,31 @@ lands.
      this repo before the direction is called validated.
 - **Also, independent of the spike: ship rev 1's v1.1 honest-refusal patch now** (dead
   roles reach the panel as non-swappable-with-reason, denominator fix, truthful
-  before-labels). Low-risk, stops the active lying while the spike proceeds.
-- **v2.0 — choose plane:** panel rows become clusters (mapped to voice labels); screenshots
-  render painted clusters; curation maps directions onto clusters.
+  before-labels). *Subsumed by v2.0: paint makes every role previewable, so there is
+  nothing left to refuse; truthful before-labels landed via the census's
+  `renderedFamilies`.*
+- **v2.0 — choose plane. Landed 2026-07-11.** The panel's preview mechanism is now the
+  census (`cli/templates/fl-census.ts` — one source shared with the receipt, so panel
+  voices and receipt voices cannot drift): it classifies the rendered page into voice
+  clusters at mount and flips PAINT clusters through one voice-keyed stylesheet. The
+  variable overrides and the sentinel scan are gone. Every role previews (dead chains and
+  islands included); the analyzer's `wiring` survives only as ship-scope honesty (the
+  "agent wires on ship" badge). The pick payload now DECLARES scope at pick time:
+  `selection.preview` carries the census, per-role clusters/islands, and whether an
+  auto-ship seam exists — the shipping agent reads scope instead of re-deriving the site.
+  The three voice rows stay (curation still speaks display/body/mono); full per-cluster
+  rows with merge UX remain open.
 - **v2.1 — ship plane:** target-state compiler (swap / rewire / add-seam passes + island
-  question), agent work orders for the remainder.
-- **v2.2 — receipt:** post-apply re-census diff as the standard ship output.
+  question), agent work orders for the remainder. **Work orders landed with v2.2;** the
+  compiler passes beyond today's apply/rewire remain open.
+- **v2.2 — receipt. Landed 2026-07-11.** `engine.verifyShip` / MCP `font_lab_verify`:
+  after apply (or rewire, or agent edits), re-render the running site headlessly,
+  re-census, and measure per-voice convergence per route (written to
+  `.font-lab/receipt.json`). Residue comes back as a provenance-carrying agent work order
+  (the copy-edit `agentHandoff` pattern, applied to fonts); the loop is apply → verify →
+  execute work order → verify, until `converged: true`. The division of labor is explicit:
+  **Font Lab ships what has a paved seam; the agent gets a precise, measured spec for
+  everything else — and the receipt is the arbiter for both.**
 - **v2.3+ — widen stacks:** preview already works everywhere; add wiring adapters
   (Tailwind v3, plain CSS, Vite/Astro) one at a time.
 

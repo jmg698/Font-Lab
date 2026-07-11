@@ -195,11 +195,12 @@ tool *detects* this class of problem instead of being surprised by it:
   (jack's `/gus` uses `--font-fraunces`/`--font-dm-sans`) are reported, so the agent/user
   knows a global swap's true scope (full per-route flipping is M6).
 
-The principle this protects: **preview and ship must operate on the same leaf next/font
-variable, applied at the same element next/font uses** (the analyzer reports both
-`classNameTarget` and each role's `nextFontVar`). When they match, preview == ship *by
-construction* on any site — and when a swap genuinely can't be seen, the tool says so rather
-than letting the user pick blind.
+What this audit feeds since v2.0 (see `docs/RFC-ROLES-AND-COVERAGE.md`): the **preview no
+longer depends on the wiring at all** — the panel censuses the RENDERED page and paints
+voice clusters, so dead chains and islands preview fine. The wiring audit is **ship-scope
+honesty**: it tells the pick (and the shipping agent) which roles have a paved auto-apply
+seam and which need agent wiring, and after apply the receipt (`font_lab_verify`) measures
+convergence on pixels — *by verification*, which is stronger than by construction.
 
 ## Run it
 
@@ -248,11 +249,16 @@ node cli/font-lab.mjs --project <your-project> # the pick endpoint (:7777)
 node cli/init.mjs --project <your-project> --undo   # remove the panel scaffolding
 ```
 
-The panel swaps through your project's **own** leaf font variables (the analyzer's `wiring`),
-so the live preview is byte-for-byte what `apply` ships. A role the site doesn't route through
-a variable is shown as *not wired* rather than faked. Proven end to end on the real
-jack-mcgovern.com (body swapped site-wide live → shipped Playfair Display / Source Serif 4 /
-Roboto Mono → reverted clean).
+The panel censuses the **rendered** page into voice clusters (heading / body / label, keyed
+by rendered style + structure + provenance) and previews by **painting** clusters through one
+injected stylesheet — so the flip reaches every heading on every route, including dead
+variable chains, inline-style brand islands, and system-stack mono that variable overrides
+could never touch. A role with no auto-ship seam still previews; it's badged *agent wires on
+ship*, and the pick records the exact scope. After `apply`, close the loop with the receipt:
+`font_lab_verify` re-renders the site and measures per-voice convergence — anything unreached
+comes back as a ready-to-execute agent work order. Proven end to end on the real
+jack-mcgovern.com (one keystroke repainted 100% of heading/body/label text on `/` *and* the
+`/fontlab` island; repo restored byte-identical — `cli/panel-paint-test.mjs`).
 
 ### Fix a dead role (`font-lab rewire`)
 

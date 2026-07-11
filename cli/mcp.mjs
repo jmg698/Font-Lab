@@ -220,9 +220,30 @@ const TOOLS = [
   {
     name: "font_lab_apply",
     description:
-      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind — Google faces via next/font/google, open-foundry faces via next/font/local with the woff2 self-hosted into the source tree (every family is verified buildable BEFORE any file is written; unverifiable families refuse with the reason). On ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). After applying on Next, run the project's build (or dev-server compile) to confirm before declaring success. Run after wait_for_pick/read_pick returns a selection.",
+      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind — Google faces via next/font/google, open-foundry faces via next/font/local with the woff2 self-hosted into the source tree (every family is verified buildable BEFORE any file is written; unverifiable families refuse with the reason). On ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). After applying on Next, run the project's build (or dev-server compile) to confirm it compiles — then close the loop with font_lab_verify (dev server running): apply edits files, the receipt proves pixels. Run after wait_for_pick/read_pick returns a selection.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.apply(a.projectDir),
+  },
+  {
+    name: "font_lab_verify",
+    description:
+      "THE SHIP RECEIPT — after font_lab_apply (and any rewires or hand edits), re-render the RUNNING site headlessly and MEASURE whether the pick actually reached the pixels: per route, the % of heading/body/label text whose computed font now matches the picked families. Files written is not the same as fonts changed — never declare a font ship done without a converged receipt. Requires the project's dev server running; pass its baseUrl and the routes the human cares about (include per-route pages — brand islands live there). Returns {converged, receipt, workOrder}: `residue` names every cluster that still renders the old font, WITH provenance (route, inline-style vs stylesheet, sample text). If workOrder is non-null it is written for YOU, the coding agent — execute it: run font_lab_rewire_dead_roles when it says so, ask the human before touching intentional per-route font islands, edit the named spots, then re-run this tool until converged:true. Makes no edits itself; writes .font-lab/receipt.json.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000." },
+        routes: { type: "array", items: { type: "string" }, description: "Routes to measure; default ['/']. Include island routes (e.g. '/fontlab')." },
+        targets: {
+          type: "object",
+          description: "Optional explicit families to verify against (defaults to the pick in selection.json).",
+          properties: { display: { type: "string" }, body: { type: "string" }, mono: { type: "string" } },
+        },
+        executablePath: { type: "string", description: "Optional Chrome/Chromium binary path (usually unnecessary)." },
+      },
+      required: ["projectDir", "baseUrl"],
+    },
+    handler: (a) => engine.verifyShip(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, targets: a.targets, executablePath: a.executablePath }),
   },
   {
     name: "font_lab_rewire_dead_roles",

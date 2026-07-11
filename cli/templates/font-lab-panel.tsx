@@ -3,19 +3,22 @@
 // Font Lab dev panel — "Galley", the editor's proof slip. Portable build, installed by
 // `font-lab init` into a real project. Design spec: docs/PANEL-VISION.md.
 //
-// The swap applies through the analyzer's `wiring`: for each role it overrides the project's
-// OWN leaf next/font variable (e.g. --font-bricolage) on the element next/font uses (<html>
-// or <body>). That's what makes the live preview honest on any site — it moves the exact
-// variable that ship rewrites. A role with no wiring is shown as not-previewable (its pick
-// still records; apply wires it).
+// THE CENSUS (render-first, RFC-ROLES-AND-COVERAGE rev 2.1; ./fl-census.ts): at mount the
+// panel reads the RENDERED page — every visible text element's computed family/size/weight —
+// and clusters it into the site's actual voices (heading / body / label), each cluster keyed by
+// (rendered style, structural voice, provenance). A flip PAINTS a voice's clusters through one
+// injected stylesheet (`[data-flv=…]{font-family:… !important}`) instead of overriding the
+// site's CSS variables — so the preview works identically on healthy wiring, dead variable
+// chains, inline-style brand islands, and system-stack mono. Preview is structurally unable to
+// no-op; the analyzer's `wiring` is kept only as SHIP-scope honesty (a role with no live seam
+// previews fine and is badged "agent wires on ship" — the pick carries the census + scope so
+// the shipping agent knows exactly what to touch).
 //
-// THE SENTINEL SCAN (the primitive both centerpieces ride on): every value this panel writes
-// into a role variable carries a trailing, nonexistent fallback family ("__fl_display" etc.).
-// Rendering is untouched — the sentinel is last in the stack and no such font exists — but
-// getComputedStyle(el).fontFamily now names, for ANY element, which role variable it actually
-// consumes. Ground truth, zero deps. It powers: inspect (hover the page → the chip names the
-// role/font), the role x-ray, the all-roles map, per-flip change flashes + edge ticks +
-// row verdicts ("what changed AND what didn't"), coverage stats, and J-jump.
+// The census also powers what the sentinel scan used to: inspect (hover the page → the chip
+// names the voice/font), the role x-ray, the all-roles map, per-flip change flashes + edge
+// ticks + row verdicts ("what changed AND what didn't"), coverage stats, and J-jump.
+// Paint is STYLE-ONLY (attributes + one stylesheet, never wraps/creates/edits nodes) — the
+// contract that keeps the copy-edit machinery below intact.
 //
 // Copy edits ride the same slip: double-click any all-text element, retype, Enter. The panel
 // reads the React 19 fiber `_debugStack` call-site frame and POSTs it to the endpoint's
@@ -29,6 +32,7 @@
 
 import { useEffect } from "react";
 import { catalogFontFaceCss, directions, replaces, target, wiring, menuMode, type Direction } from "./catalog.generated";
+import "./fl-census"; // side-effect module: window.__flCensus (census / cluster / paint)
 
 const ENDPOINT = "http://localhost:7777";
 const STORE_KEY = "fontlab.working.v1";
@@ -44,15 +48,21 @@ const cmpVersions = (a: string, b: string) => {
 };
 const ROLES = ["display", "body", "mono"] as const;
 type Role = (typeof ROLES)[number];
-const SENTINEL: Record<Role, string> = { display: "__fl_display", body: "__fl_body", mono: "__fl_mono" };
+// The census speaks structural voices; the curation language stays display/body/mono. This map
+// is the bridge: flipping a role paints every cluster of its voice.
+const VOICE: Record<Role, string> = { display: "heading", body: "body", mono: "label" };
+const ROLE_OF: Record<string, Role> = { heading: "display", body: "body", label: "mono" };
 
 type Cand = { family: string; stack: string; weights: number[]; source: string; parity: string; tag?: string };
 type Conn = "offline" | "ready" | "agent";
 type Dir = { id: string; name: string; vibe: string; rationale: string; roles: Record<Role, Cand> };
 const wir = (wiring || {}) as Partial<Record<Role, { var: string; el: string } | null>>;
 
-function currentLabel(): string {
-  const fams = [replaces?.display, replaces?.body].filter(Boolean) as string[];
+function currentLabel(rendered?: Partial<Record<Role, { family: string }>>): string {
+  const fams = [
+    rendered?.display?.family ?? replaces?.display,
+    rendered?.body?.family ?? replaces?.body,
+  ].filter(Boolean) as string[];
   const uniq = [...new Set(fams)];
   return uniq.length ? `Current — ${uniq.join(" / ")}` : "Current";
 }
@@ -84,15 +94,40 @@ export function FontLabDevPanel() {
     };
     rebuildCands();
 
-    const elFor = (role: Role) => (wir[role]?.el === "body" ? document.body : document.documentElement);
-    const canSwap = (role: Role) => !!wir[role];
-    // Capture each wired role's project-default stack BEFORE we ever touch the variable, so
-    // "Current" re-sets the identical value (plus sentinel) instead of guessing.
-    const defaultStack: Partial<Record<Role, string>> = {};
-    for (const role of ROLES) {
-      if (!canSwap(role)) continue;
-      const v = getComputedStyle(elFor(role)).getPropertyValue(wir[role]!.var).trim();
-      if (v) defaultStack[role] = v;
+    // Every role PREVIEWS (paint reaches everything that renders). `wiring` is ship-scope
+    // honesty only: a role with no live seam is badged "agent wires on ship", never disabled.
+    const shipWired = (role: Role) => !!wir[role];
+    const flc = () => (window as unknown as { __flCensus?: any }).__flCensus;
+    // The rendered "Current" per role — measured by the census (what eyes see), NOT `replaces`
+    // (what source declares). On a dead-chain site the two disagree; the census wins.
+    const renderedCurrent: Partial<Record<Role, { family: string; stack: string }>> = {};
+    let censusDone = false;
+    function captureCurrent() {
+      const fc = flc();
+      if (!fc) return;
+      const fams = fc.renderedFamilies() as Record<string, string>;
+      const paintedNow = (fc.paintedVoices?.() ?? {}) as Record<string, string>;
+      for (const role of ROLES) {
+        const fam = fams[VOICE[role]];
+        if (!fam) continue;
+        const el = document.querySelector(`[data-flv="${VOICE[role]}"]`);
+        // While that voice is painted, an element's computed stack is OUR preview face — keep the
+        // previously captured site stack (or the bare family) instead of laundering paint as "current".
+        const stack = paintedNow[VOICE[role]]
+          ? (renderedCurrent[role]?.stack ?? `'${fam}'`)
+          : el ? getComputedStyle(el).fontFamily : `'${fam}'`;
+        renderedCurrent[role] = { family: fam, stack };
+      }
+      // Truthful before-label on the TOC's row 0 — rendered families, not declared ones.
+      const t0 = shadow.querySelector('.toc-row[data-idx="0"] .tname') as HTMLElement | null;
+      if (t0) t0.textContent = currentLabel(renderedCurrent);
+    }
+    function ensureCensus() {
+      const fc = flc();
+      if (!fc || censusDone) return;
+      fc.census();
+      censusDone = true;
+      captureCurrent();
     }
 
     const FACE_ID = "fontlab-catalog-faces";
@@ -150,9 +185,10 @@ export function FontLabDevPanel() {
     };
     const BEFORE_SEL: Record<Role, number> = { display: -1, body: -1, mono: -1 };
 
-    const famOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (replaces?.[role] ?? "current") : CANDS[role][sel[role]].family);
+    const famOf = (role: Role, sel = state.sel) =>
+      sel[role] < 0 ? (renderedCurrent[role]?.family ?? replaces?.[role] ?? "current") : CANDS[role][sel[role]].family;
     const candOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? null : CANDS[role][sel[role]]);
-    const stackOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (defaultStack[role] ?? "") : CANDS[role][sel[role]].stack);
+    const stackOf = (role: Role, sel = state.sel) => (sel[role] < 0 ? (renderedCurrent[role]?.stack ?? "") : CANDS[role][sel[role]].stack);
     const trio = (sel = state.sel) => ROLES.map((r) => famOf(r, sel)).join(" / ");
     const onCurrent = (sel = state.sel) => ROLES.every((r) => sel[r] < 0);
     const matchedDir = (sel = state.sel): Dir | null =>
@@ -166,41 +202,51 @@ export function FontLabDevPanel() {
     const workingParity = (sel = effSel()): "guaranteed" | "best-effort" =>
       ROLES.some((r) => { const c = candOf(r, sel); return !!c && c.parity !== "guaranteed"; }) ? "best-effort" : "guaranteed";
 
-    // ---- page wiring + sentinel scan -----------------------------------------------------
-    function setRoleVar(role: Role, sel: Record<Role, number>) {
-      if (!canSwap(role)) return;
-      const v = wir[role]!.var;
-      if (sel[role] < 0) {
-        if (defaultStack[role]) elFor(role).style.setProperty(v, defaultStack[role] + ", " + SENTINEL[role]);
-        else elFor(role).style.removeProperty(v); // no readable default → behave exactly like before
-      } else {
-        elFor(role).style.setProperty(v, CANDS[role][sel[role]].stack + ", " + SENTINEL[role]);
-      }
+    // ---- paint (the preview mechanism) ---------------------------------------------------
+    // A flip paints the role's VOICE through fl-census's single stylesheet — attribute
+    // selectors + !important reach dead chains, inline-style islands, and system-stack mono
+    // identically. sel < 0 clears the voice back to the site's own rendering.
+    function paintRole(role: Role, sel: Record<Role, number>) {
+      const fc = flc();
+      if (!fc) return;
+      fc.paintVoice(VOICE[role], sel[role] < 0 ? null : CANDS[role][sel[role]].stack);
     }
 
     type ScanHit = { el: HTMLElement; role: Role; chars: number };
     let scanCache: ScanHit[] | null = null;
     const OURS = (el: Element) => !!(el.closest("#fontlab-panel-host") || el.closest("#fontlab-overlay-host"));
+    // The census stamps every classified element with its voice (data-flv); scan() is a cached
+    // view over those stamps in role terms — same shape the sentinel scan used to return, so
+    // coverage/x-ray/flash/J-jump ride it unchanged.
     function scan(): ScanHit[] {
       if (scanCache) return scanCache;
+      ensureCensus();
       const out: ScanHit[] = [];
-      const walk = (node: Element) => {
-        for (const child of Array.from(node.children)) {
-          if (OURS(child) || child.tagName === "SCRIPT" || child.tagName === "STYLE") continue;
-          const hasText = Array.from(child.childNodes).some((n) => n.nodeType === 3 && n.textContent!.trim());
-          if (hasText) {
-            const fam = getComputedStyle(child).fontFamily;
-            const role = ROLES.find((r) => fam.includes(SENTINEL[r]));
-            if (role) out.push({ el: child as HTMLElement, role, chars: child.textContent!.trim().length });
-          }
-          walk(child);
-        }
-      };
-      walk(document.body);
+      document.querySelectorAll<HTMLElement>("[data-flv]").forEach((el) => {
+        const role = ROLE_OF[el.getAttribute("data-flv") || ""];
+        if (!role || OURS(el)) return;
+        let chars = 0;
+        for (const n of Array.from(el.childNodes)) if (n.nodeType === 3) chars += n.textContent!.trim().length;
+        if (chars > 0) out.push({ el, role, chars });
+      });
       scanCache = out;
       return out;
     }
     const invalidateScan = () => { scanCache = null; };
+    // Keep the stamps alive through hydration churn, HMR, lazy content, and client-side route
+    // changes: restamp new nodes into existing clusters; when too much text no longer matches
+    // any known cluster (a route change brought a new voice), take a fresh census — paint rules
+    // are voice-keyed, so they re-attach to the new stamps automatically.
+    const maintain = () => {
+      invalidateScan();
+      const fc = flc();
+      if (!fc || !censusDone || editingEl) return; // never fight the caret; endEdit catches up
+      const r = fc.restamp();
+      if (r.unmatchedChars > Math.max(40, r.totalChars * 0.1)) {
+        fc.recensus();
+        captureCurrent();
+      }
+    };
     let moDebounce: ReturnType<typeof setTimeout> | null = null;
     const inOurs = (n: Node) => {
       const el = n.nodeType === 1 ? (n as Element) : n.parentElement;
@@ -209,7 +255,7 @@ export function FontLabDevPanel() {
     const mo = new MutationObserver((muts) => {
       if (muts.every((m) => inOurs(m.target))) return;
       if (moDebounce) clearTimeout(moDebounce);
-      moDebounce = setTimeout(invalidateScan, 300);
+      moDebounce = setTimeout(maintain, 300);
     });
     mo.observe(document.body, { childList: true, subtree: true, characterData: true });
 
@@ -387,7 +433,6 @@ export function FontLabDevPanel() {
         .row .fam { font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #F6F3EA; transition: color 1.6s ease; }
         .row .fam[data-just="true"] { color: #E7FF3B; transition: color .05s; }
         .row[data-role="body"] .fam { font-size: 16px; } .row[data-role="mono"] .fam { font-size: 13.5px; }
-        .row[data-unwired="true"] .fam { opacity: .55; }
         .row .tagline { font-family: ${SERIF_I}; font-style: italic; font-size: 11.5px; color: rgba(242,239,229,.55); margin-top: 1px;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; min-height: 0; }
         .row .right { display: flex; align-items: center; gap: 3px; padding-left: 8px; }
@@ -401,7 +446,7 @@ export function FontLabDevPanel() {
         .row .step:hover:not(:disabled) { background: #232219; }
         .row .step:disabled { opacity: .25; cursor: not-allowed; }
         .row .bkt { visibility: hidden; font-size: 8.5px; letter-spacing: .04em; color: rgba(242,239,229,.4); margin-right: 2px; }
-        .row[data-focus="true"]:not([data-unwired="true"]) .bkt { visibility: visible; }
+        .row[data-focus="true"] .bkt { visibility: visible; }
         .row[data-dimmed="true"] { opacity: .7; }
 
         .pickwrap { padding: 10px 14px 6px; border-top: 1px solid rgba(242,239,229,.14); display: flex; gap: 8px; }
@@ -605,7 +650,7 @@ export function FontLabDevPanel() {
     }
 
     function reportChange(prevSel: Record<Role, number>, nextSel: Record<Role, number>, changedRoles: Role[]) {
-      const liveChanged = changedRoles.filter((r) => canSwap(r));
+      const liveChanged = changedRoles; // paint previews every role — nothing is preview-dead
       lastChangedRoles = liveChanged;
       const cov = coverage();
       for (const role of ROLES) {
@@ -614,8 +659,7 @@ export function FontLabDevPanel() {
         const a = famOf(role, prevSel), b = famOf(role, nextSel);
         const v = row.querySelector(".cov") as HTMLElement;
         if (a !== b) {
-          v.textContent = !canSwap(role) ? "→ applies on ship"
-            : role === "body" ? `→ ${cov.count.body} elements changed`
+          v.textContent = role === "body" ? `→ ${cov.count.body} elements changed`
             : `→ ${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} changed`;
           v.dataset.verdict = "changed";
           (row.querySelector(".fam") as HTMLElement).dataset.just = "true";
@@ -658,9 +702,10 @@ export function FontLabDevPanel() {
     }
 
     function applyToPage(prevSel: Record<Role, number> | null, nextSel: Record<Role, number>, opts: { silent?: boolean } = {}) {
+      ensureCensus(); // clusters must exist before the first paint
       const changed: Role[] = [];
       for (const role of ROLES) {
-        setRoleVar(role, nextSel);
+        paintRole(role, nextSel);
         if (prevSel && famOf(role, prevSel) !== famOf(role, nextSel)) changed.push(role);
       }
       invalidateScan();
@@ -741,7 +786,7 @@ export function FontLabDevPanel() {
       const trapped = editable && !!hoverHit.el.closest(INTERACTIVE);
       const role = hoverHit.role;
       // name the live font in its own typeface — the same touch the panel rows use
-      const specimen = canSwap(role) ? (stackOf(role, effSel()) || MONO) : MONO;
+      const specimen = stackOf(role, effSel()) || MONO;
       hoverChip.style.display = "block";
       hoverChip.innerHTML =
         `<b style="color:#E7FF3B;font-weight:600">${role.toUpperCase()}</b> · <span style="font-family:${specimen.replace(/"/g, "'")};font-size:13px;line-height:1">${esc(famOf(role, effSel()))}</span> · ${Math.round(parseFloat(cs.fontSize))}px · ${cov.count[role]} on page` +
@@ -985,6 +1030,7 @@ export function FontLabDevPanel() {
       editingEl = null;
       editingSourceEl = null;
       editingWrap = null;
+      setTimeout(maintain, 300); // census catch-up: restamps were suspended while the caret was live
       return { editEl, sourceEl: sourceEl || editEl, wrap };
     }
     // Collapse a temporary edit-wrap span back to a plain text node once editing ends, so the page DOM
@@ -1089,7 +1135,7 @@ export function FontLabDevPanel() {
         row.innerHTML = `
           <div class="margin">${role[0].toUpperCase()}</div>
           <div class="mid">
-            <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden>WIRED ON SHIP</span><span class="cov"></span></div>
+            <div class="labline"><span class="u">${role}</span><span class="parity" hidden>≈</span><span class="wtag u" hidden title="This role has no live variable seam — the preview is real (painted on the rendered page), and on ship your agent wires the change into source (the pick carries the exact scope).">AGENT WIRES ON SHIP</span><span class="cov"></span></div>
             <div class="spec"><span class="fam" data-fl-fam="${role}"></span></div>
             <div class="tagline"></div>
           </div>
@@ -1141,35 +1187,32 @@ export function FontLabDevPanel() {
       for (const role of ROLES) {
         const row = shadow.querySelector(`.row[data-role="${role}"]`) as HTMLElement;
         const cand = candOf(role, eff);
-        const unwired = !canSwap(role);
+        // Paint previews every role; "unwired" survives only as SHIP scope (badge, never a gate).
+        const agentShips = !shipWired(role);
         row.dataset.focus = String(state.focus === role);
-        row.dataset.unwired = String(unwired);
         const famEl = row.querySelector(".fam") as HTMLElement;
         famEl.textContent = famOf(role, eff);
-        famEl.style.fontFamily = unwired ? MONO : stackOf(role, eff) || "";
-        famEl.style.fontSize = unwired ? "12px" : "";
+        famEl.style.fontFamily = stackOf(role, eff) || "";
         const parityEl = row.querySelector(".parity") as HTMLElement;
         parityEl.hidden = !(cand && cand.parity !== "guaranteed");
         parityEl.title = "best-effort — may render slightly differently once shipped";
         parityEl.setAttribute("aria-label", "best-effort — may render slightly differently once shipped"); // title alone is invisible to keyboard/SR
-        (row.querySelector(".wtag") as HTMLElement).hidden = !unwired;
+        (row.querySelector(".wtag") as HTMLElement).hidden = !agentShips;
         if (!verdictActive) {
           const covEl = row.querySelector(".cov") as HTMLElement;
           covEl.dataset.verdict = "";
           const pct = cov.total ? Math.round((cov.chars.body / cov.total) * 100) : 0;
-          covEl.textContent = unwired ? ""
-            : role === "body" ? `${pct}% of page text`
+          covEl.textContent = role === "body" ? `${pct}% of page text`
             : `${cov.count[role]} spot${cov.count[role] === 1 ? "" : "s"} on page`;
           // a zero is pinned always-visible — an invisible pick is exactly what must never hide
-          covEl.dataset.pin = String(!unwired && (role === "body" ? pct === 0 : cov.count[role] === 0));
+          covEl.dataset.pin = String(role === "body" ? pct === 0 : cov.count[role] === 0);
         }
-        (row.querySelector(".tagline") as HTMLElement).textContent = unwired
-          ? "previews after ship · pick records."
-          : cand?.tag ? cand.tag + "." : "";
+        (row.querySelector(".tagline") as HTMLElement).textContent =
+          cand?.tag ? cand.tag + "." : agentShips ? "previews live · no auto-ship seam — your agent wires it." : "";
         const n = CANDS[role].length;
         (row.querySelector(".pos") as HTMLElement).textContent =
           "font " + (eff[role] < 0 ? `—/${String(n).padStart(2, "0")}` : `${String(eff[role] + 1).padStart(2, "0")}/${String(n).padStart(2, "0")}`);
-        row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = unwired || state.beforeView));
+        row.querySelectorAll(".step").forEach((b) => ((b as HTMLButtonElement).disabled = state.beforeView));
       }
 
       // ≈ honesty: no separate band (it restated the chip, then auto-faded — a caution that
@@ -1235,7 +1278,6 @@ export function FontLabDevPanel() {
       if (active) active.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
     }
     function cycleRole(role: Role, d: number) {
-      if (!canSwap(role)) return;
       if (state.beforeView) state.beforeView = false;
       state.focus = role;
       if (onCurrent(state.sel)) { selectEntry(1); return; }
@@ -1310,7 +1352,35 @@ export function FontLabDevPanel() {
       const direction = md
         ? { id: md.id, name: md.name, vibe: md.vibe, rationale: md.rationale }
         : { id: "mixed", name: "Mixed", vibe: "mixed", rationale: `Custom pairing — ${fams.filter(Boolean).join(" / ")}.` };
-      const selection = { version: 1, pickedAt: new Date().toISOString(), direction, roles: { display: roleObj("display"), body: roleObj("body"), mono: roleObj("mono") }, replaces, target };
+      // Ship scope, declared AT PICK TIME (never a surprise in a receipt): the census names every
+      // cluster this direction touches — with provenance — and which roles have an auto-ship seam
+      // vs. need the agent. The shipping agent reads this instead of re-deriving the site.
+      const fc = flc();
+      const census = fc && censusDone ? fc.report() : [];
+      const scope = ROLES.map((r) => {
+        const clusters = census.filter((c: { voice: string }) => c.voice === VOICE[r]);
+        return {
+          role: r,
+          voice: VOICE[r],
+          target: roleObj(r).family,
+          rendersToday: renderedCurrent[r]?.family ?? null,
+          declaredInSource: replaces?.[r] ?? null,
+          autoShipSeam: shipWired(r) ? wir[r] : null, // null → the agent wires this role into source
+          clusters,
+          // islands: text this direction should reach that global wiring can't (inline styles /
+          // route-scoped fonts) — each needs either an agent edit or an explicit "keep it" call.
+          islands: clusters.filter((c: { prov: string }) => c.prov !== "css@global"),
+        };
+      });
+      const selection = {
+        version: 1,
+        pickedAt: new Date().toISOString(),
+        direction,
+        roles: { display: roleObj("display"), body: roleObj("body"), mono: roleObj("mono") },
+        replaces,
+        target,
+        preview: { mechanism: "cluster-paint", route: location.pathname, census, scope },
+      };
       state.saving = true;
       render();
       try {
@@ -1603,11 +1673,13 @@ export function FontLabDevPanel() {
       removeEventListener("resize", onResize);
       mo.disconnect();
       es?.close();
-      // leave the page exactly as found
-      for (const role of ROLES) if (canSwap(role)) {
-        if (defaultStack[role]) elFor(role).style.setProperty(wir[role]!.var, defaultStack[role]!);
-        else elFor(role).style.removeProperty(wir[role]!.var);
-      }
+      // leave the page exactly as found: clear the paint stylesheet and strip census stamps
+      flc()?.clearPaint();
+      document.getElementById("__fl_paint")?.remove();
+      document.querySelectorAll("[data-flc],[data-flv]").forEach((el) => {
+        el.removeAttribute("data-flc");
+        el.removeAttribute("data-flv");
+      });
       for (const { el } of scanCache ?? []) el.classList.remove("__fl_hit", "__fl_other", "__fl_hover", "__fl_flash", "__fl_flash_soft", "__fl_spot");
       overlay.remove();
       host.remove();
