@@ -17,7 +17,7 @@ echo "[0/3] keymap parity (KEYMAP table ↔ onKey handler)"
 node "$CLI/panel-keys-test.mjs"
 
 echo "[1/3] build parity catalog"
-node "$CLI/gen-catalog.mjs"
+node "$CLI/gen-catalog.mjs" --panel
 
 echo "[2/3] start fixture dev server (Turbopack) on $PORT_DEV"
 ( cd "$APP" && pnpm exec next dev -p "$PORT_DEV" >"$CLI/out/dev-m6.log" 2>&1 ) & DEV_PID=$!

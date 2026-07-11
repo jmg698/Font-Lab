@@ -14,7 +14,7 @@ cleanup() { [ -n "$DEV_PID" ] && kill "$DEV_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
 echo "[1/3] build parity catalog (self-host Google fonts + compute next/font fallbacks)"
-node "$CLI/gen-catalog.mjs"
+node "$CLI/gen-catalog.mjs" --panel
 
 echo "[2/3] start fixture dev server (Turbopack)"
 ( cd "$APP" && pnpm exec next dev -p "$PORT_DEV" >"$CLI/out/dev.log" 2>&1 ) & DEV_PID=$!

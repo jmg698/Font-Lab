@@ -5,11 +5,11 @@
       "pass": true
     },
     {
-      "name": "editorial: display Fraunces",
+      "name": "modern-serif: display Newsreader",
       "pass": true
     },
     {
-      "name": "editorial: body Libre Franklin",
+      "name": "modern-serif: body Public Sans",
       "pass": true
     },
     {
@@ -17,7 +17,7 @@
       "pass": true
     },
     {
-      "name": "mixed: display still Fraunces",
+      "name": "mixed: display still Newsreader",
       "pass": true
     },
     {
@@ -33,7 +33,7 @@
       "pass": true
     },
     {
-      "name": "mixed pick: display = Fraunces",
+      "name": "mixed pick: display = Newsreader",
       "pass": true
     },
     {
@@ -57,7 +57,7 @@
       "pass": true
     },
     {
-      "name": "one of the pinned views is Geist (clean-geometric)",
+      "name": "one of the pinned views is Libre Franklin (dramatic-display)",
       "pass": true
     },
     {
@@ -71,16 +71,16 @@
   ],
   "finalSelection": {
     "version": 1,
-    "pickedAt": "2026-07-06T14:30:00.435Z",
+    "pickedAt": "2026-07-11T15:44:35.459Z",
     "direction": {
       "id": "mixed",
       "name": "Mixed",
       "vibe": "mixed",
-      "rationale": "Custom pairing — Fraunces / Figtree / JetBrains Mono."
+      "rationale": "Custom pairing — Newsreader / Onest / Spline Sans Mono."
     },
     "roles": {
       "display": {
-        "family": "Fraunces",
+        "family": "Newsreader",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -89,7 +89,7 @@
         ]
       },
       "body": {
-        "family": "Figtree",
+        "family": "Onest",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -98,7 +98,7 @@
         ]
       },
       "mono": {
-        "family": "JetBrains Mono",
+        "family": "Spline Sans Mono",
         "source": "google",
         "parity": "guaranteed",
         "weights": [
@@ -118,6 +118,128 @@
       "styling": "tailwind",
       "tailwindVersion": 4,
       "fontWiring": "css-variables"
+    },
+    "preview": {
+      "mechanism": "cluster-paint",
+      "route": "/",
+      "census": [
+        {
+          "id": "c0",
+          "label": "Bodys — Inter",
+          "family": "Inter",
+          "voice": "body",
+          "prov": "css@global",
+          "elements": 7,
+          "chars": 1359,
+          "share": 78.4,
+          "sample": "AI removed the labor of implementation, but in doing so it quiet",
+          "folded": 0
+        },
+        {
+          "id": "c1",
+          "label": "Headings — Inter",
+          "family": "Inter",
+          "voice": "heading",
+          "prov": "css@global",
+          "elements": 3,
+          "chars": 190,
+          "share": 11,
+          "sample": "The moment of choice is the only part that needed you.",
+          "folded": 0
+        },
+        {
+          "id": "c2",
+          "label": "Labels — JetBrains Mono",
+          "family": "JetBrains Mono",
+          "voice": "label",
+          "prov": "css@global",
+          "elements": 4,
+          "chars": 185,
+          "share": 10.7,
+          "sample": "Field Notes · Issue 07",
+          "folded": 0
+        }
+      ],
+      "scope": [
+        {
+          "role": "display",
+          "voice": "heading",
+          "target": "Newsreader",
+          "rendersToday": "Inter",
+          "declaredInSource": "Inter",
+          "autoShipSeam": {
+            "var": "--fl-display",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c1",
+              "label": "Headings — Inter",
+              "family": "Inter",
+              "voice": "heading",
+              "prov": "css@global",
+              "elements": 3,
+              "chars": 190,
+              "share": 11,
+              "sample": "The moment of choice is the only part that needed you.",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        },
+        {
+          "role": "body",
+          "voice": "body",
+          "target": "Onest",
+          "rendersToday": "Inter",
+          "declaredInSource": "Inter",
+          "autoShipSeam": {
+            "var": "--fl-sans",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c0",
+              "label": "Bodys — Inter",
+              "family": "Inter",
+              "voice": "body",
+              "prov": "css@global",
+              "elements": 7,
+              "chars": 1359,
+              "share": 78.4,
+              "sample": "AI removed the labor of implementation, but in doing so it quiet",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        },
+        {
+          "role": "mono",
+          "voice": "label",
+          "target": "Spline Sans Mono",
+          "rendersToday": "JetBrains Mono",
+          "declaredInSource": "JetBrains Mono",
+          "autoShipSeam": {
+            "var": "--font-jbmono",
+            "el": "html"
+          },
+          "clusters": [
+            {
+              "id": "c2",
+              "label": "Labels — JetBrains Mono",
+              "family": "JetBrains Mono",
+              "voice": "label",
+              "prov": "css@global",
+              "elements": 4,
+              "chars": 185,
+              "share": 10.7,
+              "sample": "Field Notes · Issue 07",
+              "folded": 0
+            }
+          ],
+          "islands": []
+        }
+      ]
     }
   }
 }
