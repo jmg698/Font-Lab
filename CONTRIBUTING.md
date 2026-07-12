@@ -17,6 +17,12 @@ Everything lives in [`cli/`](./cli) — dependency-light ES modules, no build st
 | Engine facade + MCP server (the agent-facing surface) | `cli/engine.mjs`, `cli/mcp.mjs` |
 | The dev panel (`init` installs it into a real project) | `cli/templates/font-lab-panel.tsx` |
 
+**Two-part versioning:** The npm package and the panel code stamped into a user's project
+(`app/_fontlab/`) version independently. A bare `npm install` updates the package but not the
+panel — `npx font-lab upgrade` moves both together. If you change the panel template or anything
+that affects the stamped version, make sure `upgrade` still re-stamps correctly (the fast gate
+covers this).
+
 The deeper design docs live in [`docs/`](./docs) — read
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and [`docs/SHIP-SPEC.md`](./docs/SHIP-SPEC.md)
 before touching the analyzer or codegen.
