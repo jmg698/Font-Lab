@@ -25,6 +25,16 @@ For: **Next.js** (App Router) + **Tailwind v4** sites
 
 Install auto-detects which agents you have and wires them all — skill, MCP server, config, each in the right format. On an unsupported stack, Font Lab **refuses with a clear reason** rather than half-applying a change.
 
+## Upgrading
+
+**Always use `upgrade`, not bare `npm install`.**
+
+```bash
+npx font-lab upgrade
+```
+
+Font Lab lives in two places: the **npm package** and the **panel code stamped into your project** (`app/_fontlab/`). A bare `npm install font-lab@latest` updates the package but leaves the panel on the old version — which shows a "stale version" warning. `upgrade` moves everything together in one command: package, panel re-stamp, MCP re-pin, and stale-endpoint shutdown.
+
 ## How it works
 
 1. **Ask.** Font Lab asks what you're going for — what feeling, how bold a departure, a brand to evoke or avoid — so the directions are tailored to you, not a generic default.

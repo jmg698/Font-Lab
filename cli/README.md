@@ -57,9 +57,26 @@ pattern):
 
 ```bash
 npx font-lab uninstall      # remove the skill, hook, rules, and every MCP entry
-npx font-lab upgrade        # one-command upgrade: package + MCP re-pin + panel re-stamp
-                            # + stale-endpoint shutdown (then reload your agent session)
 ```
+
+## Upgrading
+
+> **Do not use bare `npm install font-lab@latest` to upgrade.** It updates the npm package but
+> leaves the panel code in `app/_fontlab/` stamped at the old version — you'll see a "stale version"
+> warning. Font Lab's version lives in four places (the npm package, the panel stamp, the MCP
+> registration, the running `:7777` endpoint), and they update independently.
+
+Use the single upgrade command instead:
+
+```bash
+npx font-lab upgrade
+```
+
+It does everything in one pass: installs the new package, re-stamps the panel from the new template
+(keeping your existing directions), re-pins the MCP registration, and shuts down a stale `:7777`
+endpoint. The only manual step left: reload your agent session so the MCP server restarts.
+
+After upgrading, `font_lab_status` confirms all four copies are in sync.
 
 **Works across agents, not just Claude Code.** With no `--host`, install **auto-detects** which
 agents you have and wires them all — writing each one's MCP config in the right place and format,
