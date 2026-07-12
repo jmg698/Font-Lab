@@ -155,7 +155,7 @@ async function runUpgrade() {
 
 async function runServe() {
 
-const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, ensureFlDir, writeDevServer } = await import("./state.mjs");
+const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, readMenuState, ensureFlDir, writeDevServer } = await import("./state.mjs");
 const { VERSION, cmpVersions, isRealVersion } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
@@ -200,17 +200,24 @@ const installedVersion = () => {
     return VERSION;
   }
 };
-const statusPayload = () => ({
-  ok: true,
-  once: ONCE,
-  autoApply: AUTO_APPLY,
-  version: VERSION, // running tool version — the panel compares it against its own stamp
-  installed: installedVersion(), // package version on disk — differs from `version` after an un-restarted upgrade
-  project: PROJECT, // which project this endpoint serves — the port-takeover triage reads it
-  ...readHandoffState(PROJECT),
-  // --once means an agent parked a process on this pick; count it as a listening agent.
-  agentWaiting: ONCE || readHandoffState(PROJECT).agentWaiting,
-});
+const statusPayload = () => {
+  const state = readHandoffState(PROJECT);
+  return {
+    ok: true,
+    once: ONCE,
+    autoApply: AUTO_APPLY,
+    version: VERSION, // running tool version — the panel compares it against its own stamp
+    installed: installedVersion(), // package version on disk — differs from `version` after an un-restarted upgrade
+    project: PROJECT, // which project this endpoint serves — the port-takeover triage reads it
+    ...state,
+    // --once means an agent parked a process on this event; count it as parked presence.
+    agentParked: ONCE || state.agentParked,
+    agentWaiting: ONCE || state.agentWaiting,
+    // The menu's shape (mode + count) rides status so the panel can SEE the catalog grow —
+    // the "your new options landed" toast diffs this count against what it's rendering.
+    menu: readMenuState(PROJECT),
+  };
+};
 // --once shutdown: print the event as the final stdout line (the harness hands it to the agent),
 // give the ack + SSE frames a beat to flush, then exit unconditionally — an attached SSE client
 // would otherwise hold server.close open. Shared by the pick and request exits.
@@ -236,6 +243,11 @@ try {
     watchDebounce = setTimeout(() => broadcast("status", statusPayload()), 60);
   });
 } catch {} // fs.watch is advisory here — POST /select broadcasts directly regardless
+// Presence decays silently — a heartbeat expiring or a parked agent dying writes no file, so the
+// watcher never fires and the panel's pill would overstate liveness forever. A slow re-broadcast
+// keeps it honest; unref'd so it never holds the process open.
+const presenceTick = setInterval(() => { if (sseClients.size) broadcast("status", statusPayload()); }, 45_000);
+presenceTick.unref?.();
 
 function printPick(sel) {
   const r = sel.roles || {};
@@ -320,14 +332,27 @@ const server = http.createServer((req, res) => {
         const { brief, exclude } = JSON.parse(body || "{}");
         // Sample presence BEFORE writing (the request write itself wakes a blocked waiter, which
         // clears its flag — so afterwards we'd wrongly read "no agent" the instant one takes it).
-        const wasWaiting = ONCE || statusPayload().agentWaiting;
+        // Presence has two grades and the ack carries both: PARKED (a live process is blocked on
+        // this project's events — "composing now" is an honest promise) vs RECENT (an agent
+        // touched Font Lab lately but acts only when the human next messages it — the panel
+        // hands over a wake-up prompt instead of promising motion that won't come).
+        const pres = statusPayload();
+        const wasParked = pres.agentParked;
+        const wasRecent = pres.agentRecent;
         const saved = writeRequest(PROJECT, { brief, exclude });
-        // No agent anywhere? The endpoint itself serves the ask from the deterministic curator —
-        // slower-quality than an agent's composition, but the click never dead-ends.
-        const selfServe = !wasWaiting;
-        console.log(`\n  ✎ "more options" requested${brief?.note ? `: "${String(brief.note).slice(0, 60)}"` : ""}${wasWaiting ? " — an agent is listening" : " — no agent listening (self-serving from the catalog)"}`);
+        // Nobody around at all? The endpoint itself serves the ask from the deterministic
+        // curator — slower-quality than an agent's composition, but the click never dead-ends.
+        const selfServe = !wasParked && !wasRecent;
+        const presence = wasParked
+          ? " — an agent is listening (composing now)"
+          : wasRecent
+            ? " — agent nearby but not parked (panel offers the wake-up prompt; the ask also rides its next tool call)"
+            : " — no agent detected (self-serving from the catalog)";
+        console.log(`\n  ✎ "more options" requested${brief?.note ? `: "${String(brief.note).slice(0, 60)}"` : ""}${presence}`);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, agentWaiting: wasWaiting, selfServe, request: saved }));
+        // agentWaiting mirrors agentParked (not merged presence) so an OLD stamped panel also
+        // stops claiming "appears in a moment" when nothing is parked — it falls to its off-ramp.
+        res.end(JSON.stringify({ ok: true, agentParked: wasParked, agentRecent: wasRecent, agentWaiting: wasParked, selfServe, request: saved }));
         broadcast("request", { at: saved.at, brief: saved.brief });
         broadcast("status", statusPayload());
         if (ONCE) {
@@ -364,8 +389,11 @@ const server = http.createServer((req, res) => {
         const sel = JSON.parse(body);
         // Capture presence BEFORE the write: a blocked waiter resolves (and clears its flag)
         // the instant selection.json lands, so sampling afterwards would tell the human
-        // "no agent" right as their agent takes delivery.
-        const wasWaiting = ONCE || statusPayload().agentWaiting;
+        // "no agent" right as their agent takes delivery. Only PARKED presence earns the
+        // "ships from here" ack — a merely-recent agent won't move until the human messages it,
+        // and the panel's unarmed copy (durable pick + "say apply my font pick") is the truth.
+        const pres = statusPayload();
+        const wasWaiting = pres.agentParked;
         ensureFlDir(PROJECT);
         writeFileSync(SELECTION, JSON.stringify(sel, null, 2) + "\n");
         appendFileSync(
@@ -377,7 +405,7 @@ const server = http.createServer((req, res) => {
         // an agent is parked on this pick (--once), it'll auto-ship (--apply), or the
         // human should hand it to their agent.
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, once: ONCE, autoApply: AUTO_APPLY, agentWaiting: wasWaiting }));
+        res.end(JSON.stringify({ ok: true, once: ONCE, autoApply: AUTO_APPLY, agentWaiting: wasWaiting, agentParked: wasWaiting, agentRecent: pres.agentRecent }));
         broadcast("picked", { direction: sel.direction ?? null, pickedAt: sel.pickedAt ?? null });
         broadcast("status", statusPayload());
 

@@ -89,7 +89,10 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      self-serves curator picks tuned to the mini-brief so the human is never stuck — but those aren't
      agent-composed, so **keep a listener parked** whenever the human is exploring. If you were
      working while a request landed, any Font Lab tool result will carry a `pendingHumanRequest`
-     field — fulfill it before moving on.
+     field — fulfill it before moving on. When you exist but nothing is parked, the panel hands the
+     human a ready-to-paste **wake-up prompt** instead of pretending you're composing — receiving one
+     (it starts "In this project… the human wants MORE font options") means exactly: compose for the
+     brief it carries, then `font_lab_more_directions`.
 4. **The choosing moment** — pick the path that fits where you're running.
 
    - **Portable (works on ANY framework, no dev server — the default off Next):**

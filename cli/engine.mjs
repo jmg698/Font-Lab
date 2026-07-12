@@ -662,6 +662,7 @@ export async function status(projectDir, { port = 7777 } = {}) {
       const body = await res.json();
       endpoint = { up: true, port, once: !!body.once, autoApply: !!body.autoApply, version: body.version ?? null };
       if (body.agentWaiting) state.agentWaiting = true;
+      if (body.agentParked) state.agentParked = true; // a --once serve is parked presence the files can't see
       // The endpoint keeps its boot-time version for its whole life; npm install doesn't restart
       // it. Surface the drift to the agent — it's the "0.12.1 endpoint, 0.12.2 package" trap.
       if (isRealVersion(body.version) && cmpVersions(VERSION, body.version) > 0) {

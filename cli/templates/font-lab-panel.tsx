@@ -94,6 +94,20 @@ export function FontLabDevPanel() {
     };
     rebuildCands();
 
+    // ---- "new since you last looked" ledger ----------------------------------------------
+    // Directions appended mid-session (an agent fulfilling "Get more") land at the END of the
+    // list — off-screen and silent, which dogfooding read as "nothing happened". The panel
+    // remembers which ids this tab has already shown (sessionStorage survives the reload that
+    // delivers the regenerated catalog) and badges the rest NEW until each is actually viewed.
+    const SEEN_KEY = "fontlab-seen-directions";
+    const seenIds = new Set<string>((() => {
+      try { return JSON.parse(sessionStorage.getItem(SEEN_KEY) || "[]") as string[]; } catch { return []; }
+    })());
+    if (!seenIds.size) for (const d of dirs) seenIds.add(d.id); // first mount: the whole menu is baseline, nothing is "new"
+    const newIds = new Set<string>(dirs.map((d) => d.id).filter((id) => !seenIds.has(id)));
+    const persistSeen = () => { try { sessionStorage.setItem(SEEN_KEY, JSON.stringify([...seenIds])); } catch {} };
+    persistSeen();
+
     // Every role PREVIEWS (paint reaches everything that renders). `wiring` is ship-scope
     // honesty only: a role with no live seam is badged "agent wires on ship", never disabled.
     const shipWired = (role: Role) => !!wir[role];
@@ -372,6 +386,16 @@ export function FontLabDevPanel() {
         .toc-cue { display: none; padding: 2px 14px 6px; font-size: 8.5px; letter-spacing: .1em; color: rgba(242,239,229,.45); text-align: right; width: 100%; }
         .toc-cue[data-show="true"] { display: block; }
 
+        /* "your new options landed" — the arrival signal for directions appended mid-session.
+           Click jumps to the first unseen one (or reloads when the page still runs the old catalog). */
+        .new-toast { display: block; width: calc(100% - 28px); margin: 2px 14px 8px; padding: 6px 10px; text-align: left;
+          background: rgba(231,255,59,.07); border: 1px solid rgba(231,255,59,.35); border-radius: 4px; color: #E7FF3B;
+          font-size: 10.5px; letter-spacing: .02em; cursor: pointer; }
+        .new-toast:hover { background: rgba(231,255,59,.13); }
+        .new-toast[hidden] { display: none; }
+        .toc-row .newchip { flex: none; margin-left: 6px; padding: 1px 4px; font-size: 8px; letter-spacing: .08em;
+          color: #14130d; background: #E7FF3B; border-radius: 2px; font-weight: 700; }
+
         /* "none of these — ask for more" — the in-panel demand channel */
         .more-trigger { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; padding: 7px 10px; text-align: left;
           background: none; border: 1px dashed rgba(242,239,229,.22); border-radius: 4px; color: rgba(242,239,229,.72);
@@ -534,6 +558,7 @@ export function FontLabDevPanel() {
           <span class="counter" id="counter"></span>
         </div>
         <div class="toc" id="toc"></div><button class="toc-cue" id="tocCue"></button>
+        <button class="new-toast" id="newToast" hidden></button>
         <button class="more-trigger" id="moreTrigger">None of these? Tell Font Lab what you want →</button>
         <div class="more-sheet" id="moreSheet" hidden>
           <div class="mh">What are you looking for?</div>
@@ -1120,10 +1145,36 @@ export function FontLabDevPanel() {
         const nameStyle = r.dir
           ? `style="font-family:${r.dir.roles.display.stack.replace(/"/g, "'")}"`
           : `style="font-family:${MONO};font-size:11px;color:rgba(242,239,229,.7)"`;
-        b.innerHTML = `<span class="folio">${String(i).padStart(2, "0")}</span><span class="tname" ${nameStyle}>${esc(r.name)}</span><span class="leader"></span><span class="vibe u">${esc(r.vibe)}</span>`;
+        const newChip = r.dir && newIds.has(r.id) ? `<span class="newchip">NEW</span>` : "";
+        b.innerHTML = `<span class="folio">${String(i).padStart(2, "0")}</span><span class="tname" ${nameStyle}>${esc(r.name)}</span>${newChip}<span class="leader"></span><span class="vibe u">${esc(r.vibe)}</span>`;
         b.addEventListener("click", () => selectEntry(i));
         toc.appendChild(b);
       });
+    }
+    // The arrival signal. Two modes: "jump" (unseen directions are in the list — click walks to
+    // the first one) and "reload" (the endpoint says the catalog grew, but this page still runs
+    // the old module — click reloads; the seen-ledger re-badges them on the other side).
+    function updateNewToast(pendingReload = 0) {
+      const t = $("newToast");
+      if (pendingReload > 0) {
+        t.hidden = false;
+        t.dataset.mode = "reload";
+        t.textContent = `✦ ${pendingReload} new option${pendingReload === 1 ? "" : "s"} ready — reload to see ${pendingReload === 1 ? "it" : "them"}`;
+      } else if (newIds.size) {
+        t.hidden = false;
+        t.dataset.mode = "jump";
+        t.textContent = `✦ ${newIds.size} new direction${newIds.size === 1 ? "" : "s"} arrived — view ↓`;
+      } else t.hidden = true;
+    }
+    // A direction counts as seen the moment it's actually shown — its chip drops and the toast
+    // counts down, so the badges drain as the human flips through what arrived.
+    function markSeen(id: string) {
+      if (!newIds.has(id)) return;
+      newIds.delete(id);
+      seenIds.add(id);
+      persistSeen();
+      shadow.querySelector(`.toc-row[data-fl-id="${CSS.escape(id)}"] .newchip`)?.remove();
+      updateNewToast();
     }
     function buildSpread() {
       const wrap = $("spread");
@@ -1172,6 +1223,7 @@ export function FontLabDevPanel() {
 
       const shownDirM = matchedDir(eff);
       const idx = onCurrent(eff) ? 0 : shownDirM ? dirs.indexOf(shownDirM) + 1 : -1;
+      if (idx >= 1 && dirs[idx - 1]) markSeen(dirs[idx - 1].id); // viewing a NEW direction drains its badge
       $("counter").innerHTML = (idx < 0 ? `<b>MIX</b>` : `<b>${String(idx).padStart(2, "0")}</b>`) + ` / ${String(dirs.length).padStart(2, "0")}`;
       shadow.querySelectorAll(".toc-row").forEach((r, i) => r.setAttribute("aria-current", String(i === idx)));
       updateTocCue();
@@ -1387,14 +1439,16 @@ export function FontLabDevPanel() {
         const res = await fetch(ENDPOINT + "/select", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selection) });
         state.saving = false;
         if (!res.ok) { setStatus(`Endpoint error ${res.status} — try again.`, "warn"); render(); return; }
-        let ack: { agentWaiting?: boolean; autoApply?: boolean } = {};
+        let ack: { agentWaiting?: boolean; agentParked?: boolean; autoApply?: boolean } = {};
         try { ack = await res.json(); } catch {}
         state.savedId = md ? md.id : "mixed";
         state.shipped = null;
         root.setAttribute("data-fontlab-picked", direction.id);
         $("pick").dataset.just = "true"; // one checkmark draw, then settle
         if (ack.autoApply) setStatus(`Saved — shipping “${direction.name}” now…`, "good");
-        else if (ack.agentWaiting) setStatus(`Sent to your agent ✓ — “${direction.name}” ships from here.`, "good");
+        // Only PARKED presence earns "ships from here" — a merely-recent agent acts on the
+        // human's next message, which is exactly what the unarmed copy below narrates.
+        else if (ack.agentParked ?? ack.agentWaiting) setStatus(`Sent to your agent ✓ — “${direction.name}” ships from here.`, "good");
         else {
           // Unarmed is the NORMAL case, not a failure: the pick is durable and piggybacks on the
           // agent's next Font Lab call — say so, and hand the human the exact words that trigger it.
@@ -1507,6 +1561,18 @@ export function FontLabDevPanel() {
         );
         wireCopy(brief, exclude);
       };
+      // The wake-up path: an agent EXISTS (it touched Font Lab in the last couple of minutes) but
+      // nothing is parked on this project's events — on turn-based hosts it cannot act until the
+      // human's next message. Promising "appears in a moment" here was the dogfood lie; the honest
+      // fast path is a ready-to-paste prompt that IS that next message.
+      const showWakePrompt = (brief: Record<string, string | string[]>, exclude: string[]) => {
+        setAck(
+          `<b>Saved ✓ — your agent isn't listening right now.</b> It'll compose these the next time you message it. Fastest:` +
+            `<span class="offramp"><button class="linkish" id="moreCopy">Copy the wake-up prompt →</button> then paste it into your agent's chat — it has your answers filled in.</span>`,
+          "good",
+        );
+        wireCopy(brief, exclude);
+      };
 
       $("moreSend").addEventListener("click", async () => {
         const brief = gatherBrief();
@@ -1519,9 +1585,12 @@ export function FontLabDevPanel() {
           });
           const j = await res.json().catch(() => ({}) as any);
           if (!res.ok || !j.ok) { setAck(`Couldn't send — ${esc(j.error || res.status)}.`, "warn"); return; }
-          if (j.agentWaiting) setAck("<b>Sent to your agent ✓</b> — new options will appear here in a moment.", "good");
+          // Three honest acks for three presences: parked (composing NOW — the only case that
+          // earns "in a moment"), nobody-at-all (endpoint self-serves from the catalog), or
+          // agent-exists-but-idle (hand over the wake-up prompt — it acts on the next message).
+          if (j.agentParked) setAck("<b>Sent to your agent ✓</b> — it's listening now; new options will appear here shortly.", "good");
           else if (j.selfServe) showSelfServe(brief, exclude);
-          else showOfframp(brief, exclude);
+          else showWakePrompt(brief, exclude);
         } catch {
           // endpoint down entirely — the ask was NOT saved; say so, and still give the off-ramp
           showOfframp(brief, excludeFamilies(),
@@ -1550,7 +1619,21 @@ export function FontLabDevPanel() {
     let es: EventSource | null = null;
     const handleStatus = (s: any) => {
       if (s.version) checkVersion(s.version, s.installed);
-      setConn(s.agentWaiting ? "agent" : "ready");
+      // The pill says AGENT LISTENING only for PARKED presence (a process blocked on our events).
+      // A merely-recent agent (fresh MCP heartbeat) acts on the human's next message, not now —
+      // showing "listening" for that was the dogfood lie. ?? keeps old endpoints working.
+      setConn((s.agentParked ?? s.agentWaiting) ? "agent" : "ready");
+      // The endpoint's menu count outrunning this module means fresh directions landed but the
+      // page still runs the old catalog — surface the reload toast instead of staying silent.
+      const menuCount = Number(s.menu?.count ?? 0);
+      if (menuCount > dirs.length) {
+        updateNewToast(menuCount - dirs.length);
+        const ackEl = $("moreAck");
+        if (!ackEl.hidden) {
+          ackEl.dataset.tone = "good";
+          ackEl.innerHTML = `<b>Fresh options are in ✓</b> — reload the page to flip through them.`;
+        }
+      }
       if (s.selection?.direction?.id && !state.savedId) state.savedId = s.selection.direction.id; // survive reloads
       state.shipped = s.applied ? { current: !!s.applied.current } : null;
       if (state.shipped?.current && state.savedId) {
@@ -1647,6 +1730,13 @@ export function FontLabDevPanel() {
     });
     $("toc").addEventListener("scroll", updateTocCue);
     $("tocCue").addEventListener("click", () => { $("toc").scrollBy({ top: 74, behavior: REDUCED ? "auto" : "smooth" }); });
+    $("newToast").addEventListener("click", () => {
+      if ($("newToast").dataset.mode === "reload") { location.reload(); return; }
+      const first = dirs.findIndex((d) => newIds.has(d.id));
+      if (first < 0) { updateNewToast(); return; }
+      selectEntry(first + 1); // render() marks it seen — each click walks to the next new one
+      shadow.querySelector('.toc-row[aria-current="true"]')?.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" });
+    });
     setupMore();
     const onResize = () => invalidateScan();
     addEventListener("resize", onResize);
@@ -1654,6 +1744,7 @@ export function FontLabDevPanel() {
     // ---- boot -------------------------------------------------------------------------
     buildToc();
     buildSpread();
+    updateNewToast(); // arrivals that landed via a reload announce themselves immediately
     let restored = false;
     try {
       const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null");

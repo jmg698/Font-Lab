@@ -290,12 +290,21 @@ export function pendingPick(projectDir) {
   };
 }
 
+// A parked marker is only as live as the process that wrote it — an agent host killed mid-wait
+// (an IDE reload, a SIGKILL) leaves the file behind, and trusting it would show "AGENT LISTENING"
+// forever. Signal 0 probes without sending; EPERM still means the process exists.
+const pidAlive = (pid) => {
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e?.code === "EPERM"; }
+};
+
 // One assembled snapshot of the handoff — what the panel's status pill and font_lab_status
 // both render. `applied` is only "the current pick shipped" when the stamp postdates the pick.
 export function readHandoffState(projectDir) {
   const selection = readJson(selectionPath(projectDir));
   const applied = readJson(appliedPath(projectDir));
   const waiting = readJson(waitingPath(projectDir));
+  const parked = !!waiting && (!waiting.pid || pidAlive(waiting.pid));
   const heartbeat = readJson(heartbeatPath(projectDir));
   const heartbeatFresh = heartbeat?.at && (Date.now() - heartbeat.at) < 2 * 60 * 1000;
   const appliedCurrent = !!(
@@ -309,7 +318,15 @@ export function readHandoffState(projectDir) {
       ? { direction: selection.direction ?? null, pickedAt: selection.pickedAt ?? null, roles: selection.roles ?? null }
       : null,
     applied: applied ? { ...applied, current: appliedCurrent } : null,
-    agentWaiting: !!waiting || !!heartbeatFresh,
+    // Two grades of presence, split because they promise different things. `agentParked`: a live
+    // process is blocked on this project's events RIGHT NOW (wait loop / serve --once) — "your
+    // agent is composing" is true. `agentRecent`: an MCP tool ran in the last 2 minutes — the
+    // agent exists but, on turn-based hosts, acts only when the human next messages it.
+    // Conflating them is how the panel once said "sent to your agent ✓" to nobody (see
+    // docs/DOGFOOD-REPORT.md). `agentWaiting` keeps the merged value for old consumers.
+    agentParked: parked,
+    agentRecent: !!heartbeatFresh,
+    agentWaiting: parked || !!heartbeatFresh,
     waitingSince: waiting?.since ?? null,
     request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
     // "What did Font Lab actually change?" — the deduped source files, for the commit moment.

@@ -5,7 +5,7 @@
 //   tailored directions without leaving the panel.
 
 import { spawn } from "node:child_process";
-import { mkdirSync, rmSync, existsSync, cpSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, cpSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
@@ -94,13 +94,40 @@ try {
     try {
       await sleep(500);
       assert("endpoint health up", (await get(7796, "/health")).ok === true);
+      // presence grades: a fresh MCP heartbeat means "agent nearby, NOT parked" — the panel gets
+      // the wake-prompt path (no self-serve, no "composing now" promise). Asserting request
+      // visibility HERE is deliberate: with self-serve suppressed, nothing consumes the ask.
+      writeFileSync(path.join(TMP, ".font-lab/mcp-heartbeat.json"), JSON.stringify({ at: Date.now(), pid: process.pid }) + "\n");
       const ack = await post(7796, "/request", { brief: { feeling: "bold & expressive" }, exclude: ["Inter"] });
-      // no agent parked on this serve → agentWaiting false, so the panel would show the off-ramp
-      assert("POST /request acks with presence (no agent → off-ramp)", ack.status === 200 && ack.body.ok === true && ack.body.agentWaiting === false);
+      assert(
+        "fresh heartbeat → wake-prompt path (recent, not parked, no self-serve)",
+        ack.status === 200 && ack.body.ok === true && ack.body.agentParked === false && ack.body.agentRecent === true && ack.body.selfServe === false && ack.body.agentWaiting === false,
+        JSON.stringify(ack.body),
+      );
       const st = await get(7796, "/status");
       assert("/status surfaces the pending request", st.request?.brief?.feeling === "bold & expressive");
+      assert("/status carries both presence grades", st.agentParked === false && st.agentRecent === true);
       const rq = await get(7796, "/request");
       assert("GET /request returns the saved ask", rq.status === "pending" && rq.exclude.includes("Inter"));
+
+      // a parked marker whose process is DEAD must not count as a listening agent — an agent
+      // host killed mid-wait leaves the file behind, and it must not show "AGENT LISTENING"
+      const dead = spawn(process.execPath, ["-e", ""]);
+      await new Promise((resolve) => dead.on("exit", resolve));
+      writeFileSync(path.join(TMP, ".font-lab/agent-waiting.json"), JSON.stringify({ since: new Date().toISOString(), pid: dead.pid }) + "\n");
+      const st2 = await get(7796, "/status");
+      assert("dead-pid waiting marker is not parked presence", st2.agentParked === false, JSON.stringify({ agentParked: st2.agentParked }));
+      rmSync(path.join(TMP, ".font-lab/agent-waiting.json"), { force: true });
+      rmSync(path.join(TMP, ".font-lab/mcp-heartbeat.json"), { force: true });
+
+      // no agent anywhere → the ack engages self-serve so the click never dead-ends (the async
+      // fulfillment may consume the request afterwards — by design — so only the ack is asserted)
+      const ack2 = await post(7796, "/request", { brief: { note: "again" }, exclude: [] });
+      assert(
+        "POST /request acks with presence (no agent → self-serve engaged)",
+        ack2.status === 200 && ack2.body.ok === true && ack2.body.agentWaiting === false && ack2.body.agentParked === false && ack2.body.agentRecent === false && ack2.body.selfServe === true,
+        JSON.stringify(ack2.body),
+      );
     } finally {
       child.kill();
     }
