@@ -81,8 +81,8 @@ export function start(projectDir) {
   const previewShip = cap.livePanel
     ? "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
     : cap.autoApply
-      ? `the live in-app panel is Next-only, so screenshot the directions for the human (\`capture_directions\`), record their pick (\`select_direction\`), then \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
-      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}); screenshot the directions, record the pick, then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
+      ? `the live in-app panel is Next-only, so SKIP init: build the portable preview instead (\`font_lab_preview\` — a self-contained HTML sheet; show it to the human, or screenshot it with \`font_lab_preview_screenshots\`), record their pick (\`font_lab_select\`), then \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
+      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}); still build the portable preview (\`font_lab_preview\`), record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
   return {
     analysis,
     capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
@@ -789,7 +789,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   if (!analysis.supported)
     throw new Error(
       analysis.applyMode === "css-entry"
-        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still ships: compose → capture_directions (screenshot preview) → select_direction → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
+        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still ships: compose → font_lab_preview (portable HTML sheet; screenshot it with font_lab_preview_screenshots) → font_lab_select → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
         : `project not supported yet: ${analysis.reasons.join("; ")}`,
     );
   const appDir = resolveAppDir(dir);
