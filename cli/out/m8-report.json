@@ -93,11 +93,31 @@
       "pass": true
     },
     {
-      "name": "screenshot: captures one image per card",
+      "name": "specimen: labels stock copy + signposts the real-site preview",
       "pass": true
     },
     {
-      "name": "screenshot: render check ran (summary present)",
+      "name": "specimen: no stock-copy label when project copy is present",
+      "pass": true
+    },
+    {
+      "name": "preview: a Vite project's own copy reaches the sheet",
+      "pass": true
+    },
+    {
+      "name": "preview: no stock-copy label when the project's words were found",
+      "pass": true
+    },
+    {
+      "name": "paintPlan: display paints the heading voice with its parity stack",
+      "pass": true
+    },
+    {
+      "name": "paintPlan: body→body, mono→label (the panel's own voice map)",
+      "pass": true
+    },
+    {
+      "name": "paintPlan: a family with no built stack stays null (reported, never faked)",
       "pass": true
     }
   ]

@@ -107,7 +107,17 @@ export function gatherContext(projectDir) {
   const dir = path.resolve(projectDir);
   const app = appDir(dir);
 
-  const css = read(path.join(app, "globals.css")) || read(path.join(dir, "app/globals.css")) || read(path.join(dir, "src/app/globals.css"));
+  const css =
+    read(path.join(app, "globals.css")) ||
+    read(path.join(dir, "app/globals.css")) ||
+    read(path.join(dir, "src/app/globals.css")) ||
+    // Vite / Astro / SvelteKit conventions — a non-Next project has palette signals too.
+    read(path.join(dir, "src/index.css")) ||
+    read(path.join(dir, "src/style.css")) ||
+    read(path.join(dir, "src/styles.css")) ||
+    read(path.join(dir, "src/app.css")) ||
+    read(path.join(dir, "src/styles/global.css")) ||
+    read(path.join(dir, "src/styles/globals.css"));
   const tw = ["tailwind.config.ts", "tailwind.config.js", "tailwind.config.mjs", "tailwind.config.cjs"].map((f) => read(path.join(dir, f))).join("\n");
   const colors = extractColors(css + "\n" + tw);
 
@@ -117,8 +127,30 @@ export function gatherContext(projectDir) {
   } catch {}
   const designDocs = pickDesignDocs(rootFiles).map((n) => ({ file: n, excerpt: read(path.join(dir, n)).slice(0, 600).trim() }));
 
-  const page = read(path.join(app, "page.tsx")) || read(path.join(app, "page.jsx"));
-  const copySample = sampleCopy(page);
+  // The files most likely to carry the site's visible copy, across framework conventions —
+  // Next's app-router page, then Vite/CRA App components, Astro/Svelte index pages, then a plain
+  // index.html (sampleCopy's `>text<` regex reads HTML as happily as JSX). Sampled in order
+  // until we have enough lines. Next-only candidates here previously meant a Vite site's
+  // specimen sheet silently fell back to stock copy — its own words were sitting in src/App.tsx.
+  const COPY_CANDIDATES = [
+    path.join(app, "page.tsx"),
+    path.join(app, "page.jsx"),
+    path.join(dir, "src/App.tsx"),
+    path.join(dir, "src/App.jsx"),
+    path.join(dir, "src/App.vue"),
+    path.join(dir, "src/App.svelte"),
+    path.join(dir, "src/pages/index.astro"),
+    path.join(dir, "src/routes/+page.svelte"),
+    path.join(dir, "index.html"),
+  ];
+  const copySample = [];
+  for (const cand of COPY_CANDIDATES) {
+    if (copySample.length >= 6) break;
+    for (const line of sampleCopy(read(cand))) {
+      if (copySample.length >= 6) break;
+      if (!copySample.includes(line)) copySample.push(line);
+    }
+  }
 
   return {
     colors,
