@@ -31,11 +31,11 @@ The taste engine, shippability gate, portable preview, and screenshots work on *
 
 | Your stack | Preview | Auto-ship |
 |---|---|---|
-| **Next.js App Router + Tailwind v4** | live in-app panel + portable sheet | `next/font` + Tailwind codegen |
-| **Any framework + Tailwind v4** (Vite, Astro, Remix, SvelteKit, TanStack, …) | portable HTML sheet + screenshots | self-hosted `@font-face` + `@theme` role map in your CSS entry |
-| **Any framework + Tailwind v3** (fonts in `tailwind.config` `fontFamily`) | portable HTML sheet + screenshots | self-hosted `@font-face` + utility/Preflight overrides in your CSS entry |
-| **No Tailwind, fonts routed through CSS variables** (`--font-body`, `--fd`, …) | portable HTML sheet + screenshots | self-hosted `@font-face` + your own font vars repointed |
-| **No seam** (hardcoded `font-family`, CSS-in-JS) | portable HTML sheet + screenshots | hand-apply: Font Lab generates the block, you paste it |
+| **Next.js App Router + Tailwind v4** | live in-app panel + real-site screenshots | `next/font` + Tailwind codegen |
+| **Any framework + Tailwind v4** (Vite, Astro, Remix, SvelteKit, TanStack, …) | real-site screenshots (headless paint) + portable sheet | self-hosted `@font-face` + `@theme` role map in your CSS entry |
+| **Any framework + Tailwind v3** (fonts in `tailwind.config` `fontFamily`) | real-site screenshots (headless paint) + portable sheet | self-hosted `@font-face` + utility/Preflight overrides in your CSS entry |
+| **No Tailwind, fonts routed through CSS variables** (`--font-body`, `--fd`, …) | real-site screenshots (headless paint) + portable sheet | self-hosted `@font-face` + your own font vars repointed |
+| **No seam** (hardcoded `font-family`, CSS-in-JS) | real-site screenshots (headless paint) + portable sheet | hand-apply: Font Lab generates the block, you paste it |
 
 Every auto-ship path is fenced, idempotent, and reversible (`font-lab undo`). **Agents:** read `capabilities` + `shipNote` from `font_lab_analyze` — a non-Next stack is a different route through the same loop, never a reason to stop.
 
@@ -70,7 +70,7 @@ The Font Lab panel sits on top of your running site — your real pages, your re
 
 The panel runs headless too: the agent screenshots your site in each direction and shows you the images in chat. Works on a phone, on the web, anywhere your agent runs.
 
-The live panel is Next-only. On every other framework the choosing moment is the **portable preview**: a self-contained HTML sheet (fonts embedded, opens offline) rendering each direction on your own palette, with verified screenshots for chat-based picking.
+The live panel is Next-only — but the **real-site preview isn't**. On every other framework, Font Lab paints your actual running pages in each direction (the same render-first census machinery the panel flips with, injected headlessly — no scaffolding, no source writes) and hands you verified screenshots to pick from. With no dev server at all, the fallback is the **portable preview**: a self-contained HTML specimen sheet (fonts embedded, opens offline) on your own palette and copy — clearly labeled as specimen cards, never passed off as your pages.
 
 ## Honesty
 

@@ -94,6 +94,10 @@ const DEFAULT_COPY = {
 export function buildSpecimenHtml({ directions = [], faceCss = "", palette = {}, copy = {}, title = "Font Lab" } = {}) {
   const p = { ...DEFAULT_PALETTE, ...palette };
   const c = { ...DEFAULT_COPY, ...copy };
+  // No project copy found → the cards render Font Lab's stock specimen text. Say so ON THE SHEET:
+  // silently passing stock copy off as "your site" is the bait-and-switch the honesty contract
+  // forbids, and the real-site alternative (screenshot_directions) deserves a signpost.
+  const stockCopy = !copy || !copy.headline;
   // buildParityBundles returns faceCss as an ARRAY of @font-face rules — join with newlines, NOT
   // the comma a bare `${array}` would produce (a comma between @font-face rules is invalid CSS and
   // silently drops every rule after the first).
@@ -177,7 +181,7 @@ body { margin:0; background:var(--bg); color:var(--fg); -webkit-font-smoothing:a
     <div><span class="brand">${esc(title)}</span> <span class="sub">choosing sheet · fonts embedded, opens offline</span></div>
     <div id="fl-render-summary">verifying…</div>
   </div>
-  <div class="hint">Each card renders the same copy in one direction — Display · Body · Mono. Scroll to compare, then tell the agent which id to ship. The badge on each card is a live render check (not a fonts.check false-positive).</div>
+  <div class="hint">Each card renders the same copy in one direction — Display · Body · Mono. Scroll to compare, then tell the agent which id to ship. The badge on each card is a live render check (not a fonts.check false-positive).${stockCopy ? " ⚠ These cards use Font Lab's SPECIMEN COPY (no project copy was found) — they show the faces, not your pages. For previews on your real running site, have the agent run font_lab_screenshot_directions against your dev server (works on any framework)." : ""}</div>
   ${directions.map((d, i) => card(d, i)).join("\n")}
 </div>
 <script>window.__FL_FACES = ${JSON.stringify(faces)};</script>

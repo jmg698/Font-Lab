@@ -263,24 +263,25 @@ const TOOLS = [
   {
     name: "font_lab_screenshot_directions",
     description:
-      "HEADLESS pick mode — when the human has no live browser to flip in (a web/cloud session, or they're on a phone), screenshot the running site in each curated direction so they can pick from IMAGES instead of a live panel. Requires font_lab_init done and the project's dev server running; pass its baseUrl (e.g. http://localhost:3000). Returns a manifest of {id, name, vibe, rationale, fonts, screenshot path} per direction (plus a 'current' before-shot) — SHOW these images to the human and ask them to pick an id. The screenshots are driven through the real preview panel, so they are faithful to what ships. Makes no edits.",
+      "Screenshot the human's REAL RUNNING SITE in each curated direction — the headless choosing moment, and it works on ANY framework. On Next.js with the panel init'd it drives the panel; on every other stack (Vite / Astro / Remix / SvelteKit / TanStack / plain CSS) it paints the rendered page directly through the census — the same machinery the panel flips with — after injecting the parity @font-face inline (no init, no project writes). Requires only the project's dev server running; pass its baseUrl (e.g. http://localhost:3000 or :5173). Returns a manifest of {id, name, vibe, rationale, fonts, screenshot path} per direction (plus a 'current' before-shot) — SHOW these images to the human and ask them to pick an id. PREFER THIS over font_lab_preview whenever a dev server is available or startable: these are their actual pages, not specimen cards. Makes no edits.",
     inputSchema: {
       type: "object",
       properties: {
         projectDir: proj,
-        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000. Optional: defaults to the dev server the panel last reported (recorded whenever the panel is open with the endpoint up)." },
+        baseUrl: { type: "string", description: "The running dev server URL, e.g. http://localhost:3000 or :5173. Optional on Next (the panel reports it once opened); pass it explicitly elsewhere." },
+        directions: { type: "array", items: { type: "object" }, description: "The directions to capture (from compose_directions). Defaults to the prepared preview set (.font-lab/preview.json) when present — never silently the starter menu." },
         routes: { type: "array", items: { type: "string" }, description: "Route(s) to capture; defaults to ['/']." },
         outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
         executablePath: { type: "string", description: "Optional path to a Chrome/Chromium binary. Usually unnecessary — it finds a system/pre-installed browser automatically." },
       },
       required: ["projectDir"],
     },
-    handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, routes: a.routes, outDir: a.outDir, executablePath: a.executablePath }),
+    handler: (a) => engine.captureDirections(a.projectDir, { baseUrl: a.baseUrl, directions: a.directions, routes: a.routes, outDir: a.outDir, executablePath: a.executablePath, log }),
   },
   {
     name: "font_lab_preview",
     description:
-      "Build a self-contained HTML 'choosing sheet' — one card per direction, the parity fonts EMBEDDED (opens offline), rendered on the project's own palette. This is the PORTABLE preview: it works on ANY framework (TanStack/Vite/Astro/plain), needs no dev server and no in-app panel — the right choice whenever the live panel isn't available (i.e. any non-Next project, or a web/cloud/phone session). Pass the `directions` you composed. Returns the HTML file path — SHOW it to the human (or open it) and have them pick an id. Each card carries a live render-check badge: a real width-diff that catches a font that silently failed to load, NOT a fonts.check false-positive. Fetches + inlines the fonts. Then select_direction → apply.",
+      "Build a self-contained HTML 'choosing sheet' — one card per direction, the parity fonts EMBEDDED (opens offline), rendered on the project's own palette and copy (when found; the sheet labels itself honestly when it had to fall back to stock specimen text). This is the NO-DEV-SERVER fallback: it works on ANY framework and needs nothing running — the right choice when no dev server can start, or the human wants an offline artifact. These are SPECIMEN CARDS, not the human's pages: when a dev server is running (any framework), prefer font_lab_screenshot_directions — it screenshots their REAL site per direction. Pass the `directions` you composed. Returns the HTML file path — SHOW it to the human (or open it) and have them pick an id. Each card carries a live render-check badge: a real width-diff that catches a font that silently failed to load, NOT a fonts.check false-positive. Fetches + inlines the fonts. Then select_direction → apply.",
     inputSchema: {
       type: "object",
       properties: {

@@ -106,6 +106,40 @@ try {
   assert("engine: exports previewSpecimen + screenshotSpecimen", typeof engine.previewSpecimen === "function" && typeof engine.screenshotSpecimen === "function");
 
   // =================================================================== //
+  //  2b — honesty: stock specimen copy is LABELED, never passed off     //
+  //       as the human's site (and real project copy turns it off)      //
+  // =================================================================== //
+  assert("specimen: labels stock copy + signposts the real-site preview", /SPECIMEN COPY/.test(html) && /font_lab_screenshot_directions/.test(html));
+  const withCopy = buildSpecimenHtml({ directions: DIRS, faceCss, copy: { headline: "Real headline from their site", paragraph: "Real body text." } });
+  assert("specimen: no stock-copy label when project copy is present", !/SPECIMEN COPY/.test(withCopy) && /Real headline from their site/.test(withCopy));
+
+  // A Vite project whose copy lives in src/App.tsx (no app/page.tsx anywhere): the sheet must
+  // render THEIR words — the copy extractor is no longer Next-shaped.
+  const viteCopy = scaffold("vite-copy", {
+    "package.json": PKG({ vite: "^6", react: "^19", tailwindcss: "^4" }),
+    "src/index.css": `@import "tailwindcss";\n:root{--background:#ffffff;--foreground:#111111;}`,
+    "src/App.tsx": `export default function App(){return(<main><h1>Driven by curiosity, grounded in human experience</h1><p>A study tool that reads your handwriting and turns it into practice.</p></main>)}`,
+    "index.html": `<!doctype html><html><body><div id="root"></div></body></html>`,
+  });
+  const rvc = await engine.previewSpecimen(viteCopy, { directions: dirsFor("Archivo"), fetch: false, inline: false });
+  const vcHtml = readFileSync(rvc.path, "utf8");
+  assert("preview: a Vite project's own copy reaches the sheet", /Driven by curiosity/.test(vcHtml));
+  assert("preview: no stock-copy label when the project's words were found", !/SPECIMEN COPY/.test(vcHtml));
+
+  // =================================================================== //
+  //  2c — paintPlanFor: panel-free capture flips the SAME voices the    //
+  //       panel does (display→heading, body→body, mono→label)           //
+  // =================================================================== //
+  const plan = engine.paintPlanFor(
+    { id: "p", roles: { display: { family: "Archivo" }, body: { family: "Hanken Grotesk" }, mono: { family: "Spline Sans Mono" } } },
+    { Archivo: "'FL Archivo', sans-serif", "Hanken Grotesk": "'FL Hanken Grotesk', sans-serif" },
+  );
+  const planFor = (role) => plan.find((e) => e.role === role);
+  assert("paintPlan: display paints the heading voice with its parity stack", planFor("display").voice === "heading" && /FL Archivo/.test(planFor("display").stack));
+  assert("paintPlan: body→body, mono→label (the panel's own voice map)", planFor("body").voice === "body" && planFor("mono").voice === "label");
+  assert("paintPlan: a family with no built stack stays null (reported, never faked)", planFor("mono").stack === null);
+
+  // =================================================================== //
   //  3 — (gated) headless render + verify, if Playwright is present     //
   // =================================================================== //
   let pw = null;

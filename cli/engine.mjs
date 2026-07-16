@@ -81,8 +81,8 @@ export function start(projectDir) {
   const previewShip = cap.livePanel
     ? "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
     : cap.autoApply
-      ? `the live in-app panel is Next-only, so SKIP init: build the portable preview instead (\`font_lab_preview\` — a self-contained HTML sheet; show it to the human, or screenshot it with \`font_lab_preview_screenshots\`), record their pick (\`font_lab_select\`), then \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
-      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}); still build the portable preview (\`font_lab_preview\`), record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
+      ? `the live in-app panel is Next-only, so SKIP init — but the REAL-SITE preview still works here: with the dev server running, \`font_lab_screenshot_directions\` screenshots your actual pages in each direction (census paint — no panel, no project writes). No dev server? \`font_lab_preview\` builds the portable specimen sheet (+ \`font_lab_preview_screenshots\` for chat). Then record the pick (\`font_lab_select\`) and \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
+      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}) — but previews still work: \`font_lab_screenshot_directions\` paints the REAL running site per direction (any framework, dev server required), or \`font_lab_preview\` with no dev server. Record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
   return {
     analysis,
     capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
@@ -392,7 +392,9 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
     directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
     nextStep:
       "Open the HTML (it's self-contained — fonts embedded, opens offline) and have the human compare. " +
-      "Each card has a live render-check badge. Then record the pick with select_direction and ship with apply.",
+      "Each card has a live render-check badge. Then record the pick with select_direction and ship with apply. " +
+      "NOTE: these are specimen cards, not the human's pages — when a dev server is running (any framework), " +
+      "prefer font_lab_screenshot_directions: it screenshots the REAL site in each direction.",
   };
 }
 
@@ -789,7 +791,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   if (!analysis.supported)
     throw new Error(
       analysis.applyMode === "css-entry"
-        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still ships: compose → font_lab_preview (portable HTML sheet; screenshot it with font_lab_preview_screenshots) → font_lab_select → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
+        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still previews AND ships: compose → font_lab_screenshot_directions (screenshots your REAL running site per direction — needs only the dev server, no panel) or font_lab_preview (portable specimen sheet when no dev server) → font_lab_select → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
         : `project not supported yet: ${analysis.reasons.join("; ")}`,
     );
   const appDir = resolveAppDir(dir);
@@ -1104,21 +1106,115 @@ async function launchBrowser(chromium, { executablePath } = {}) {
   );
 }
 
-// Headless capture: drive the REAL live panel through each direction and screenshot the site, so
-// the images are faithful to what ships. Requires init() done and a dev server running at baseUrl.
-// Makes no project edits — it only reads the running site. Returns a manifest the agent shows.
-export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath } = {}) {
-  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
-  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000) — none recorded yet (the panel reports it once opened with the endpoint up)");
+// The per-direction paint plan: which census voice gets which family's stack. Pure + exported
+// for tests — this bridge is what keeps panel-free capture identical to the panel's own flips
+// (same role→voice map, same parity stacks), so the images stay faithful to what ships.
+const PAINT_VOICE = { display: "heading", body: "body", mono: "label" };
+export function paintPlanFor(direction, stacks) {
+  return ROLES.map((role) => {
+    const fam = direction.roles?.[role]?.family ?? direction[role] ?? null;
+    return { role, voice: PAINT_VOICE[role], family: fam, stack: fam ? stacks[fam] || null : null };
+  });
+}
+
+// Headless capture WITHOUT the panel — the real-site preview for every non-Next framework.
+// Injects the parity @font-face (base64-inlined; zero project writes, no dev-server asset
+// dependency), then paints the RENDERED page per direction through the census — the exact
+// machinery the Next panel flips with — and screenshots it. Requires only the dev server.
+async function capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch = true, log } = {}) {
+  await ensureAdmitted(dir, dirs);
+  const families = [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles?.[r]?.family ?? d[r]).filter(Boolean)))];
+  const inline = fetch !== false; // offline builds can't inline bytes — fall back to /fontlab URLs
+  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, specFor: mergedSpecFor(dir), log });
+  const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
   const chromium = await loadChromium();
+  const { browser, via } = await launchBrowser(chromium, { executablePath });
+  try {
+    // bypassCSP: a strict dev CSP must not block the injected faces or the census (verifyShip's
+    // finding) — the paint is measurement-grade, not a page mutation the site should police.
+    const ctx = await browser.newContext({ bypassCSP: true, viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
+    await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
+    await page.waitForTimeout(400); // hydration settle (same rationale as verifyShip)
+    await page.addStyleTag({ content: faceCss.join("\n") });
+    await page.addScriptTag({ content: censusSrc });
+    // Load-verify every parity face up front via fonts.load (which actually fetches, unlike the
+    // fonts.check false-positive trap) — an unloadable face is REPORTED, never screenshotted as
+    // if it were the real thing.
+    const flFaces = Object.values(stacks).map((s) => (String(s).match(/'([^']+)'/) || [])[1]).filter(Boolean);
+    const facesLoaded = await page.evaluate(async (names) => {
+      const outMap = {};
+      for (const n of names) {
+        try { outMap[n] = (await document.fonts.load(`16px "${n}"`)).length > 0; } catch { outMap[n] = false; }
+      }
+      return outMap;
+    }, flFaces);
+    await page.evaluate(() => { window.__flCensus.census(); });
+
+    const shots = [];
+    const curPath = path.join(out, "current.png");
+    await page.screenshot({ path: curPath, fullPage });
+    shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", screenshot: curPath });
+
+    for (const d of dirs) {
+      const plan = paintPlanFor(d, stacks);
+      await page.evaluate((entries) => {
+        for (const e of entries) window.__flCensus.paintVoice(e.voice, e.stack);
+      }, plan);
+      await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
+      await page.waitForTimeout(350);
+      const file = path.join(out, `${d.id}.png`);
+      await page.screenshot({ path: file, fullPage });
+      await page.evaluate(() => window.__flCensus.clearPaint());
+      shots.push({
+        id: d.id,
+        name: d.name,
+        vibe: d.vibe,
+        rationale: d.rationale,
+        fonts: Object.fromEntries(plan.map((e) => [e.role, e.family])),
+        screenshot: file,
+      });
+    }
+    return {
+      baseUrl: base,
+      route,
+      outDir: out,
+      browser: via,
+      mode: "painted",
+      note: "No panel needed on this stack: the REAL rendered page was painted per direction through the census (the same machinery the Next panel flips with), with the parity @font-face injected inline — faithful to what ships, zero project writes.",
+      facesLoaded,
+      shots,
+      live: liveInstructions(dir),
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
+// Headless capture: screenshot the REAL running site in each direction — the images the human
+// picks from, faithful to what ships. On Next with the panel init'd it drives the panel; on any
+// other framework it paints the rendered page directly (capturePainted). Requires only a dev
+// server at baseUrl. Makes no project edits. Returns a manifest the agent shows.
+export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath, fetch = true, log } = {}) {
+  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
+  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000 or :5173) — start it as a background task and pass its URL. (On Next the panel auto-reports it once opened with the endpoint up; elsewhere pass it explicitly.)");
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, {});
+  // Direction default: the PREPARED preview set first (the tailored menu the human is already
+  // browsing), never straight to the deterministic starter spread — capturing the wrong menu
+  // silently recreates the "options were never tailored" trap.
+  const prepared = readPreviewSet(dir);
+  const dirs = directions && directions.length ? directions : prepared.length ? prepared : fallbackDirections(dir, analysis, {});
   const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
   const base = baseUrl.replace(/\/+$/, "");
   const route = routes[0] || "/";
 
+  // No live panel on this stack? Paint the real page headlessly — same images, no init needed.
+  if (!analysis.capabilities.livePanel) return capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch, log });
+
+  const chromium = await loadChromium();
   const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
     const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
@@ -1127,7 +1223,9 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
     // out. We gate readiness on the panel mounting + fonts being ready instead, which is what we
     // actually need for a faithful shot.
     await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
-    await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 });
+    await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 }).catch(() => {
+      throw new Error(`no Font Lab panel at ${base + route} — run font_lab_init (then reload the page) first; the panel mounts dev-only`);
+    });
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
@@ -1175,7 +1273,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
         screenshot: file,
       });
     }
-    return { baseUrl: base, route, outDir: out, browser: via, shots, live: liveInstructions(dir) };
+    return { baseUrl: base, route, outDir: out, browser: via, mode: "panel", shots, live: liveInstructions(dir) };
   } finally {
     await browser.close();
   }

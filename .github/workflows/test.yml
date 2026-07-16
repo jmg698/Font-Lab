@@ -56,3 +56,9 @@ jobs:
 
       - name: M7 — multi-framework css-entry branch (Vite/Astro/TanStack, Tailwind v4/v3, var-wired)
         run: node m7-test.mjs
+
+      - name: M8 — portable choosing sheet + panel-free paint plan (specimen honesty, context extraction)
+        run: node m8-test.mjs
+
+      - name: Context — project palette/copy extraction across framework conventions
+        run: node context-test.mjs

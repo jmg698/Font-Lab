@@ -48,4 +48,24 @@ try {
   rmSync(TMP, { recursive: true, force: true });
 }
 
+// gatherContext on a VITE-shaped project — copy + colors come from Vite conventions, not app/.
+// (Next-only candidates here previously meant a Vite site's specimen sheet fell back to stock
+// copy while its own words sat in src/App.tsx.)
+const VITE = mkdtempSync(path.join(os.tmpdir(), "fl-ctx-vite-"));
+try {
+  mkdirSync(path.join(VITE, "src"), { recursive: true });
+  writeFileSync(path.join(VITE, "src/index.css"), ":root{--brand:#ff3b30;--bg:#0b0b0b}");
+  writeFileSync(
+    path.join(VITE, "src/App.tsx"),
+    `export default function App(){return(<main><h1>Driven by curiosity, grounded in human experience</h1><p>A study tool that reads your handwriting</p></main>)}`,
+  );
+  writeFileSync(path.join(VITE, "index.html"), `<!doctype html><html><head><title>x</title></head><body><h2>Made with patience and strong coffee</h2></body></html>`);
+  const vctx = gatherContext(VITE);
+  ok(vctx.copySample.some((l) => /Driven by curiosity/.test(l)), "Vite: copy sampled from src/App.tsx");
+  ok(vctx.copySample.some((l) => /strong coffee/.test(l)), "Vite: index.html copy merged in (until the cap)");
+  ok(vctx.colors.some((c) => c.name === "--brand"), "Vite: colors read from src/index.css");
+} finally {
+  rmSync(VITE, { recursive: true, force: true });
+}
+
 console.log(`\ncontext: ${pass} checks passed`);

@@ -62,8 +62,10 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    its `capabilities`, never by framework name** — a non-Next stack is a different route through
    the same loop, not a reason to stop: `livePanel: true` → the live-panel path (`init`);
    `autoApply: true` with `livePanel: false` — Vite / Astro / Remix / SvelteKit / TanStack /
-   Tailwind v3 / var-wired plain CSS — → same loop, but skip `init` and preview with the portable
-   `font_lab_preview`; `apply` still ships, via self-hosted `@font-face` through the project's own
+   Tailwind v3 / var-wired plain CSS — → same loop, but skip `init` and preview on the REAL site
+   with `font_lab_screenshot_directions` (needs only the dev server — no panel; the portable
+   `font_lab_preview` is the no-dev-server fallback); `apply` still ships, via self-hosted
+   `@font-face` through the project's own
    seam. Only `manualApply: true` (no seam: hardcoded `font-family`, CSS-in-JS) means no
    auto-ship — still compose + preview + record the pick, then hand the human the generated block
    for `capabilities.applyTarget`. `shipNote` names the path in one line — relay it to the user.)
@@ -80,7 +82,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    > **Which framework?** Check `analyze`'s `capabilities`. On **Next.js App Router** you get the
    > live in-app panel (`livePanel: true`) — use the `init` path below. On **any other framework**
    > (TanStack / Vite / Astro / Remix / SvelteKit / … — `livePanel: false`), the panel can't mount:
-   > **skip `init`** and use the portable **`font_lab_preview`** in step 4 instead. Either way the
+   > **skip `init`** — preview with **`font_lab_screenshot_directions`** (their real site, any
+   > framework, dev server running) or the portable **`font_lab_preview`** (no dev server) in
+   > step 4. Either way the
    > pick ships with `font_lab_apply` (next/font on Next; self-hosted `@font-face` elsewhere —
    > routed through Tailwind v4's `@theme`, Tailwind v3's config utilities + Preflight base, or
    > the project's own CSS font vars, whichever the stack actually uses).
@@ -104,21 +108,15 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      human a ready-to-paste **wake-up prompt** instead of pretending you're composing — receiving one
      (it starts "In this project… the human wants MORE font options") means exactly: compose for the
      brief it carries, then `font_lab_more_directions`.
-4. **The choosing moment** — pick the path that fits where you're running.
+4. **The choosing moment** — pick the path that fits where you're running. The ladder, best
+   first: the human's own browser beats screenshots, and their **real site** beats specimen
+   cards. **Never present specimen cards as "the preview" while a dev server is running or
+   startable** — the human is choosing fonts for THEIR pages, so show them their pages.
 
-   - **Portable (works on ANY framework, no dev server — the default off Next):**
-     `font_lab_preview({ projectDir, directions })` builds a single self-contained HTML sheet — one
-     card per direction, the parity fonts **embedded** (opens offline), rendered on the project's
-     own palette. **Show the human that file** (or open it) and ask them to pick an id. Each card
-     has a live **render-check badge** (a real width-diff — it flags a font that silently fell back,
-     unlike `document.fonts.check`). Want verified screenshots too (cloud/web/phone sessions)?
-     `font_lab_preview_screenshots` renders the sheet headlessly — one render-checked PNG per
-     direction — so you can show the options in chat. Record the pick with `font_lab_select`.
-
-   The two paths below need Next's live panel (`init`) + a running dev server — start it in the
+   The live path needs Next's live panel (`init`) + a running dev server — start it in the
    background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
 
-   - **Live (best — when the human has a real browser on this machine):** you're in a local
+   - **Live (best — Next only, when the human has a real browser on this machine):** you're in a local
      terminal / IDE (Mac or Linux terminal, VS Code, Cursor, the Claude Code IDE extension).
      Also start the pick endpoint. Then **ARM FIRST, INVITE SECOND**: the LAST thing you do
      before telling the human to open their site is enter the listen state (table below).
@@ -144,12 +142,32 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by
      default; pass `--host 0.0.0.0` only if the human wants to flip from another device.
 
-   - **Headless (when there's NO live browser for the human — a web/cloud session, or they're on
-     a phone):** call `font_lab_screenshot_directions({ projectDir, baseUrl })`. It drives the
-     real panel and screenshots the site in each direction (faithful to what ships). **Show those
-     images to the human** and ask them to pick an id. Record it with
-     `font_lab_select({ projectDir, directionId })` (supports a mixed pick via `roles`). You are
-     still only preparing the menu — **the human makes the call.**
+   - **Headless real-site screenshots (ANY framework — needs only the running dev server):**
+     call `font_lab_screenshot_directions({ projectDir, baseUrl })`. On Next (panel init'd) it
+     drives the real panel; on **every other framework** it paints the rendered page through the
+     census — the same machinery the panel flips with — with the parity fonts injected inline
+     (no `init`, no project writes). Either way the images are the human's **actual pages** in
+     each direction, faithful to what ships. **Show those images to the human** and ask them to
+     pick an id. Record it with `font_lab_select({ projectDir, directionId })` (supports a mixed
+     pick via `roles`). You are still only preparing the menu — **the human makes the call.**
+     This is the default choosing moment off Next, and the right path for web/cloud/phone
+     sessions: start the dev server as a background task and use it.
+
+   - **Portable sheet (no dev server at all):** `font_lab_preview({ projectDir, directions })`
+     builds a single self-contained HTML sheet — one card per direction, the parity fonts
+     **embedded** (opens offline), rendered on the project's own palette and copy (when it can be
+     found). Each card has a live **render-check badge** (a real width-diff — it flags a font
+     that silently fell back, unlike `document.fonts.check`), and
+     `font_lab_preview_screenshots` renders the sheet headlessly for chat. Record the pick with
+     `font_lab_select`. These are **specimen cards** — real faces, honest render check, but not
+     the human's pages (the sheet labels itself when it had to fall back to stock copy). Reach
+     for it only when no dev server can run, or the human wants an offline artifact to keep.
+
+   - **No browser anywhere?** (headless capture can't launch a Chromium and the human can't open
+     an HTML file): every css-entry apply is fenced and byte-reversible, so a scripted
+     `font_lab_select → font_lab_apply → human looks at the dev server → font_lab_undo`, one
+     direction at a time, is a sanctioned last resort. Verify `git status` is clean when
+     finished, and never leave a direction applied without the human's explicit pick.
 
    Always offer the live escape hatch: if the screenshots aren't enough and the human wants to
    flip/mix/compare themselves, give them `font_lab_live_instructions({ projectDir })` —
