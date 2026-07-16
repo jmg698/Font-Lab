@@ -209,6 +209,110 @@
       "pass": true
     },
     {
+      "name": "tw3: framework vite / Tailwind v3",
+      "pass": true
+    },
+    {
+      "name": "tw3: wiring tailwind-config",
+      "pass": true
+    },
+    {
+      "name": "tw3: display named from the `heading` config key",
+      "pass": true
+    },
+    {
+      "name": "tw3: body named from the `sans` config key",
+      "pass": true
+    },
+    {
+      "name": "tw3: mono named from the `mono` config key",
+      "pass": true
+    },
+    {
+      "name": "tw3: index.html <link> fonts land in currentFamilies",
+      "pass": true
+    },
+    {
+      "name": "tw3: applyMode css-entry via tailwind-v3",
+      "pass": true
+    },
+    {
+      "name": "tw3: shipNote names the tw3 override path",
+      "pass": true
+    },
+    {
+      "name": "tw3: apply via tw3-utilities",
+      "pass": true
+    },
+    {
+      "name": "tw3: self-hosts @font-face for the pick",
+      "pass": true
+    },
+    {
+      "name": "tw3: overrides Preflight base (html) with the body stack",
+      "pass": true
+    },
+    {
+      "name": "tw3: overrides the project's own font-heading utility",
+      "pass": true
+    },
+    {
+      "name": "tw3: overrides the default font-sans + font-mono utilities",
+      "pass": true
+    },
+    {
+      "name": "tw3: writes NO @theme block (v3 has none)",
+      "pass": true
+    },
+    {
+      "name": "tw3: fence lands after the @tailwind directives (source order wins)",
+      "pass": true
+    },
+    {
+      "name": "tw3: nothing unrouted (heading key + defaults cover all roles)",
+      "pass": true
+    },
+    {
+      "name": "tw3: idempotent re-apply",
+      "pass": true
+    },
+    {
+      "name": "tw3: undo restores the CSS entry byte-identical",
+      "pass": true
+    },
+    {
+      "name": "tw3var: names the family through the config's var()",
+      "pass": true
+    },
+    {
+      "name": "tw3var: applyMode css-entry via tailwind-v3",
+      "pass": true
+    },
+    {
+      "name": "tw3var: repoints the project's own --brand-font",
+      "pass": true
+    },
+    {
+      "name": "tw3var: --brand-font now carries the FL stack",
+      "pass": true
+    },
+    {
+      "name": "tw3fresh: no current fonts named",
+      "pass": true
+    },
+    {
+      "name": "tw3fresh: still applyMode css-entry via tailwind-v3",
+      "pass": true
+    },
+    {
+      "name": "tw3fresh: display reported unrouted (no heading key, no var — honest scope)",
+      "pass": true
+    },
+    {
+      "name": "tw3fresh: body + mono routed via defaults",
+      "pass": true
+    },
+    {
       "name": "cli: `--version` prints a semver and exits (no server hang)",
       "pass": true
     },

@@ -53,62 +53,6 @@
       "pass": true
     },
     {
-      "name": "jack: framework next",
-      "pass": true
-    },
-    {
-      "name": "jack: App Router",
-      "pass": true
-    },
-    {
-      "name": "jack: Tailwind v4",
-      "pass": true
-    },
-    {
-      "name": "jack: css-variable wiring",
-      "pass": true
-    },
-    {
-      "name": "jack: class target <body>",
-      "pass": true
-    },
-    {
-      "name": "jack: display = Bricolage Grotesque",
-      "pass": true
-    },
-    {
-      "name": "jack: body = Hanken Grotesk",
-      "pass": true
-    },
-    {
-      "name": "jack: no mono font wired",
-      "pass": true
-    },
-    {
-      "name": "jack: display rides --font-bricolage",
-      "pass": true
-    },
-    {
-      "name": "jack: body rides --font-hanken",
-      "pass": true
-    },
-    {
-      "name": "jack: supported",
-      "pass": true
-    },
-    {
-      "name": "jack: flags display as a dead role",
-      "pass": true
-    },
-    {
-      "name": "jack: does NOT flag body as dead",
-      "pass": true
-    },
-    {
-      "name": "jack: reports other font subsystems (/gus, /fonts)",
-      "pass": true
-    },
-    {
       "name": "clean: imports Fraunces + Libre_Franklin",
       "pass": true
     },
@@ -157,75 +101,15 @@
       "pass": true
     },
     {
-      "name": "jack: adopts display const (bricolage = Fraunces)",
-      "pass": true
-    },
-    {
-      "name": "jack: display keeps --font-bricolage",
-      "pass": true
-    },
-    {
-      "name": "jack: adopts body const (hanken = Libre_Franklin)",
-      "pass": true
-    },
-    {
-      "name": "jack: body keeps --font-hanken",
-      "pass": true
-    },
-    {
-      "name": "jack: dropped Bricolage_Grotesque import",
-      "pass": true
-    },
-    {
-      "name": "jack: dropped Hanken_Grotesk import",
-      "pass": true
-    },
-    {
-      "name": "jack: creates fontLabMono carrying --font-jetbrains-mono",
-      "pass": true
-    },
-    {
-      "name": "jack: <body> keeps bricolage.variable + hanken.variable",
-      "pass": true
-    },
-    {
-      "name": "jack: <body> gains fontLabMono.variable",
-      "pass": true
-    },
-    {
-      "name": "jack: fenced @theme maps only --font-mono",
-      "pass": true
-    },
-    {
-      "name": "jack: project's own @theme (--font-display: var(--font-bricolage)) intact",
-      "pass": true
-    },
-    {
-      "name": "jack: replaces reports Bricolage Grotesque",
-      "pass": true
-    },
-    {
-      "name": "jack: class target reported as body",
-      "pass": true
-    },
-    {
-      "name": "jack: idempotent re-apply",
-      "pass": true
-    },
-    {
-      "name": "jack: undo restores layout byte-identical",
-      "pass": true
-    },
-    {
-      "name": "jack: undo restores globals byte-identical",
-      "pass": true
-    },
-    {
       "name": "v3: analyzer reports Tailwind v3",
       "pass": true
     },
     {
       "name": "v3: codegen refuses (need v4)",
+      "pass": true
+    },
+    {
+      "name": "v3: no css-entry leak (next/font keeps it out of the tw3 branch)",
       "pass": true
     },
     {

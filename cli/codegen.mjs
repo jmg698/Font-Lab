@@ -16,7 +16,9 @@
 //     variable, name, and className token — a minimal diff that leaves the project's own
 //     wiring intact (SHIP-SPEC "adopt an existing variable rather than introduce a competitor").
 //
-// Scope gate: App Router + Tailwind v4 + CSS-variable wiring. The analyzer enforces it.
+// Scope: the analyzer picks the branch, codegen never re-guesses. next/font edits (this file's
+// AST machinery) need App Router + Tailwind v4 + CSS-variable wiring; everything else with a
+// CSS seam ships through applyCssEntry below (Tailwind v4 @theme / v3 utilities / raw font vars).
 
 import { Project, Node, SyntaxKind, QuoteKind } from "ts-morph";
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
@@ -486,11 +488,13 @@ async function resolveShipInfo(projectDir, analysis, layoutPath, families) {
 }
 
 // ---- CSS-entry apply branch (framework-agnostic, no next/font) --------------
-// For ANY framework on Tailwind v4 whose fonts are CSS-wired. We self-host the parity woff2 +
+// For ANY framework whose fonts have a CSS seam. We self-host the parity woff2 +
 // adjusted-fallback @font-face (the SAME engine the Next panel uses), then write a fenced block
-// into the CSS entry that (a) declares the @font-face, (b) maps the Tailwind role tokens via
-// @theme, and (c) repoints the project's own leaf vars (`--fd`, …) so existing elements swap
-// too. Old Google `@import`s are dropped. Reversible via backup; idempotent via the fence.
+// into the CSS entry that (a) declares the @font-face, (b) routes it through the seam the
+// project actually uses — Tailwind v4's @theme role tokens, Tailwind v3's config-generated
+// `font-*` utilities + Preflight base, or the project's own CSS font vars — and (c) repoints
+// detected leaf vars (`--fd`, …) so existing elements swap too. Old Google `@import`s are
+// dropped. Reversible via backup; idempotent via the fence.
 
 // Resolve a family to a generateCatalog spec using catalog members + the project's admitted
 // cache — mirrors engine.mergedSpecFor so a picked non-catalog (but admitted) font still ships.
@@ -508,13 +512,19 @@ function specForProject(projectDir) {
 }
 
 // Pure CSS transform (exported for testing). Drops Google Font @imports and inserts/updates the
-// fenced block: @font-face bundles + an @theme role map + a :root repoint of detected leaf vars.
-export function composeCssEntry(css, { faceCss, roleStacks, leafVars }) {
+// fenced block: @font-face bundles + an @theme role map (TW v4) + a :root repoint of detected
+// leaf vars + Preflight/utility overrides (TW v3 — `html {}` beats Preflight's base and
+// `.font-*` beats the generated utilities, both by source order: the fence sits after the
+// `@tailwind` directives, at equal specificity).
+export function composeCssEntry(css, { faceCss, roleStacks, leafVars, utilities = {}, baseStack = null }) {
   const themeLines = Object.entries(roleStacks).filter(([, s]) => s).map(([tok, s]) => `  ${tok}: ${s};`);
   const rootLines = Object.entries(leafVars).map(([v, s]) => `  ${v}: ${s};`);
+  const utilLines = Object.entries(utilities).filter(([, s]) => s).map(([cls, s]) => `.${cls} { font-family: ${s}; }`);
   const parts = ["/* font-lab:start */", ...faceCss];
   if (themeLines.length) parts.push("@theme {", ...themeLines, "}");
   if (rootLines.length) parts.push(":root {", ...rootLines, "}");
+  if (baseStack) parts.push(`html { font-family: ${baseStack}; }`);
+  parts.push(...utilLines);
   parts.push("/* font-lab:end */");
   const block = parts.join("\n");
   // Our self-hosted faces replace any Google Fonts @import (byte parity + zero runtime network).
@@ -544,13 +554,19 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
       log: opts.log,
     });
 
-    // Tailwind v4 routes fonts through @theme utilities; a non-Tailwind (but var-wired) project
-    // routes them through its own CSS var — so we pick the seam the project actually uses.
-    const useTheme = analysis.cssEntryVia === "tailwind";
+    // The seam the project actually uses: Tailwind v4 routes fonts through @theme utilities;
+    // Tailwind v3 through the config-generated `font-*` utilities + Preflight's base; a
+    // non-Tailwind (but var-wired) project through its own CSS var.
+    const via = analysis.cssEntryVia;
+    const useTheme = via === "tailwind";
+    const useTw3 = via === "tailwind-v3";
     const roleStacks = {};
     const leafVars = {};
+    const utilities = {};
+    let baseStack = null;
     const repointed = [];
     const unrouted = [];
+    const TW3_DEFAULT_KEY = { display: "display", body: "sans", mono: "mono" };
     for (const role of ["display", "body", "mono"]) {
       const stack = stacks[roleFamily[role]];
       const leaf = analysis.roles?.[role]?.leafVar;
@@ -561,6 +577,23 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
           leafVars[leaf] = stack;
           repointed.push(leaf);
         }
+      } else if (useTw3) {
+        // TW v3 has no @theme: override the generated utility for the project's own config key
+        // AND the default-theme key (font-sans/font-mono always exist; a custom `heading` key
+        // only if configured). The body role also overrides Preflight's `html` base — that's
+        // what most v3 markup actually inherits from.
+        const configKey = analysis.roles?.[role]?.configKey;
+        for (const key of new Set([TW3_DEFAULT_KEY[role], configKey].filter(Boolean))) utilities[`font-${key}`] = stack;
+        if (role === "body") baseStack = stack;
+        // A config value routed through the project's own CSS var (`sans: ['var(--font-body)']`)
+        // is repointed too, so anything else reading that var swaps along.
+        if (leaf && !(leaf in leafVars)) {
+          leafVars[leaf] = stack;
+          repointed.push(leaf);
+        }
+        // No configured display key and no var: `.font-display` is now AVAILABLE, but existing
+        // markup has no display seam to inherit through — say so instead of implying a swap.
+        if (role === "display" && !configKey && !leaf) unrouted.push(role);
       } else {
         // No Tailwind: the project's own var IS the only seam — repoint whatever it reads, even a
         // role-token-named one (there's no @theme here to cover it).
@@ -574,7 +607,7 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
     }
 
     const before = readFileSync(cssPath, "utf8");
-    const after = composeCssEntry(before, { faceCss, roleStacks, leafVars });
+    const after = composeCssEntry(before, { faceCss, roleStacks, leafVars, utilities, baseStack });
     if (after !== before) writeFileSync(cssPath, after);
 
     const out = readFileSync(cssPath, "utf8");
@@ -588,12 +621,13 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
     return {
       runId,
       mode: "css-entry",
-      via: useTheme ? "tailwind-theme" : "css-var",
+      via: useTheme ? "tailwind-theme" : useTw3 ? "tw3-utilities" : "css-var",
       direction: selection.direction,
       roles: ["display", "body", "mono"].map((r) => ({ role: r, family: roleFamily[r], mode: "css-entry" })),
       edited: [path.relative(projectDir, cssPath)],
       selfHosted: { dir: `${analysis.staticDir}/fontlab`, fonts: families },
       repointed,
+      overriddenUtilities: Object.keys(utilities),
       unrouted,
       backupDir: path.relative(projectDir, backupDir),
       parity: opts.fetch === false ? "structural (fetch skipped)" : "guaranteed (self-hosted woff2 + capsize fallback)",

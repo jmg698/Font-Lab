@@ -528,6 +528,65 @@ function googleFamiliesFrom(text) {
   return [...fams];
 }
 
+// ---- Tailwind v3: fonts live in tailwind.config's fontFamily map ------------
+// v3 has no @theme — the config's `fontFamily` keys generate the `font-*` utilities and feed
+// Preflight's base font. That map IS the wiring on a v3 site, so read it (statically — the
+// config is never executed) to name the current families and find the seam the tw3 css-entry
+// apply overrides. Arbitrary JS (spreads, requires, computed keys) simply yields no entries:
+// degraded honestly to "no config fonts detected", never a crash.
+
+function matchBrace(s, open) {
+  let depth = 0;
+  for (let i = open; i < s.length; i++) {
+    if (s[i] === "{") depth++;
+    else if (s[i] === "}" && --depth === 0) return i;
+  }
+  return s.length - 1;
+}
+
+// Config key -> role. First alias with an entry wins, mirroring how projects actually name them.
+const TW_FONT_KEY_ALIASES = {
+  display: ["display", "heading", "head", "title"],
+  body: ["sans", "body", "base"],
+  mono: ["mono", "code"],
+};
+
+// Exported for tests. Text of a tailwind.config -> { key: { family } | { varRef } }.
+// Handles both value shapes (`sans: ["Inter", "system-ui"]` and `sans: "Georgia, serif"`),
+// theme AND theme.extend blocks (later blocks win, matching Tailwind's merge for our purposes),
+// and `var(--x)` first elements (the project routes the utility through its own CSS var).
+export function twConfigFontFamilies(text) {
+  const out = {};
+  const re = /fontFamily\s*:\s*\{/g;
+  let m;
+  while ((m = re.exec(text || ""))) {
+    const open = m.index + m[0].length - 1;
+    const body = text.slice(open + 1, matchBrace(text, open));
+    const entryRe = /(['"]?)([A-Za-z][A-Za-z0-9_-]*)\1\s*:\s*(\[[^\]]*\]|['"`][^'"`]*['"`])/g;
+    let e;
+    while ((e = entryRe.exec(body))) {
+      const key = e[2];
+      const raw = e[3];
+      const items = raw.startsWith("[")
+        ? [...raw.matchAll(/['"`]([^'"`]+)['"`]/g)].map((x) => x[1])
+        : raw.slice(1, -1).split(",").map((s) => s.trim());
+      for (const item of items) {
+        const varRef = item.match(/^var\(\s*(--[A-Za-z0-9-]+)/);
+        if (varRef) {
+          out[key] = { varRef: varRef[1] };
+          break;
+        }
+        const fam = firstConcreteFamily(item);
+        if (fam) {
+          out[key] = { family: fam };
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // ---- the public surface -----------------------------------------------------
 
 export function analyzeProject(projectDir) {
@@ -597,19 +656,57 @@ export function analyzeProject(projectDir) {
     }
   }
 
+  // Still unresolved on a Tailwind v3 project? The fonts live in tailwind.config's fontFamily
+  // map — that's where v3 keeps them; there is no @theme. Read it (statically) so the current
+  // families are named for the brief, and record the config key: the `font-<key>` utilities it
+  // generates + Preflight's base are the seam the tw3 css-entry apply overrides.
+  const twConfigFonts = tw.version === 3 && twConfig ? twConfigFontFamilies(readSafe(twConfig)) : {};
+  let twConfigResolvedAny = false;
+  for (const role of ROLES) {
+    if (roles[role]) continue;
+    for (const key of TW_FONT_KEY_ALIASES[role]) {
+      const entry = twConfigFonts[key];
+      if (!entry) continue;
+      // A var() first element means the utility routes through the project's own CSS var —
+      // resolve it for the family name and keep the var as the repointable leaf.
+      const hit = entry.varRef ? resolveCssFontFamily(entry.varRef, cssVarsClean) : null;
+      roles[role] = {
+        family: entry.family ?? hit?.family ?? null,
+        source: "tw-config",
+        configKey: key,
+        roleVar: null,
+        leafVar: entry.varRef ? (hit?.leafVar ?? entry.varRef) : null,
+        nextFontVar: null,
+        constName: null,
+        importName: null,
+        fromModule: null,
+      };
+      twConfigResolvedAny = true;
+      break;
+    }
+  }
+
   // How are the current fonts loaded? Drives the ship branch and honest messaging. Read from the
   // fence-stripped CSS so our own applied @font-face/@import edits don't masquerade as the
   // project's loader on re-analyze.
   const googleImportFamilies = googleFamiliesFrom(cssClean);
+  // Vite/Astro-style sites often load Google fonts from an index.html <link>, not the CSS —
+  // read it too so the current families are still named (the brief steers away from them).
+  const htmlLinkFamilies = [];
+  for (const f of ["index.html", "public/index.html", "src/index.html"]) {
+    const p = path.join(projectDir, f);
+    if (isFile(p)) htmlLinkFamilies.push(...googleFamiliesFrom(readSafe(p)));
+  }
   let fontLoading = "none";
   if (resolvedAny) fontLoading = "next-font";
-  else if (googleImportFamilies.length) fontLoading = "import-url";
+  else if (googleImportFamilies.length || htmlLinkFamilies.length) fontLoading = "import-url";
   else if (/@font-face\s*\{/i.test(cssClean)) fontLoading = "font-face";
   else if (cssNativeResolvedAny) fontLoading = "css-var";
   else if (decl.nextFonts.length + decl.localFonts.length > 0) fontLoading = "next-font";
+  else if (twConfigResolvedAny) fontLoading = "tailwind-config";
 
   // Every current family we can name, from any loader — what the taste engine steers *away* from.
-  const currentFamilies = [...new Set([...ROLES.map((r) => roles[r]?.family).filter(Boolean), ...googleImportFamilies])];
+  const currentFamilies = [...new Set([...ROLES.map((r) => roles[r]?.family).filter(Boolean), ...googleImportFamilies, ...htmlLinkFamilies])];
 
   // Wiring: role vars resolving to next/font consts is the high-fidelity, swap-friendly
   // path. next/font present but unreachable through vars (or literal font-family) is the
@@ -627,6 +724,7 @@ export function analyzeProject(projectDir) {
   let fontWiring = "none";
   if (resolvedAny) fontWiring = "css-variables";
   else if (hasNextFont || hardcodedFamily) fontWiring = "hardcoded";
+  else if (twConfigResolvedAny) fontWiring = "tailwind-config";
 
   const replaces = {};
   for (const role of ROLES) replaces[role] = roles[role]?.family ?? null;
@@ -667,25 +765,31 @@ export function analyzeProject(projectDir) {
   // Two auto-ship branches, and an honest degraded path:
   //   • next-font  — the original: Next App Router + TW v4 + next/font (`supported`).
   //   • css-entry  — self-host the parity woff2 + @font-face into the CSS entry and route it to
-  //                  the elements. Two ways in: (a) Tailwind v4, via @theme (any framework); or
-  //                  (b) VAR-WIRED, Tailwind or not — the project routes fonts through a CSS var
-  //                  (`--font-body`, `--fd`, …) that we repoint. Both are a single, clean seam.
+  //                  the elements. Three ways in: (a) Tailwind v4, via @theme (any framework);
+  //                  (b) Tailwind v3, via overriding the generated `font-*` utilities +
+  //                  Preflight's base (the fence lands after `@tailwind utilities`, so
+  //                  equal-specificity overrides win by source order); or (c) VAR-WIRED,
+  //                  Tailwind or not — the project routes fonts through a CSS var
+  //                  (`--font-body`, `--fd`, …) that we repoint. Each is a single, clean seam.
   //   • manual     — hardcoded font-family with no var, CSS-in-JS, etc.: compose + preview still
   //                  work; the human applies the generated block by hand. (Tier B/C.)
   const nextFontBranch = supported;
   // A role whose current font we resolved through a CSS variable — the seam we can repoint even
   // without Tailwind. (next/font-sourced roles don't count; those take the next-font branch.)
   const varWired = ROLES.some((r) => roles[r]?.source === "css" && roles[r]?.leafVar);
+  // Tailwind v3 with the directives in the CSS entry: the generated utilities are the seam —
+  // whether or not the config names fonts (the default theme's font-sans/mono still exist).
+  const tw3Entry = tw.version === 3 && tw.signals.cssV3;
   const cssEntryBranch =
     !nextFontBranch &&
     !!cssPath &&
     fontLoading !== "next-font" &&
     fontWiring !== "hardcoded" &&
     !moduleFontFiles.length &&
-    (tw.version === 4 || varWired);
+    (tw.version === 4 || varWired || tw3Entry);
   const applyMode = nextFontBranch ? "next-font" : cssEntryBranch ? "css-entry" : null;
   const shippable = applyMode !== null;
-  const cssEntryVia = applyMode === "css-entry" ? (tw.version === 4 ? "tailwind" : "css-var") : null;
+  const cssEntryVia = applyMode === "css-entry" ? (tw.version === 4 ? "tailwind" : tw3Entry ? "tailwind-v3" : "css-var") : null;
 
   // What an agent can actually do here — the manifest that turns a refusal into a paved path
   // instead of a dead end. `livePanel` is the in-app HMR panel (Next-only today); everything
@@ -705,7 +809,9 @@ export function analyzeProject(projectDir) {
       : applyMode === "css-entry"
         ? cssEntryVia === "tailwind"
           ? `auto-ship via self-hosted @font-face + Tailwind @theme into ${capabilities.applyTarget} (${framework}, no next/font)`
-          : `auto-ship via self-hosted @font-face + repointing the project's own font var(s) in ${capabilities.applyTarget} (${framework}, no Tailwind)`
+          : cssEntryVia === "tailwind-v3"
+            ? `auto-ship via self-hosted @font-face + Tailwind v3 utility/Preflight overrides into ${capabilities.applyTarget} (${framework}, no next/font)`
+            : `auto-ship via self-hosted @font-face + repointing the project's own font var(s) in ${capabilities.applyTarget} (${framework}, no Tailwind)`
         : `no auto-ship branch (${reasons.join("; ") || "unknown"}) — compose + preview still work; the human applies the pick by hand${capabilities.applyTarget ? ` into ${capabilities.applyTarget}` : ""}`;
 
   // Coverage: will a swap actually be visible, and is this the only font subsystem?
@@ -728,6 +834,13 @@ export function analyzeProject(projectDir) {
     );
   for (const s of otherSubsystems)
     notes.push(`other font subsystem in ${s.file} (${[...s.families].join(", ") || s.variables.join(", ")}) — a global swap won't reach it (M6: multi-route)`);
+  const configRoles = ROLES.filter((r) => roles[r]?.source === "tw-config");
+  if (configRoles.length)
+    notes.push(
+      `fonts declared in ${rel(projectDir, twConfig)} fontFamily (${configRoles.map((r) => `${r}: font-${roles[r].configKey}`).join(", ")}) — apply overrides the generated utilities + Preflight base in the CSS entry`,
+    );
+  if (htmlLinkFamilies.length)
+    notes.push(`index.html links Google Fonts (${htmlLinkFamilies.join(", ")}) — after an apply, remove that <link> so the old fonts stop downloading`);
 
   return {
     projectDir,
@@ -799,7 +912,10 @@ export function toTarget(a) {
   };
 }
 
-// A compact, human-readable summary for the CLI.
+// A compact, human-readable summary for the CLI. The ship line reports the FULL capability
+// manifest (shipNote), never just the narrow next-font gate — a Vite or Tailwind-v3 project
+// must read "auto-ship via css-entry", not "no (need next)": an agent that only sees the
+// refusal walks away from a project Font Lab handles fine.
 export function summarize(a) {
   const fam = (r) => a.replaces[r] ?? "—";
   const lines = [
@@ -809,7 +925,8 @@ export function summarize(a) {
     `  wiring      ${a.fontWiring}${a.classNameTarget ? ` (on <${a.classNameTarget}>)` : ""}`,
     `  current     display ${fam("display")}   body ${fam("body")}   mono ${fam("mono")}`,
     `  files       ${[a.declarationFile, a.cssFile].filter(Boolean).join(", ") || "—"}`,
-    `  ships now    ${a.supported ? "yes (App + Tailwind v4 + CSS variables)" : "no — " + a.reasons.join("; ")}`,
+    `  ships       ${a.shipNote}`,
+    `  preview     ${a.capabilities.livePanel ? "live in-app panel (init) + portable HTML sheet + screenshots" : "portable HTML sheet (`font-lab preview`) + screenshots — the live in-app panel is Next-only"}`,
   ];
   if (a.coverage.deadRoles.length) lines.push(`  ⚠ dead      ${a.coverage.deadRoles.join(", ")} — declared but not actually rendered (swap invisible until rewired)`);
   if (a.coverage.otherSubsystems.length)

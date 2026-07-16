@@ -224,6 +224,95 @@ code { font-family: var(--font-mono); }`,
   assert("hardcoded: apply refuses cleanly (degraded → hand-apply)", /not supported/i.test(refusedMsg), refusedMsg);
 
   // =================================================================== //
+  //  7 — Tailwind v3 (the pre-v4 install base): fonts live in            //
+  //      tailwind.config's fontFamily map, loaded via an index.html      //
+  //      <link>. Ships via utility/Preflight overrides in the CSS entry. //
+  // =================================================================== //
+  const TW3PKG = PKG({ vite: "^5", react: "^18", tailwindcss: "^3.4.0" });
+  const TW3CSS = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n`;
+  const TW3CONFIG = `/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
+  theme: {
+    extend: {
+      fontFamily: {
+        heading: ['"Archivo Black"', "sans-serif"],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono'", "monospace"],
+      },
+    },
+  },
+  plugins: [],
+};`;
+  const tw3 = scaffold("tw3-config", {
+    "package.json": TW3PKG,
+    "tailwind.config.js": TW3CONFIG,
+    "index.html": `<!doctype html><html><head><link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400..700&display=swap" rel="stylesheet"></head><body><div id="root"></div></body></html>`,
+    "src/index.css": TW3CSS,
+  });
+  const a3 = analyzeProject(tw3);
+  assert("tw3: framework vite / Tailwind v3", a3.framework === "vite" && a3.tailwindVersion === 3, `${a3.framework}/${a3.tailwindVersion}`);
+  assert("tw3: wiring tailwind-config", a3.fontWiring === "tailwind-config", a3.fontWiring);
+  assert("tw3: display named from the `heading` config key", a3.replaces.display === "Archivo Black", String(a3.replaces.display));
+  assert("tw3: body named from the `sans` config key", a3.replaces.body === "Inter", String(a3.replaces.body));
+  assert("tw3: mono named from the `mono` config key", a3.replaces.mono === "JetBrains Mono", String(a3.replaces.mono));
+  assert("tw3: index.html <link> fonts land in currentFamilies", ["Archivo Black", "Inter"].every((f) => a3.currentFamilies.includes(f)), JSON.stringify(a3.currentFamilies));
+  assert("tw3: applyMode css-entry via tailwind-v3", a3.applyMode === "css-entry" && a3.cssEntryVia === "tailwind-v3", `${a3.applyMode}/${a3.cssEntryVia}`);
+  assert("tw3: shipNote names the tw3 override path", /Tailwind v3 utility\/Preflight overrides/.test(a3.shipNote), a3.shipNote);
+  pick(tw3);
+  const r3 = await applySelection(tw3, { fetch: false });
+  const out3 = readFileSync(tw3 + "/src/index.css", "utf8");
+  assert("tw3: apply via tw3-utilities", r3.via === "tw3-utilities", r3.via);
+  assert("tw3: self-hosts @font-face for the pick", /@font-face\{font-family:'FL Archivo';/.test(out3));
+  assert("tw3: overrides Preflight base (html) with the body stack", /html \{ font-family: 'FL Hanken Grotesk', 'FL Hanken Grotesk Fallback'/.test(out3));
+  assert("tw3: overrides the project's own font-heading utility", /\.font-heading \{ font-family: 'FL Archivo'/.test(out3));
+  assert("tw3: overrides the default font-sans + font-mono utilities", /\.font-sans \{ font-family: 'FL Hanken Grotesk'/.test(out3) && /\.font-mono \{ font-family: 'FL Spline Sans Mono'/.test(out3));
+  assert("tw3: writes NO @theme block (v3 has none)", !/@theme/.test(out3));
+  assert("tw3: fence lands after the @tailwind directives (source order wins)", out3.indexOf("/* font-lab:start */") > out3.lastIndexOf("@tailwind"));
+  assert("tw3: nothing unrouted (heading key + defaults cover all roles)", r3.unrouted.length === 0, JSON.stringify(r3.unrouted));
+  await applySelection(tw3, { fetch: false });
+  assert("tw3: idempotent re-apply", out3 === readFileSync(tw3 + "/src/index.css", "utf8"));
+
+  // reversibility on a fresh copy (single apply)
+  const tw3Rev = scaffold("tw3-rev", { "package.json": TW3PKG, "tailwind.config.js": TW3CONFIG, "src/index.css": TW3CSS });
+  const before3 = readFileSync(tw3Rev + "/src/index.css", "utf8");
+  pick(tw3Rev);
+  await applySelection(tw3Rev, { fetch: false });
+  undo(tw3Rev);
+  assert("tw3: undo restores the CSS entry byte-identical", readFileSync(tw3Rev + "/src/index.css", "utf8") === before3);
+
+  // 7b — config routed through the project's OWN var (`sans: ['var(--brand-font)']`):
+  //      the var is the seam — named via the CSS graph, repointed on apply.
+  const tw3var = scaffold("tw3-var", {
+    "package.json": TW3PKG,
+    "tailwind.config.ts": `export default {\n  content: ["./src/**/*.tsx"],\n  theme: { fontFamily: { sans: ["var(--brand-font)", "sans-serif"], mono: ["monospace"] } },\n};`,
+    "src/index.css": `@tailwind base;\n@tailwind utilities;\n:root { --brand-font: 'Poppins', sans-serif; }\n`,
+  });
+  const a3v = analyzeProject(tw3var);
+  assert("tw3var: names the family through the config's var()", a3v.replaces.body === "Poppins", String(a3v.replaces.body));
+  assert("tw3var: applyMode css-entry via tailwind-v3", a3v.applyMode === "css-entry" && a3v.cssEntryVia === "tailwind-v3", `${a3v.applyMode}/${a3v.cssEntryVia}`);
+  pick(tw3var);
+  const r3v = await applySelection(tw3var, { fetch: false });
+  const out3v = readFileSync(tw3var + "/src/index.css", "utf8");
+  assert("tw3var: repoints the project's own --brand-font", r3v.repointed.includes("--brand-font"), JSON.stringify(r3v.repointed));
+  assert("tw3var: --brand-font now carries the FL stack", /--brand-font: 'FL Hanken Grotesk'/.test(out3v));
+
+  // 7c — fresh TW3, default theme only (no fontFamily config): the default
+  //      font-sans/font-mono utilities + Preflight base are still a seam.
+  const tw3fresh = scaffold("tw3-fresh", {
+    "package.json": TW3PKG,
+    "tailwind.config.js": `module.exports = { content: ["./src/**/*.jsx"] };`,
+    "src/index.css": TW3CSS,
+  });
+  const a3f = analyzeProject(tw3fresh);
+  assert("tw3fresh: no current fonts named", a3f.currentFamilies.length === 0, JSON.stringify(a3f.currentFamilies));
+  assert("tw3fresh: still applyMode css-entry via tailwind-v3", a3f.applyMode === "css-entry" && a3f.cssEntryVia === "tailwind-v3", `${a3f.applyMode}/${a3f.cssEntryVia}`);
+  pick(tw3fresh);
+  const r3f = await applySelection(tw3fresh, { fetch: false });
+  assert("tw3fresh: display reported unrouted (no heading key, no var — honest scope)", r3f.unrouted.includes("display"), JSON.stringify(r3f.unrouted));
+  assert("tw3fresh: body + mono routed via defaults", /html \{ font-family: 'FL Hanken Grotesk'/.test(readFileSync(tw3fresh + "/src/index.css", "utf8")));
+
+  // =================================================================== //
   //  6 — CLI hardening: `--version` must NOT boot the server            //
   // =================================================================== //
   const CLI = fileURLToPath(new URL("./font-lab.mjs", import.meta.url));

@@ -53,3 +53,6 @@ jobs:
 
       - name: M5 — engine + MCP server over real stdio
         run: node m5-test.mjs
+
+      - name: M7 — multi-framework css-entry branch (Vite/Astro/TanStack, Tailwind v4/v3, var-wired)
+        run: node m7-test.mjs
