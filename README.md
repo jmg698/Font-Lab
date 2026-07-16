@@ -6,7 +6,7 @@
 
 **Pick the fonts. Fix the words. Your agent does the work.**
 
-Font Lab is a real-time typography and content editor for AI-built sites. Your agent installs it, composes curated font directions from ~1,500 Google fonts and distinctive open-foundry faces, and renders them live on your real site. You pick the one you like. The agent ships the exact `next/font` + Tailwind code — reversibly.
+Font Lab is a real-time typography and content editor for AI-built sites. Your agent installs it, composes curated font directions from ~1,500 Google fonts and distinctive open-foundry faces, and renders them live on your real site. You pick the one you like. The agent ships the exact code for your stack — `next/font` + Tailwind on Next.js, self-hosted `@font-face` everywhere else — reversibly.
 
 Every AI-built site ends up with Inter or Geist because the agent never stops to let you choose. Font Lab is the stop-to-choose.
 
@@ -14,16 +14,30 @@ Every AI-built site ends up with Inter or Geist because the agent never stops to
 
 ## Install
 
-Inside a Next.js + Tailwind project — or just ask your agent *"install Font Lab"*:
+Inside your project — or just ask your agent *"install Font Lab"*:
 
 ```bash
 npx font-lab install
 ```
 
 Works with: **Claude Code** · **Cursor** · **VS Code** · **Codex** · **Windsurf** · **Gemini CLI**
-For: **Next.js** (App Router) + **Tailwind v4** sites
+For: **any framework with a CSS seam** — Next.js gets the full live-panel experience; everything else ships through the same engine (see the matrix below).
 
-Install auto-detects which agents you have and wires them all — skill, MCP server, config, each in the right format. On an unsupported stack, Font Lab **refuses with a clear reason** rather than half-applying a change.
+Install auto-detects which agents you have and wires them all — skill, MCP server, config, each in the right format. On a stack with no seam at all, Font Lab **refuses to half-apply** and hands you the generated code with a clear reason instead.
+
+## Frameworks — what ships where
+
+The taste engine, shippability gate, portable preview, and screenshots work on **every** stack. What varies is the preview surface and how the pick lands in your code — `font-lab analyze` prints the exact verdict for your project:
+
+| Your stack | Preview | Auto-ship |
+|---|---|---|
+| **Next.js App Router + Tailwind v4** | live in-app panel + portable sheet | `next/font` + Tailwind codegen |
+| **Any framework + Tailwind v4** (Vite, Astro, Remix, SvelteKit, TanStack, …) | portable HTML sheet + screenshots | self-hosted `@font-face` + `@theme` role map in your CSS entry |
+| **Any framework + Tailwind v3** (fonts in `tailwind.config` `fontFamily`) | portable HTML sheet + screenshots | self-hosted `@font-face` + utility/Preflight overrides in your CSS entry |
+| **No Tailwind, fonts routed through CSS variables** (`--font-body`, `--fd`, …) | portable HTML sheet + screenshots | self-hosted `@font-face` + your own font vars repointed |
+| **No seam** (hardcoded `font-family`, CSS-in-JS) | portable HTML sheet + screenshots | hand-apply: Font Lab generates the block, you paste it |
+
+Every auto-ship path is fenced, idempotent, and reversible (`font-lab undo`). **Agents:** read `capabilities` + `shipNote` from `font_lab_analyze` — a non-Next stack is a different route through the same loop, never a reason to stop.
 
 ## Upgrading
 
@@ -40,7 +54,7 @@ Font Lab lives in two places: the **npm package** and the **panel code stamped i
 1. **Ask.** Font Lab asks what you're going for — what feeling, how bold a departure, a brand to evoke or avoid — so the directions are tailored to you, not a generic default.
 2. **Compose.** Your agent composes a small set of font directions (display + body + mono, each with a rationale), reaching past the overexposed AI defaults. A built-in anti-generic rubric rejects menus that are all Inter/Geist/Space Grotesk.
 3. **Pick.** You compare them on your own site — screenshots in chat (works on web or phone) or a live flip/mix/compare panel locally. **You always make the pick.**
-4. **Ship.** The agent writes the real `next/font` + Tailwind code. Every change is reversible.
+4. **Ship.** The agent writes the real code for your stack — `next/font` + Tailwind on Next.js; self-hosted `@font-face` wired through Tailwind's theme, v3 utilities, or your own CSS font variables elsewhere. Every change is reversible.
 
 ## The panel
 
@@ -56,12 +70,14 @@ The Font Lab panel sits on top of your running site — your real pages, your re
 
 The panel runs headless too: the agent screenshots your site in each direction and shows you the images in chat. Works on a phone, on the web, anywhere your agent runs.
 
+The live panel is Next-only. On every other framework the choosing moment is the **portable preview**: a self-contained HTML sheet (fonts embedded, opens offline) rendering each direction on your own palette, with verified screenshots for chat-based picking.
+
 ## Honesty
 
 Font Lab's core promise is **preview == ship**: what you see in the panel is what the codegen writes.
 
 - **Guaranteed** fidelity for every font the gate admits — or an honest "may render slightly differently" badge when it can't be byte-for-byte.
-- Refuses unsupported stacks rather than guessing. That's not a limitation — it's the contract.
+- Auto-ships only where the stack has a real seam; anywhere else it hands you the generated code with a clear reason rather than guessing. Never a half-applied change — that's the contract.
 - Text sourced externally triggers an explicit notice, never a silent edit.
 - The human's pick overrides everything.
 

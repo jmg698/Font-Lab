@@ -248,6 +248,9 @@ try {
   });
   assert("v3: analyzer reports Tailwind v3", analyzeProject(v3).tailwindVersion === 3, String(analyzeProject(v3).tailwindVersion));
   assert("v3: codegen refuses (need v4)", await refuses(v3, "tailwind v3"));
+  // A next/font project on TW v3 must NOT leak into the tw3 css-entry branch — its fonts ride
+  // next/font, so overriding utilities behind its back would fight the layout's own wiring.
+  assert("v3: no css-entry leak (next/font keeps it out of the tw3 branch)", analyzeProject(v3).applyMode === null, String(analyzeProject(v3).applyMode));
 
   const pages = synth("pages", {
     pkg: { dependencies: { next: "^15", react: "^19", tailwindcss: "^4.2.0" }, devDependencies: { "@tailwindcss/postcss": "^4" } },

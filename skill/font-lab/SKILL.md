@@ -2,11 +2,14 @@
 name: font-lab
 description: >-
   Use when a user wants to choose, change, compare, or improve the FONTS / typography of
-  their Next.js + Tailwind app ("pick a font", "these fonts look generic/AI-generated",
-  "make the headings nicer", "what typeface should I use", "change the font"). Font Lab asks
-  what they're going for, then shows tasteful, ready-to-ship font directions tailored to it and
-  rendered live on their OWN running site, lets the human pick, and ships the exact next/font +
-  Tailwind code — reversibly. The human keeps the taste decision; you do the typing.
+  their web app — ANY framework: Next.js, Vite, Astro, Remix, SvelteKit, TanStack, plain
+  CSS ("pick a font", "these fonts look generic/AI-generated", "make the headings nicer",
+  "what typeface should I use", "change the font"). Font Lab asks what they're going for,
+  then shows tasteful, ready-to-ship font directions tailored to it and rendered on their
+  OWN site (live panel on Next; portable preview + screenshots elsewhere), lets the human
+  pick, and ships the exact code for the stack — next/font + Tailwind on Next, self-hosted
+  @font-face (Tailwind v4 @theme, v3 utility overrides, or the project's own font vars)
+  everywhere else — reversibly. The human keeps the taste decision; you do the typing.
 ---
 
 # Font Lab
@@ -55,9 +58,15 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    strategy scaffold, the overexposed default fonts to avoid, and distinctive references to reach
    for. **Read the `context` so your options fit THIS project, then ask the intake questions and
    wait for the answers before proposing any fonts** — this is what makes the result tailored to
-   *them* instead of a generic default. (`font_lab_start` runs the analysis for you; if it
-   reports the project is out-of-branch — not App Router + Tailwind v4 + CSS-variable wiring —
-   tell the user what's missing instead of pushing ahead.)
+   *them* instead of a generic default. (`font_lab_start` runs the analysis for you. **Route by
+   its `capabilities`, never by framework name** — a non-Next stack is a different route through
+   the same loop, not a reason to stop: `livePanel: true` → the live-panel path (`init`);
+   `autoApply: true` with `livePanel: false` — Vite / Astro / Remix / SvelteKit / TanStack /
+   Tailwind v3 / var-wired plain CSS — → same loop, but skip `init` and preview with the portable
+   `font_lab_preview`; `apply` still ships, via self-hosted `@font-face` through the project's own
+   seam. Only `manualApply: true` (no seam: hardcoded `font-family`, CSS-in-JS) means no
+   auto-ship — still compose + preview + record the pick, then hand the human the generated block
+   for `capabilities.applyTarget`. `shipNote` names the path in one line — relay it to the user.)
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
    assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
    Reach past the overexposed defaults and give each direction a one-line rationale tied to what
@@ -70,9 +79,11 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    `font_lab_curate({ projectDir, vibe? })` is the **fallback** when you have no brief.
    > **Which framework?** Check `analyze`'s `capabilities`. On **Next.js App Router** you get the
    > live in-app panel (`livePanel: true`) — use the `init` path below. On **any other framework**
-   > (TanStack / Vite / Astro / … — `livePanel: false`), the panel can't mount: **skip `init`** and
-   > use the portable **`font_lab_preview`** in step 4 instead. Either way the pick ships with
-   > `font_lab_apply` (next/font on Next; self-hosted `@font-face` + Tailwind `@theme` elsewhere).
+   > (TanStack / Vite / Astro / Remix / SvelteKit / … — `livePanel: false`), the panel can't mount:
+   > **skip `init`** and use the portable **`font_lab_preview`** in step 4 instead. Either way the
+   > pick ships with `font_lab_apply` (next/font on Next; self-hosted `@font-face` elsewhere —
+   > routed through Tailwind v4's `@theme`, Tailwind v3's config utilities + Preflight base, or
+   > the project's own CSS font vars, whichever the stack actually uses).
 3. **Set up the preview (Next only)** — `font_lab_init({ projectDir, directions })`, passing the directions
    you just composed. The panel shows **exactly those**. `init` **refuses without directions** —
    so you can't mount the generic default menu without doing the brief first; only pass
@@ -100,8 +111,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      card per direction, the parity fonts **embedded** (opens offline), rendered on the project's
      own palette. **Show the human that file** (or open it) and ask them to pick an id. Each card
      has a live **render-check badge** (a real width-diff — it flags a font that silently fell back,
-     unlike `document.fonts.check`). Want verified screenshots too? it also has a headless
-     screenshot+verify mode. Record the pick with `font_lab_select`.
+     unlike `document.fonts.check`). Want verified screenshots too (cloud/web/phone sessions)?
+     `font_lab_preview_screenshots` renders the sheet headlessly — one render-checked PNG per
+     direction — so you can show the options in chat. Record the pick with `font_lab_select`.
 
    The two paths below need Next's live panel (`init`) + a running dev server — start it in the
    background first (`<dev command>`); note its URL (e.g. `http://localhost:3000`).
@@ -147,8 +159,9 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    `next/font/local` (the parity woff2 self-hosted into `app/fonts/`; every family is verified
    buildable **before** any file is written, so apply refuses with a reason rather than leaving a
    build that breaks later). Elsewhere it self-hosts the parity `@font-face` and routes it
-   through the project's own seam — Tailwind `@theme` (TW v4), or the project's own CSS font vars
-   (`--font-*`, `--fd`, …) when it's var-wired, Tailwind or not. It refuses only when there's no
+   through the project's own seam — Tailwind `@theme` (TW v4), the config-generated `font-*`
+   utilities + Preflight base (TW v3), or the project's own CSS font vars (`--font-*`, `--fd`, …)
+   when it's var-wired, Tailwind or not. It refuses only when there's no
    seam (hardcoded `font-family`, CSS-in-JS); `font_lab_analyze.capabilities` says which, and you
    can still hand the human the generated block to paste. Reversible via `font_lab_undo`.
    **After applying, verify before declaring success:** run the project's build (`next build`, or

@@ -5,7 +5,7 @@
 //   C) it lost Tailwind v4's last-wins merge to the project's own `--font-mono` (font loaded, unused).
 // Exercises the pure composeCss() transform against a globals.css that mirrors jack's structure.
 
-import { composeCss } from "./codegen.mjs";
+import { composeCss, composeCssEntry } from "./codegen.mjs";
 
 let pass = 0,
   fail = 0;
@@ -59,6 +59,25 @@ ok("simple: no @import after the block", simple.indexOf("@import", simple.indexO
 
 // Removal — empty roles strips the block cleanly
 ok("removal: empty roles removes the fenced block", !composeCss(out, []).includes("font-lab:start"));
+
+// ── composeCssEntry: the Tailwind v3 shape (utility + Preflight-base overrides) ──
+// v3 has no @theme; the seam is source order — the fence must land at the END so its
+// equal-specificity `html {}` / `.font-*` rules beat Preflight and the generated utilities.
+const tw3In = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n`;
+const tw3Args = {
+  faceCss: ["@font-face{font-family:'FL X';src:url('/fontlab/x.woff2') format('woff2');}"],
+  roleStacks: {},
+  leafVars: {},
+  utilities: { "font-heading": "'FL X', serif", "font-sans": "'FL Y', sans-serif" },
+  baseStack: "'FL Y', sans-serif",
+};
+const tw3Out = composeCssEntry(tw3In, tw3Args);
+ok("entry/tw3: html base override emitted", tw3Out.includes("html { font-family: 'FL Y', sans-serif; }"));
+ok("entry/tw3: utility overrides emitted", tw3Out.includes(".font-heading { font-family: 'FL X', serif; }") && tw3Out.includes(".font-sans { font-family: 'FL Y', sans-serif; }"));
+ok("entry/tw3: no @theme block for v3", !/@theme/.test(tw3Out));
+ok("entry/tw3: fence appended after the @tailwind directives", tw3Out.indexOf("/* font-lab:start */") > tw3Out.lastIndexOf("@tailwind"));
+ok("entry/tw3: idempotent re-compose", composeCssEntry(tw3Out, tw3Args) === tw3Out);
+ok("entry/tw3: no utilities/base -> none emitted (v4/var shapes unchanged)", !/font-family/.test(composeCssEntry(tw3In, { faceCss: [], roleStacks: {}, leafVars: { "--fd": "'FL X', serif" } }).replace(/--fd:[^;]+;/, "")));
 
 console.log(`\nCSS codegen: ${pass}/${pass + fail} assertions passed`);
 process.exit(fail ? 1 : 0);

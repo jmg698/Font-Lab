@@ -4,11 +4,13 @@
 [![npm provenance](https://img.shields.io/badge/npm-provenance-blue.svg)](https://docs.npmjs.com/generating-provenance-statements)
 [![license: MIT](https://img.shields.io/npm/l/font-lab.svg)](https://github.com/jmg698/Font-Lab/blob/main/LICENSE)
 
-**A decision surface for typography in Next.js + Tailwind apps.** AI removed the labor of
+**A decision surface for typography — on any stack with a CSS seam.** AI removed the labor of
 implementing fonts but deleted the *moment of choice* — and taste only happens at the moment of
 choice. Font Lab puts it back: it asks what you're going for, hands you a small set of **tailored,
 distinctive** font directions rendered **live on your own running site** (or as screenshots), lets
-a **human pick**, then ships the exact `next/font` + Tailwind code — reversibly. The human keeps
+a **human pick**, then ships the exact code for your stack — `next/font` + Tailwind on Next.js,
+self-hosted `@font-face` (Tailwind `@theme`, v3 utility overrides, or your own font vars) on
+Vite / Astro / Remix / SvelteKit / TanStack / plain CSS — reversibly. The human keeps
 the taste decision; the agent does the typing.
 
 It installs as an agent **skill + MCP server** (`npx font-lab install`), so you can just say
@@ -34,7 +36,7 @@ in chat, on web or phone) or live (a flip/mix/compare panel on your real site).
 
 ## Install (one command)
 
-Inside your Next.js + Tailwind project — or just ask your agent *"install Font Lab"*:
+Inside your project (any framework) — or just ask your agent *"install Font Lab"*:
 
 ```bash
 npx font-lab install
@@ -270,9 +272,13 @@ on a hero, a dense page, and a form — "your real site" is more than one screen
 
 ### Run it on your own project (`font-lab init`)
 
-One command makes any supported project (App Router + Tailwind v4 + CSS-variable fonts)
-previewable — it self-hosts the parity bundles, drops in the dev panel, and mounts it
-dev-only in your layout:
+One command makes any live-panel project (Next.js App Router + Tailwind v4 + CSS-variable
+fonts) previewable — it self-hosts the parity bundles, drops in the dev panel, and mounts it
+dev-only in your layout. **On any other framework** (Vite / Astro / Remix / SvelteKit /
+TanStack / Tailwind v3 / var-wired plain CSS): skip `init` — the choosing moment is the
+portable preview (`node cli/preview.mjs --project <dir>`, a self-contained HTML sheet with
+verified screenshots), and `apply` ships the pick via self-hosted `@font-face` through your
+stack's own seam. `analyze`'s `ships` line names the exact path for your project.
 
 ```bash
 node cli/init.mjs --project <your-project>     # scaffold panel + parity bundles (reversible)

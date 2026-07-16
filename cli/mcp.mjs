@@ -27,20 +27,20 @@ const VERSION = (() => {
 const SERVER = { name: "font-lab", version: VERSION };
 const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n");
 
-const proj = { type: "string", description: "Absolute path to the user's Next.js + Tailwind project root." };
+const proj = { type: "string", description: "Absolute path to the user's project root (any framework — Next.js, Vite, Astro, Remix, SvelteKit, TanStack, …)." };
 
 const TOOLS = [
   {
     name: "font_lab_start",
     description:
-      "START HERE when a user wants to choose, change, or improve fonts. Returns the project analysis, a `context` block (the project's existing color palette, brand/design docs, and a sample of the real copy — so your options fit THIS project), PLUS Font Lab's design brief: the framing questions to ASK THE HUMAN FIRST (what feeling? how bold a departure? any brand to evoke or avoid?), a strategy scaffold (reason about the brief before naming fonts), the overexposed defaults to AVOID (Inter, Geist, Space Grotesk, …), distinctive references to reach for, and the rule that every direction needs a brief-tied rationale. Read the context, ask the intake questions and WAIT for the answers before proposing any fonts — that's what makes the result tailored instead of generic. The HUMAN always makes the final pick.",
+      "START HERE when a user wants to choose, change, or improve fonts — on ANY framework (Next.js, Vite, Astro, Remix, SvelteKit, TanStack, …). Returns the project analysis (including `capabilities` + `shipNote` — the preview/ship path for THIS stack, so a non-Next project is a different route, never a dead end), a `context` block (the project's existing color palette, brand/design docs, and a sample of the real copy — so your options fit THIS project), PLUS Font Lab's design brief: the framing questions to ASK THE HUMAN FIRST (what feeling? how bold a departure? any brand to evoke or avoid?), a strategy scaffold (reason about the brief before naming fonts), the overexposed defaults to AVOID (Inter, Geist, Space Grotesk, …), distinctive references to reach for, and the rule that every direction needs a brief-tied rationale. Read the context, ask the intake questions and WAIT for the answers before proposing any fonts — that's what makes the result tailored instead of generic. The HUMAN always makes the final pick.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.start(a.projectDir),
   },
   {
     name: "font_lab_analyze",
     description:
-      "Audit a Next.js + Tailwind project's CURRENT typography before changing it: framework, App/Pages router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). Prefer font_lab_start as the front door — it runs this AND returns the design brief (intake questions + what to avoid/reach for). Use this directly only when you just need the raw audit.",
+      "Audit ANY web project's CURRENT typography before changing it: framework (Next/Vite/Astro/Remix/SvelteKit/TanStack/…), router, Tailwind version, the current display/body/mono fonts, how they're wired, and coverage warnings (e.g. a font that's declared but not actually rendered). The result's `capabilities` + `shipNote` name the right path for THIS stack — live panel on Next App Router, portable preview + css-entry auto-ship elsewhere (Tailwind v4, v3, or var-wired plain CSS), hand-apply only when there's no seam. NEVER treat a non-Next stack as unsupported without reading `capabilities`. Prefer font_lab_start as the front door — it runs this AND returns the design brief (intake questions + what to avoid/reach for). Use this directly only when you just need the raw audit.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.analyze(a.projectDir),
   },
@@ -113,7 +113,7 @@ const TOOLS = [
   {
     name: "font_lab_init",
     description:
-      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reported dead roles are SHIP scope, not a preview problem: the panel previews every role by painting the rendered page; a dead chain just means shipping that role needs font_lab_rewire_dead_roles or an agent edit (the pick declares this scope).",
+      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). NEXT.JS APP ROUTER ONLY (the panel mounts in layout.tsx): on any other framework (Vite/Astro/Remix/SvelteKit/TanStack/…) SKIP this and use font_lab_preview instead — the pick still ships via font_lab_apply. Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reported dead roles are SHIP scope, not a preview problem: the panel previews every role by painting the rendered page; a dead chain just means shipping that role needs font_lab_rewire_dead_roles or an agent edit (the pick declares this scope).",
     inputSchema: {
       type: "object",
       properties: {
@@ -222,7 +222,7 @@ const TOOLS = [
   {
     name: "font_lab_apply",
     description:
-      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind — Google faces via next/font/google, open-foundry faces via next/font/local with the woff2 self-hosted into the source tree (every family is verified buildable BEFORE any file is written; unverifiable families refuse with the reason). On ANY OTHER framework on Tailwind v4 (TanStack/Vite/Astro/…) it self-hosts the parity @font-face + maps Tailwind @theme into the CSS entry and repoints the project's own font vars — no next/font needed. Refuses only when there's no auto-ship branch, with a clear reason (check font_lab_analyze.capabilities). After applying on Next, run the project's build (or dev-server compile) to confirm it compiles — then close the loop with font_lab_verify (dev server running): apply edits files, the receipt proves pixels. Run after wait_for_pick/read_pick returns a selection.",
+      "Ship the human's pick, idempotently and reversibly (backup-first). On Next.js App Router it writes next/font + Tailwind — Google faces via next/font/google, open-foundry faces via next/font/local with the woff2 self-hosted into the source tree (every family is verified buildable BEFORE any file is written; unverifiable families refuse with the reason). On ANY OTHER framework (TanStack/Vite/Astro/Remix/SvelteKit/…) it self-hosts the parity @font-face into the CSS entry and routes it through the project's own seam — Tailwind v4 @theme, Tailwind v3's config-generated font-* utilities + Preflight base, or the project's own CSS font vars — no next/font needed. Refuses only when there's no auto-ship branch (hardcoded font-family, CSS-in-JS), with a clear reason (check font_lab_analyze.capabilities). After applying on Next, run the project's build (or dev-server compile) to confirm it compiles — then close the loop with font_lab_verify (dev server running): apply edits files, the receipt proves pixels. Run after wait_for_pick/read_pick returns a selection.",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.apply(a.projectDir),
   },
@@ -292,6 +292,23 @@ const TOOLS = [
       required: ["projectDir"],
     },
     handler: (a) => engine.previewSpecimen(a.projectDir, { directions: a.directions, vibe: a.vibe, count: a.count, log }),
+  },
+  {
+    name: "font_lab_preview_screenshots",
+    description:
+      "VERIFIED screenshots of the portable preview sheet (font_lab_preview) — one PNG per direction card, each render-checked (a real width-diff catches a font that silently fell back; a failed load is reported, never passed off as the real face). Works on ANY framework, no dev server and no panel needed — the headless companion to font_lab_preview for cloud/web/phone sessions where the human can't open the HTML themselves. SHOW the images to the human and ask them to pick an id, then record it with font_lab_select. Pass `directions` (or a prior sheet's htmlPath) — builds the sheet first if needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to render (from compose_directions). Omit if passing htmlPath." },
+        htmlPath: { type: "string", description: "Path to an already-built preview sheet (from font_lab_preview) to screenshot as-is." },
+        outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
+        executablePath: { type: "string", description: "Optional Chrome/Chromium binary path (usually unnecessary)." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.screenshotSpecimen(a.projectDir, { htmlPath: a.htmlPath, outDir: a.outDir, executablePath: a.executablePath, directions: a.directions }),
   },
   {
     name: "font_lab_select",
