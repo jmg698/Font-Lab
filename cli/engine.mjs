@@ -23,7 +23,8 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer, ensureSelfIgnoredDir, removeFontLabGitignore, readScaffoldPrefs, writeScaffoldPrefs, scaffoldMounted, readDoneRequest, clearDoneRequest, readInstallManifest, INIT_MARKER } from "./state.mjs";
+import { buildCommitPlan } from "./commit-plan.mjs";
 import { detectEnvironment, remoteWorkflowNote } from "./environ.mjs";
 import { startManagedServer, probeHttp } from "./dev-server.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
@@ -369,6 +370,7 @@ export async function preparePreview(projectDir, { directions, vibe, count, allo
   const result = await generateCatalog(dir, dirs, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, dirs);
   writeMenuState(dir, { mode, count: dirs.length });
+  syncScaffoldIgnores(dir); // a rebuild must not undo (or miss) the scaffold's self-ignore
   return { analysis, mode, provisional: mode === "fallback", warning: fallbackNotice(mode), prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }
 
@@ -651,11 +653,14 @@ export async function waitForEvent(projectDir, { timeoutMs = 240_000, ignoreExis
     const r = readRequest(dir);
     return r && r.status === "pending" ? r : null;
   };
+  const currentDone = () => readDoneRequest(dir);
 
   const immPick = currentPick();
   if (immPick) return { event: "pick", picked: true, selection: immPick, waitedMs: 0 };
   const immReq = currentRequest();
   if (immReq) return { event: "request", requested: true, request: immReq, waitedMs: 0 };
+  const immDone = currentDone();
+  if (immDone) return { event: "done", done: true, request: immDone, waitedMs: 0 };
 
   ensureFlDir(dir);
   setAgentWaiting(dir, true);
@@ -673,10 +678,12 @@ export async function waitForEvent(projectDir, { timeoutMs = 240_000, ignoreExis
         if (pick) return settle({ event: "pick", picked: true, selection: pick });
         const req = currentRequest();
         if (req) return settle({ event: "request", requested: true, request: req });
+        const done = currentDone();
+        if (done) return settle({ event: "done", done: true, request: done });
       };
       try {
         watcher = fsWatch(path.join(dir, ".font-lab"), (_ev, name) => {
-          if (!name || name === "selection.json" || name === "request.json") check();
+          if (!name || name === "selection.json" || name === "request.json" || name === "done.json") check();
         });
       } catch {}
       poller = setInterval(check, 1000);
@@ -688,9 +695,10 @@ export async function waitForEvent(projectDir, { timeoutMs = 240_000, ignoreExis
       event: "timeout",
       picked: false,
       requested: false,
+      done: false,
       timedOut: true,
       waitedMs: Date.now() - startedAt,
-      hint: "No pick or request yet. Call font_lab_wait again to keep listening, or check in with the human.",
+      hint: "No pick, request, or done signal yet. Call font_lab_wait again to keep listening, or check in with the human.",
     };
   } finally {
     setAgentWaiting(dir, false);
@@ -757,6 +765,11 @@ export async function status(projectDir, { port = 7777 } = {}) {
     menu: readMenuState(dir),
     versions: panelDrift(dir),
     environment: { kind: environment.kind, remote: environment.remote, ...(environment.remote ? { note: remoteWorkflowNote(environment) } : {}) },
+    // The commit moment, answered up front: the git-verified two-pile plan (ship vs scaffold,
+    // ready-to-run commands) — so "what do I actually commit?" never needs reverse-engineering.
+    commitPlan: buildCommitPlan(dir),
+    // What `font-lab install` wired, in and out of the repo — the footprint receipt.
+    footprint: readInstallManifest(dir),
   };
 }
 
@@ -797,13 +810,38 @@ export function rewire(projectDir) {
 
 // ── install / uninstall the live panel (the agent's "setup" step) ────────────
 
-const INIT_START = "// font-lab:init:start";
+const INIT_START = INIT_MARKER; // one string, shared with state.scaffoldMounted (the hook reads it too)
 const INIT_END = "// font-lab:init:end";
 
 function resolveAppDir(projectDir) {
   const d = ["app", "src/app"].map((x) => path.join(projectDir, x)).find((x) => existsSync(path.join(x, "layout.tsx")));
   if (!d) throw new Error("could not find app/layout.tsx (App Router only)");
   return d;
+}
+
+// The scaffold-hygiene sweep: every dir the panel path may have created gets the same nested
+// `*` .gitignore that keeps .font-lab/ invisible — so the dev tooling never shows up in the
+// human's `git status` as something to puzzle over at commit time. public/fontlab here is
+// PREVIEW staging only (init is Next-panel-only; the css-entry SHIP path writes real runtime
+// assets there and strips this ignore — see buildParityBundles' caller in codegen). The human's
+// opt-out (`init` with tracked:true) persists in .font-lab/scaffold.json so later rebuilds
+// don't silently re-ignore what they chose to track.
+function syncScaffoldIgnores(dir, appDir = null) {
+  const tracked = readScaffoldPrefs(dir)?.tracked === true;
+  const candidates = new Set(
+    [
+      appDir ? path.join(appDir, "_fontlab") : null,
+      path.join(dir, "app", "_fontlab"), // generateCatalog's fixed output home
+      path.join(dir, "src", "app", "_fontlab"),
+      path.join(dir, "public", "fontlab"),
+    ].filter(Boolean),
+  );
+  for (const c of candidates) {
+    if (!existsSync(c)) continue;
+    if (tracked) removeFontLabGitignore(c);
+    else ensureSelfIgnoredDir(c, "dev-panel scaffolding (regenerable — font_lab_init rebuilds it; font_lab_finish removes it)");
+  }
+  return !tracked;
 }
 function insertAfterImports(text, snippet) {
   const re = /^import\s[^\n]*$/gm;
@@ -824,7 +862,11 @@ function mountPanel(layoutPath) {
     INIT_END,
   ].join("\n");
   src = insertAfterImports(src, block);
-  if (!/<FontLabDevPanel\s*\/>/.test(src)) src = src.replace(/<\/body>/, `  {process.env.NODE_ENV === "development" && <FontLabDevPanel />}\n      </body>`);
+  // Preserve the layout's own indentation of </body> instead of hardcoding one — this is what
+  // lets unmountPanel restore the file byte-identical (the finish contract: git status after
+  // finish == the product diff, no stray whitespace).
+  if (!/<FontLabDevPanel\s*\/>/.test(src))
+    src = src.replace(/([ \t]*)<\/body>/, (_m, ind) => `  {process.env.NODE_ENV === "development" && <FontLabDevPanel />}\n${ind}</body>`);
   writeFileSync(layoutPath, src);
   return true;
 }
@@ -837,7 +879,14 @@ function unmountPanel(src) {
   let out = src;
   // 1) the fenced dev-panel const block (+ the blank lines insertAfterImports padded it with)
   out = out.replace(new RegExp(`\\n*${escapeRe(INIT_START)}[\\s\\S]*?${escapeRe(INIT_END)}\\n*`, "g"), "\n");
-  // 2) the dev-only render expression (loose match, robust to reformatting)
+  // 2) the dev-only render expression — the exact inverses of mountPanel's two insert shapes
+  //    first (so the round-trip is byte-identical), then a loose fallback for hand-reformats:
+  //    a) the expression got its own line (</body> was already on one): drop the whole line
+  out = out.replace(/^[ \t]*\{[^\n}]*<FontLabDevPanel\b[^\n}]*\}[ \t]*\n/gm, "");
+  //    b) mount split an inline `…{children}</body>`: drop the expression AND the newline +
+  //       indent it inserted before </body>, restoring the original single line
+  out = out.replace(/[ \t]*\{[^\n}]*<FontLabDevPanel\b[^\n}]*\}\n[ \t]*(?=<\/body>)/g, "");
+  //    c) anything reformatted since mount: the loose match (may leave whitespace; git diff judges)
   out = out.replace(/[ \t]*\{[^\n}]*<FontLabDevPanel\b[^\n}]*\}\n?/g, "");
   // 3) the next/dynamic import we may have added — only if nothing else uses dynamic()
   if (/from\s+["']next\/dynamic["']/.test(out) && !/\bdynamic\s*\(/.test(out)) {
@@ -848,7 +897,7 @@ function unmountPanel(src) {
 
 // Set the project up so the human can preview live: self-host the parity bundles, drop in the
 // portable dev panel, and mount it (dev-only) in the layout. Idempotent + reversible (uninit).
-export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, log } = {}) {
+export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, tracked, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   if (!analysis.supported)
@@ -881,6 +930,11 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   const mounted = mountPanel(layout);
   writePreviewSet(dir, dirs);
   writeMenuState(dir, { mode, count: dirs.length });
+  // Scaffold hygiene: born self-ignoring (like .font-lab/), so `git status` at commit time shows
+  // the product diff, not the dev tooling. tracked:true is the explicit opt-in for teams that
+  // want the panel committed and shared — the choice persists across rebuilds.
+  if (tracked !== undefined) writeScaffoldPrefs(dir, { tracked: tracked === true });
+  const selfIgnored = syncScaffoldIgnores(dir, appDir);
 
   // Scaffolding is a source write too — logged under its own kind so the commit-time story can
   // keep "Font Lab's dev tooling" separate from the human's copy/font work.
@@ -905,6 +959,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
     otherSubsystems: analysis.coverage?.otherSubsystems || [],
     prepared: built.fonts,
     mounted,
+    scaffoldSelfIgnored: selfIgnored,
     layout: path.relative(dir, layout),
     nextStep:
       mode === "fallback"
@@ -930,6 +985,7 @@ export async function expandPreview(projectDir, { directions, fetch = true, log,
   const result = await generateCatalog(dir, merged, meta, { fetch, log, specFor: mergedSpecFor(dir) });
   writePreviewSet(dir, merged);
   writeMenuState(dir, { mode, count: merged.length });
+  syncScaffoldIgnores(dir); // a rebuild must not undo (or miss) the scaffold's self-ignore
   // If this fulfilled a pending in-panel "more options" ask, clear it so the panel stops showing
   // "waiting for your agent" and status reads clean.
   const had = readRequest(dir);
@@ -970,12 +1026,17 @@ export async function selfServeMore(projectDir, request, { count = 4, fetch = tr
 
 export function uninit(projectDir) {
   const dir = path.resolve(projectDir);
-  const appDir = resolveAppDir(dir);
-  const layout = path.join(appDir, "layout.tsx");
+  // Tolerate a missing/renamed layout (resolveAppDir throws): the panel dirs still deserve
+  // removal — a half-torn-down project must not leave uninit unable to finish the job.
+  let appDir = null;
+  try {
+    appDir = resolveAppDir(dir);
+  } catch {}
+  const layout = appDir ? path.join(appDir, "layout.tsx") : null;
   // Surgically strip the panel scaffolding — do NOT restore layout.tsx from the init backup,
   // which predates any `apply` and would silently wipe the shipped font change.
   let unmounted = false;
-  if (existsSync(layout)) {
+  if (layout && existsSync(layout)) {
     const before = readFileSync(layout, "utf8");
     const after = unmountPanel(before);
     if (after !== before) {
@@ -983,18 +1044,60 @@ export function uninit(projectDir) {
       unmounted = true;
     }
   }
-  rmSync(path.join(appDir, "_fontlab"), { recursive: true, force: true });
-  rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
+  const panelDirs = new Set(
+    [appDir ? path.join(appDir, "_fontlab") : null, path.join(dir, "app", "_fontlab"), path.join(dir, "src", "app", "_fontlab")].filter(Boolean),
+  );
+  const removed = [];
+  for (const d of panelDirs) {
+    if (!existsSync(d)) continue;
+    rmSync(d, { recursive: true, force: true });
+    removed.push(path.relative(dir, d));
+  }
+  if (existsSync(path.join(dir, "public", "fontlab"))) {
+    rmSync(path.join(dir, "public", "fontlab"), { recursive: true, force: true });
+    removed.push("public/fontlab");
+  }
   rmSync(path.join(dir, ".font-lab", "init-backup"), { recursive: true, force: true });
   appendSourceEdit(dir, {
     kind: "unscaffold",
-    files: [...(unmounted ? [path.relative(dir, layout)] : []), path.relative(dir, path.join(appDir, "_fontlab")) + "/", "public/fontlab/"],
+    files: [...(unmounted ? [path.relative(dir, layout)] : []), ...removed.map((r) => r + "/")],
   });
   return {
-    layout: path.relative(dir, layout),
+    layout: layout ? path.relative(dir, layout) : null,
     unmountedPanel: unmounted,
-    removed: ["app/_fontlab", "public/fontlab"],
+    removed,
     note: "Removed only the dev-panel scaffolding; any applied font change is left intact.",
+  };
+}
+
+// ── finish: the loop's last step, not an abort ────────────────────────────────
+// "The human is done choosing" has a verb now: strip the dev-panel scaffolding (uninit),
+// clear the panel's Done signal, optionally remove the install wiring too, and come back
+// with the git-verified commit plan. apply → verify → finish is the whole loop; a session
+// that skips finish is the one that leaves the repo confusing at commit time.
+export async function finish(projectDir, { uninstall = false, keepScaffold = false } = {}) {
+  const dir = path.resolve(projectDir);
+  const wasDone = readDoneRequest(dir);
+  let scaffold = null;
+  if (!keepScaffold && scaffoldMounted(dir)) scaffold = uninit(dir);
+  clearDoneRequest(dir);
+  let uninstalled = null;
+  if (uninstall) {
+    const { uninstallAll } = await import("./install.mjs");
+    uninstalled = uninstallAll(dir);
+  }
+  const commitPlan = buildCommitPlan(dir);
+  return {
+    finished: true,
+    fulfilledDoneRequest: !!wasDone,
+    scaffold: scaffold ?? { removed: [], note: keepScaffold ? "kept — keepScaffold was set" : "none was mounted" },
+    uninstalled,
+    commitPlan,
+    note:
+      "Relay commitPlan.commands to the human — the ship pile is their work. Never run git commit/push yourself unless they explicitly ask" +
+      (uninstall
+        ? ". Runtime state stays in .font-lab/ (self-ignored; backups live there) — the human can delete the dir whenever."
+        : ". Install wiring (MCP, skill/AGENTS block) was kept for next time — finish with uninstall:true removes it."),
   };
 }
 

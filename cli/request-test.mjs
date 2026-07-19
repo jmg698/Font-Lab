@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import * as engine from "./engine.mjs";
-import { writeRequest, readRequest, clearRequest, readHandoffState, requestPath } from "./state.mjs";
+import { writeRequest, readRequest, clearRequest, readHandoffState, requestPath, writeDoneRequest, readDoneRequest, clearDoneRequest } from "./state.mjs";
 
 const HERE = fileURLToPath(new URL("./", import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -131,6 +131,46 @@ try {
     } finally {
       child.kill();
     }
+  }
+
+  // ---- Part 5: the done ✓ channel — same durable delivery as picks and requests ----------
+  {
+    // POST /done persists + acks presence; /status carries it until finish clears it.
+    const child = spawn(process.execPath, [SERVE, "serve", "--project", TMP, "--port", "7797"], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      await sleep(500);
+      const ack = await post(7797, "/done", {});
+      assert("POST /done acks with presence", ack.status === 200 && ack.body.ok === true && ack.body.agentParked === false, JSON.stringify(ack.body));
+      assert("the done signal persists on disk", readDoneRequest(TMP)?.status === "pending");
+      const st = await get(7797, "/status");
+      assert("/status carries the pending done", st.done?.status === "pending");
+    } finally {
+      child.kill();
+    }
+    clearDoneRequest(TMP);
+
+    // font_lab_wait resolves on it — the unified event loop covers the session's off-switch too.
+    clearRequest(TMP); // part 4's self-serve ask may still be pending (its fulfillment is async by design)
+    const p = engine.waitForEvent(TMP, { timeoutMs: 5000 });
+    await sleep(300);
+    writeDoneRequest(TMP);
+    const ev = await p;
+    assert("waitForEvent resolves with { event: 'done' }", ev.event === "done" && ev.done === true, JSON.stringify(ev));
+    clearDoneRequest(TMP);
+
+    // --once exits on done ✓ with the event JSON as its final stdout line — the background-task
+    // wake-up contract, extended to the session's end.
+    const once = spawn(process.execPath, [SERVE, "serve", "--once", "--project", TMP, "--port", "7798"], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    once.stdout.on("data", (c) => (out += c));
+    await sleep(500);
+    await post(7798, "/done", {});
+    const code = await new Promise((resolve) => once.on("exit", resolve));
+    const last = out.trim().split("\n").pop();
+    let evt = null;
+    try { evt = JSON.parse(last); } catch {}
+    assert("--once exits on done ✓ with the event JSON last", code === 0 && evt?.event === "done" && evt?.done === true, last);
+    clearDoneRequest(TMP);
   }
 } finally {
   rmSync(TMP, { recursive: true, force: true });

@@ -29,7 +29,7 @@ import { analyzeProject } from "./analyzer.mjs";
 import { inCatalog, get as catalogGet } from "./catalog.mjs";
 import { normalize as normFamily, admit as admitFont, isShippable } from "./admit.mjs";
 import { buildParityBundles } from "./catalog-build.mjs";
-import { ensureFlDir, pruneBackups, appendSourceEdit } from "./state.mjs";
+import { ensureFlDir, pruneBackups, appendSourceEdit, removeFontLabGitignore } from "./state.mjs";
 
 const ROLE_VARS = { display: "--font-display", body: "--font-sans", mono: "--font-mono" };
 const ROLE_VAR_SET = new Set(Object.values(ROLE_VARS));
@@ -558,6 +558,10 @@ async function applyCssEntry(projectDir, selection, analysis, cssPath, opts = {}
       specFor: specForProject(projectDir),
       log: opts.log,
     });
+    // This dir is a SHIP destination now — runtime assets the site serves belong in the repo.
+    // A panel-preview session may have left its self-ignoring .gitignore here; lift it (ours
+    // only, never a human's) so the shipped woff2 can't be silently invisible to git.
+    removeFontLabGitignore(path.join(projectDir, analysis.staticDir || "public", "fontlab"));
 
     // The seam the project actually uses: Tailwind v4 routes fonts through @theme utilities;
     // Tailwind v3 through the config-generated `font-*` utilities + Preflight's base; a
@@ -664,8 +668,20 @@ export async function applySelection(projectDir, opts = {}) {
   const analysis = analyzeProject(projectDir);
 
   // Every apply is a source write — log it so "what do I commit?" has an answer at session end.
+  // Self-hosted woff2 count too (next/font/local files, or the css-entry ship dir): they're
+  // runtime assets of the human's pick, and the commit plan must claim them as ship work.
   const logApplied = (r) => {
-    appendSourceEdit(projectDir, { kind: "font-apply", files: r.edited, runId: r.runId, detail: r.direction?.name ? `direction "${r.direction.name}"` : undefined });
+    const selfHosted = Array.isArray(r.selfHosted)
+      ? r.selfHosted
+      : r.selfHosted?.dir && r.selfHosted.fonts?.length
+        ? [String(r.selfHosted.dir).replace(/\/?$/, "/")]
+        : [];
+    appendSourceEdit(projectDir, {
+      kind: "font-apply",
+      files: [...r.edited, ...selfHosted],
+      runId: r.runId,
+      detail: r.direction?.name ? `direction "${r.direction.name}"` : undefined,
+    });
     return r;
   };
 

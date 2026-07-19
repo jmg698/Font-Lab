@@ -38,6 +38,8 @@ npm install --omit=dev          # ts-morph + capsize only
 node codegen-css-test.mjs       # CSS codegen: fenced @theme block, idempotent, removable
 node copyedit-test.mjs          # copy-edit write-back: source-map paths, HTML-entity round-trip
 node state-test.mjs             # .font-lab hygiene: self-ignoring state dir, capped backups
+node commit-plan-test.mjs       # the commit plan: ledger × real git state → ship/scaffold piles
+node finish-test.mjs            # finish: self-ignored scaffold, done ✓ handshake, byte-clean unmount
 node panel-keys-test.mjs        # panel keymap: every key handled is documented and vice-versa
 node m3-test.mjs                # analyzer: framework / router / Tailwind version / wiring
 node m4-test.mjs                # catalog + curator: verified capsize coverage, deterministic

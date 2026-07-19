@@ -154,8 +154,8 @@ in this order:
      mechanism (never "check back later"):**
      | Your harness | Do this |
      |---|---|
-     | Background-task exit WAKES you (Claude Code, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits on the first panel event** — a pick OR a "Get more" request — with the event JSON as its final stdout line (`{ event: "pick", selection }` or `{ event: "request", request }`); the exit wakes you. On a pick → `font_lab_apply`. On a request → compose directions for `request.brief`, call `font_lab_more_directions`, **then relaunch `serve --once` and end your turn** so the next event reaches you too. |
-     | Exit does NOT wake you (Cursor, MCP-only, …) | Start the endpoint (`npx font-lab serve`; the panel needs it), then park on **`font_lab_wait`** — it blocks up to 240s for a pick OR a request (whichever comes first) and lights up "agent listening" in the panel. On `{ event: "timeout" }`, **call it again immediately**, for as long as your harness allows. |
+     | Background-task exit WAKES you (Claude Code, …) | Run `npx font-lab serve --once --project <dir>` as a **background task**, then end your turn. It **exits on the first panel event** — a pick, a "Get more" request, or the human's **done ✓** — with the event JSON as its final stdout line (`{ event: "pick", selection }`, `{ event: "request", request }`, or `{ event: "done" }`); the exit wakes you. On a pick → `font_lab_apply`. On a request → compose directions for `request.brief`, call `font_lab_more_directions`, **then relaunch `serve --once` and end your turn** so the next event reaches you too. On done → `font_lab_finish` (step 6). |
+     | Exit does NOT wake you (Cursor, MCP-only, …) | Start the endpoint (`npx font-lab serve`; the panel needs it), then park on **`font_lab_wait`** — it blocks up to 240s for a pick, a request, or done ✓ (whichever comes first) and lights up "agent listening" in the panel. On `{ event: "timeout" }`, **call it again immediately**, for as long as your harness allows. |
 
      **If the timing misses anyway, nothing is lost.** The pick is durable: it piggybacks on
      every `font_lab_*` result as `pendingHumanPick` — with its ship scope (which roles
@@ -218,30 +218,35 @@ in this order:
    **After applying, verify before declaring success:** run the project's build (`next build`, or
    at minimum let the dev server recompile cleanly) and report the result honestly — apply verifies
    structure; the build verifies the fonts resolve.
-6. **Hand the repo back clean** — the loop isn't finished until the human knows what to commit.
-   When they're done (pick shipped, copy edits saved), read `font_lab_status` → `sourceChanges`:
-   the deduped list of every source file Font Lab wrote this session, each tagged with the kind
-   of write. Propose the commit plan in two piles — and let THEM run it (**never `git commit` /
-   `git push` yourself unless they explicitly ask**):
-   - **Their work** — `text-edit` (copy), `font-apply` / `rewire` (the font change): one commit,
-     message about the content ("New hero copy; ship Fraunces + Inter"). An `undo-*` kind means
-     the file was rewritten then restored — include it in the "check `git diff`" list, not
-     automatically in the commit.
-   - **Font Lab's scaffolding** — `scaffold` files (the `layout.tsx` mount, `app/_fontlab/`,
-     `public/fontlab/`), plus `.mcp.json` / the AGENTS.md block if install added them. Safe for
-     production (the panel is dev-only and dead-code-eliminated) but it isn't their content:
-     offer it as a separate "chore: add Font Lab dev tooling" commit, or leave it uncommitted.
-   `.font-lab/` itself is runtime state and **ignores itself** (a `*` .gitignore inside it) — it
-   should never appear in their diff (headless preview fonts and shots live in there too, so a
-   preview session leaves the tree clean; `public/fontlab/` appears only after an actual apply).
-   If it does, the project predates the self-ignore and the files are already tracked:
-   `git rm -r --cached .font-lab` fixes it once.
+6. **Finish — hand the repo back clean** — the loop isn't done until `font_lab_finish` has run.
+   The signal is the panel's **done ✓** button (it arrives like a pick: a `serve --once` exit
+   with `{ event: "done" }`, a `font_lab_wait` return, a `pendingHumanDone` note riding any tool
+   result, or the turn-start hook) — or the human just saying they're done. One call does the
+   whole handoff: it strips the dev-panel scaffolding (the `layout.tsx` mount, `app/_fontlab/`,
+   `public/fontlab/` preview fonts — **applied fonts and copy edits stay**) and returns the
+   git-verified **`commitPlan`**:
+   - **`ship`** — the human's work (`text-edit` copy, the `font-apply` / `rewire`), cross-checked
+     against `git status` so a file that was undone (or already committed) is never re-staged.
+     Comes with ready-to-run `git add` / `git commit` commands and a suggested message.
+   - **`verify`** — rewritten-then-restored files that still differ from HEAD: hand the human
+     the "check `git diff`" list, don't stage them.
+   - **`installHooks`** — the `.mcp.json` / AGENTS.md-block wiring: keep it committed if the team
+     should have Font Lab ready; `finish` with `uninstall:true` removes it all (MCP registrations,
+     skill, hooks) when the human is done with Font Lab entirely.
+   - **`notFontLab`** — dirty files Font Lab never wrote: the human's own parallel work. Named so
+     you don't stage it by accident; never yours to commit.
+   Relay the commands and let THEM run them — **never `git commit` / `git push` yourself unless
+   they explicitly ask.** The scaffolding and `.font-lab/` are **self-ignoring** (a nested `*`
+   .gitignore, dropped at init), so `git status` shows the product diff only; on a repo that
+   predates the self-ignore, the plan detects tracked scaffold paths and includes the one-time
+   `git rm -r --cached` fix. `keepScaffold:true` finishes without unmounting — for a human who
+   wants the panel around next session (or `font_lab_init` with `tracked:true` for a team that
+   commits it deliberately).
    **Ephemeral workspace exception:** in a remote container that loses uncommitted work when
-   reclaimed (`font_lab_start`'s `environment` says so), committing IS how work survives — don't
-   leave the piles uncommitted waiting for a human who isn't at this machine. Commit them
-   yourself, still as the two separate labeled commits above, on the branch you're already
-   working on, and tell the human exactly what you committed. Never push anywhere they didn't
-   designate, and never merge.
+   reclaimed (`font_lab_start`'s `environment` says so), committing IS how work survives — run
+   `finish` first (scaffolding out), then make the ship-pile commit yourself with the plan's
+   commands on the branch you're already working on, and tell the human exactly what you
+   committed. Never push anywhere they didn't designate, and never merge.
 
 ## Copy edits — same endpoint, no extra setup
 
@@ -299,13 +304,13 @@ still has a clean next step instead of a dead end.
   `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
   font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.
-- **The human commits — except where nothing survives otherwise.** End the session by proposing
-  the commit plan from `font_lab_status`'s `sourceChanges` (their content edits separate from
-  Font Lab's scaffolding) — and never run `git commit` or `git push` yourself unless they
-  explicitly ask. The one exception: an EPHEMERAL remote workspace (see the environment block),
-  where uncommitted work is lost on reclaim — there, make the two labeled commits yourself on
-  your working branch and report them; pushing anywhere the human didn't designate stays off
-  the table.
+- **Finish before the commit moment.** `apply → verify → font_lab_finish` is the whole loop:
+  finish strips the dev-panel scaffolding and returns the git-verified `commitPlan` — relay its
+  commands, and never run `git commit` or `git push` yourself unless the human explicitly asks.
+  The one exception: an EPHEMERAL remote workspace (see the environment block), where
+  uncommitted work is lost on reclaim — there, run finish, make the ship-pile commit yourself on
+  your working branch with the plan's commands, and report it; pushing anywhere the human didn't
+  designate stays off the table.
 - **Headless needs a Chromium.** Font Lab ships a light Playwright driver (`playwright-core`, an
   optional dependency), so `font_lab_screenshot_directions` works out of the box — it drives
   **whatever Chromium is already on the machine** (the user's system Chrome/Edge, a pre-installed

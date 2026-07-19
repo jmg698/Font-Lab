@@ -6,7 +6,11 @@
 // Together these are what stop a user reaching "commit my copy edits" and finding 100+
 // untracked Font Lab files with no map. Run: node state-test.mjs
 
-import { ensureFlDir, pruneBackups, writeMenuState, BACKUP_KEEP, appendSourceEdit, readSourceChanges, readHandoffState, editLogPath } from "./state.mjs";
+import {
+  ensureFlDir, pruneBackups, writeMenuState, BACKUP_KEEP, appendSourceEdit, readSourceChanges, readHandoffState, editLogPath,
+  ensureSelfIgnoredDir, removeFontLabGitignore, GITIGNORE_MARK, writeDoneRequest, readDoneRequest, clearDoneRequest,
+  scaffoldMounted, INIT_MARKER, writeScaffoldPrefs, readScaffoldPrefs, writeInstallManifest, readInstallManifest, clearInstallManifest,
+} from "./state.mjs";
 import { applyEdit, undoEdit } from "./copyedit.mjs";
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -136,6 +140,61 @@ console.log("\ncopy edits and undos land in the log automatically\n");
   ok("undoEdit logs too — the file was rewritten either way", !!page && page.kinds.includes("undo-text-edit"));
   ok('the raw log keeps the "before" → "after" session story',
     /hello there.*hi there/.test(readFileSync(editLogPath(dir), "utf8")));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\nself-ignoring dirs generalize — scaffold gets the same treatment as .font-lab\n");
+{
+  const dir = tmpProject();
+  const scaffold = path.join(dir, "app", "_fontlab");
+  ensureSelfIgnoredDir(scaffold, "dev-panel scaffolding");
+  const gi = path.join(scaffold, ".gitignore");
+  ok("creates the dir + a marked .gitignore", existsSync(gi) && readFileSync(gi, "utf8").startsWith(GITIGNORE_MARK));
+  ok("  ignoring everything (`*`)", /^\*$/m.test(readFileSync(gi, "utf8")));
+  ok("removeFontLabGitignore lifts OUR ignore", removeFontLabGitignore(scaffold) === true && !existsSync(gi));
+
+  // A human's own .gitignore is never touched — not overwritten, not removed.
+  writeFileSync(gi, "*.woff2\n");
+  ensureSelfIgnoredDir(scaffold, "dev-panel scaffolding");
+  ok("a human .gitignore survives ensure", readFileSync(gi, "utf8") === "*.woff2\n");
+  ok("  and survives remove (not ours)", removeFontLabGitignore(scaffold) === false && existsSync(gi));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\nthe done signal — durable like a pick, cleared by finish\n");
+{
+  const dir = tmpProject();
+  ok("no done request reads as null", readDoneRequest(dir) === null);
+  writeDoneRequest(dir, { note: "wrap it up" });
+  const d = readDoneRequest(dir);
+  ok("a pending done round-trips (with note)", !!d && d.status === "pending" && d.note === "wrap it up");
+  ok("the handoff snapshot carries it (→ /status, font_lab_status)", !!readHandoffState(dir).done);
+  clearDoneRequest(dir);
+  ok("cleared — the finish handshake", readDoneRequest(dir) === null && readHandoffState(dir).done === null);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\nscaffoldMounted — the fs-only presence probe the hook and commit plan share\n");
+{
+  const dir = tmpProject();
+  ok("an empty project reads unmounted", scaffoldMounted(dir) === false);
+  mkdirSync(path.join(dir, "app", "_fontlab"), { recursive: true });
+  ok("app/_fontlab counts as mounted", scaffoldMounted(dir) === true);
+  rmSync(path.join(dir, "app", "_fontlab"), { recursive: true, force: true });
+  writeFileSync(path.join(dir, "app", "layout.tsx"), `export default (p) => p.children;\n${INIT_MARKER}\n`);
+  ok("the layout mount marker counts too (dirs already stripped)", scaffoldMounted(dir) === true);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\nscaffold prefs + install manifest round-trip\n");
+{
+  const dir = tmpProject();
+  writeScaffoldPrefs(dir, { tracked: true });
+  ok("the tracked opt-in persists", readScaffoldPrefs(dir)?.tracked === true);
+  writeInstallManifest(dir, { version: "0.0.0", at: "now", hosts: ["claude"], entries: [{ kind: "mcp", host: "claude", scope: "project", path: ".mcp.json" }] });
+  ok("the install footprint round-trips", readInstallManifest(dir)?.entries?.length === 1);
+  clearInstallManifest(dir);
+  ok("uninstall clears the receipt", readInstallManifest(dir) === null);
   rmSync(dir, { recursive: true, force: true });
 }
 

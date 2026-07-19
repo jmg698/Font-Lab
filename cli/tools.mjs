@@ -17,7 +17,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as engine from "./engine.mjs";
-import { pendingPick } from "./state.mjs";
+import { pendingPick, readDoneRequest, readHandoffState, scaffoldMounted } from "./state.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const proj = { type: "string", description: "Absolute path to the user's project root (any framework — Next.js, Vite, Astro, Remix, SvelteKit, TanStack, …)." };
@@ -118,12 +118,13 @@ export const TOOLS = [
         projectDir: proj,
         directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to show in the panel (from compose_directions)." },
         allowFallback: { type: "boolean", description: "Mount the deterministic default menu without a brief — only if the user explicitly wants it." },
+        tracked: { type: "boolean", description: "Commit-track the panel scaffolding instead of self-ignoring it (default false: app/_fontlab/ and public/fontlab/ carry a nested .gitignore so they never show in git status). Set true only when the user explicitly wants the panel shared via git; the choice persists across rebuilds." },
         vibe: { type: "string" },
         count: { type: "number" },
       },
       required: ["projectDir"],
     },
-    handler: (a, { log }) => engine.init(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
+    handler: (a, { log }) => engine.init(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, tracked: a.tracked, vibe: a.vibe, count: a.count, log }),
   },
   {
     name: "font_lab_more_directions",
@@ -138,9 +139,25 @@ export const TOOLS = [
   },
   {
     name: "font_lab_uninit",
-    description: "Remove Font Lab's panel scaffolding from the project (restores the layout, removes the generated panel + self-hosted fonts). Use to clean up if the user doesn't want to keep previewing.",
+    description:
+      "Strip ONLY the dev-panel scaffolding (the layout.tsx mount, app/_fontlab/, public/fontlab/ preview fonts) — any applied font change and copy edits are left intact. PREFER font_lab_finish: it runs this AND returns the git-verified commit plan in one call, which is what the end of a session actually needs. Reach for bare uninit only when you want the scaffolding gone mid-session (e.g. the human wants to keep exploring later but commit now).",
     inputSchema: { type: "object", properties: { projectDir: proj }, required: ["projectDir"] },
     handler: (a) => engine.uninit(a.projectDir),
+  },
+  {
+    name: "font_lab_finish",
+    description:
+      "THE FINISHING MOVE — run this when the human is done choosing (they clicked *done ✓* in the panel, said so in chat, or a pendingCleanup note rode a tool result). One call: strips the dev-panel scaffolding (uninit — applied fonts and copy edits are untouched), clears the panel's done signal, and returns the git-verified `commitPlan`: the SHIP pile (the human's copy edits + font apply, cross-checked against `git status` so undone files don't get committed) with ready-to-run `git add`/`git commit` commands and a suggested message, plus what's scaffold, install wiring, or the human's own unrelated work. Relay the commands to the human — NEVER run git commit/push yourself unless they explicitly ask (ephemeral remote workspaces excepted — the environment note says so). Pass uninstall:true when the human is done with Font Lab entirely (also removes MCP registrations, the skill, the AGENTS.md block, and hooks); keepScaffold:true finishes without unmounting the panel. The loop is: apply → verify → finish.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        uninstall: { type: "boolean", description: "Also remove Font Lab's install wiring everywhere (MCP configs, skill, AGENTS.md block, hooks). Default false — keep it for next time." },
+        keepScaffold: { type: "boolean", description: "Leave the dev panel mounted (the human wants to keep exploring) — just get the commit plan and clear the done signal." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.finish(a.projectDir, { uninstall: a.uninstall === true, keepScaffold: a.keepScaffold === true }),
   },
   {
     name: "font_lab_prepare_preview",
@@ -162,7 +179,7 @@ export const TOOLS = [
   {
     name: "font_lab_wait",
     description:
-      "BLOCK until the human EITHER picks a direction OR asks for more options in the panel — whichever comes first. This is the unified event loop: one call covers both paths, so you never miss a request because you were waiting for the wrong event. While blocked, the panel shows 'agent listening' and the human's clicks reach you instead of the copy-a-prompt off-ramp.\n\nReturns one of:\n  { event: 'pick', selection }     — the human picked. Call font_lab_apply to ship it.\n  { event: 'request', request }    — the human wants MORE options. request.brief has their mini-brief (feeling, departure, brand, note); request.exclude lists families already shown. Compose new directions honoring that brief, call font_lab_more_directions, then call font_lab_wait again.\n  { event: 'timeout', timedOut }   — no activity yet. Call font_lab_wait again to keep listening.\n\nTypical loop: compose → prepare_preview → font_lab_wait → handle pick or request → font_lab_wait → …",
+      "BLOCK until the human picks a direction, asks for more options, OR clicks *done ✓* in the panel — whichever comes first. This is the unified event loop: one call covers every panel event, so you never miss one because you were waiting for the wrong kind. While blocked, the panel shows 'agent listening' and the human's clicks reach you instead of the copy-a-prompt off-ramp.\n\nReturns one of:\n  { event: 'pick', selection }     — the human picked. Call font_lab_apply to ship it.\n  { event: 'request', request }    — the human wants MORE options. request.brief has their mini-brief (feeling, departure, brand, note); request.exclude lists families already shown. Compose new directions honoring that brief, call font_lab_more_directions, then call font_lab_wait again.\n  { event: 'done', request }       — the human is finished choosing. Call font_lab_finish: scaffolding out, commit plan in.\n  { event: 'timeout', timedOut }   — no activity yet. Call font_lab_wait again to keep listening.\n\nTypical loop: compose → prepare_preview → font_lab_wait → handle the event → font_lab_wait → … → finish",
     inputSchema: {
       type: "object",
       properties: {
@@ -206,7 +223,7 @@ export const TOOLS = [
   {
     name: "font_lab_status",
     description:
-      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, the environment (local vs remote/container — with the workflow consequences), and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands. Its `devServer` field health-checks the dev server the panel last reported — if `devServer.up` is false, either RESTART it or just call font_lab_screenshot_directions / font_lab_verify, which start the project's dev server themselves when none is reachable. Its `sourceChanges` field lists every SOURCE file Font Lab wrote this session (copy edits, font applies, rewires, undos, panel scaffolding) — read it when the human is done to tell them exactly what to commit, keeping their content edits separate from Font Lab's own scaffolding.",
+      "One snapshot of the whole handoff: the current pick (if any), whether it's been shipped (applied), whether an agent is waiting, whether the pick endpoint is up, the environment (local vs remote/container — with the workflow consequences), and the latest backup. Call this when resuming a session, before apply, or whenever you need to know where the loop stands. Its `devServer` field health-checks the dev server the panel last reported — if `devServer.up` is false, either RESTART it or just call font_lab_screenshot_directions / font_lab_verify, which start the project's dev server themselves when none is reachable. Its `commitPlan` field is the git-verified answer to 'what do I actually commit?' — the ship pile (the human's copy edits + font apply) with ready-to-run git commands, separated from scaffold, install wiring, and files Font Lab never touched (`sourceChanges` is the raw ledger behind it). A pending `done` field means the human clicked *done ✓* in the panel — run font_lab_finish.",
     inputSchema: { type: "object", properties: { projectDir: proj, port: { type: "number", description: "Pick-endpoint port (default 7777)." } }, required: ["projectDir"] },
     handler: (a) => engine.status(a.projectDir, { port: a.port ?? 7777 }),
   },
@@ -380,6 +397,8 @@ export async function invokeTool(tool, args, { log } = {}) {
 // pick per process; after that a one-liner keeps the reminder cheap. Keyed by pickedAt so a
 // NEW pick gets the full treatment again.
 let lastNudgedPick = null;
+// Same treatment for the cleanup nudge — full once, then the one-liner.
+let nudgedCleanup = false;
 
 // Compare this process's version against the project's own node_modules install — the npx cache
 // serves whatever it froze at first run, so the two drift after `npm install font-lab@latest`.
@@ -439,6 +458,38 @@ export function withDeliveryNotes(toolName, args, payload) {
                 },
         };
         lastNudgedPick = pick.pickedAt;
+      }
+    } catch {}
+  }
+  // The end-of-loop delivery, same durable pattern as the pick: the human's *done ✓* click —
+  // or a shipped pick with the dev-panel scaffolding still mounted — rides every result until
+  // font_lab_finish handles it. An agent that never parks on a wait still learns the session
+  // is over the next time it touches Font Lab, and the scaffolding never becomes permanent
+  // clutter by pure forgetting.
+  if (!/finish|uninit|status|wait/.test(toolName)) {
+    try {
+      const done = readDoneRequest(args.projectDir);
+      if (done) {
+        out = {
+          ...out,
+          pendingHumanDone: {
+            note: "THE HUMAN IS DONE: they clicked *done ✓* in the Font Lab panel. Run font_lab_finish — it strips the dev-panel scaffolding and returns the commit plan to relay (uninstall:true if they're done with Font Lab entirely).",
+            at: done.at,
+          },
+        };
+      } else {
+        const st = readHandoffState(args.projectDir);
+        if (st.applied?.current && scaffoldMounted(args.projectDir)) {
+          out = {
+            ...out,
+            pendingCleanup: nudgedCleanup
+              ? { note: "Reminder: pick shipped, dev-panel scaffolding still mounted — font_lab_finish when the human is done." }
+              : {
+                  note: "The pick has shipped but the dev-panel scaffolding is still mounted. When the human is done choosing, run font_lab_finish: it strips the scaffolding (the applied fonts stay) and returns the git-verified commit plan to hand them. Don't leave the session without it — unremoved scaffolding is how repos end up confusing at commit time.",
+                },
+          };
+          nudgedCleanup = true;
+        }
       }
     } catch {}
   }

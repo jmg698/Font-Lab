@@ -63,7 +63,7 @@ export function remoteWorkflowNote(environment) {
   const parts = [
     environment.localhostNote,
     "Drive the pick with font_lab_screenshot_directions — it can start the project's dev server itself (managed, bound to 127.0.0.1, stopped after), so don't fight backgrounding: leave `ensureServer` on and show the human the hero shots in chat.",
-    "If this workspace is EPHEMERAL (uncommitted work is lost when the container is reclaimed), committing is how work survives: put the human's font/copy changes and Font Lab's scaffolding in SEPARATE, labeled commits on your working branch and tell the human what you committed — but never push anywhere they didn't designate, and never merge.",
+    "If this workspace is EPHEMERAL (uncommitted work is lost when the container is reclaimed), committing is how work survives: run font_lab_finish first (it strips the dev-panel scaffolding and returns the commit plan), then commit the plan's ship pile with its ready-made commands on your working branch and tell the human what you committed — but never push anywhere they didn't designate, and never merge.",
   ];
   return parts.join(" ");
 }
