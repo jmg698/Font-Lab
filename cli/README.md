@@ -55,7 +55,9 @@ pattern):
    own install (`node node_modules/font-lab/mcp.mjs` — so `npm install` IS the MCP upgrade),
    and global configs use `npx -y font-lab@latest` (re-resolves per session instead of
    freezing at the npx cache's first answer). (A newly registered MCP server is picked up on
-   the next session/MCP reload.)
+   the next session/MCP reload — until then, and any time the server drops, every tool also
+   runs one-shot as `npx font-lab run <tool> '<json-args>'`: the same tool table, the same
+   JSON out. `npx font-lab run` lists them.)
 
 ```bash
 npx font-lab uninstall      # remove the skill, hook, rules, and every MCP entry
@@ -141,13 +143,19 @@ The agent screenshots your real site in each direction and shows you the images 
 chat. You pick one by name (on a phone: just tap it). The agent ships it.
 
 - Works in **every** surface: Claude Code on the web, the iPhone/desktop apps, any MCP agent.
-- No dev server for *you* to babysit, no browser window to manage — you compare finished
-  pictures and choose.
+- No dev server for *anyone* to babysit: if none is reachable, the tool starts your project's
+  own dev command itself (bound to 127.0.0.1, health-checked, stopped after the capture) — this
+  is what makes the loop run unattended in cloud/container sessions.
+- Two images per direction: a chat-sized `heroShot` JPEG (what the agent shows you, phone-
+  friendly) and the full-page PNG for detail.
 - The screenshots are driven through the real preview engine, so **what you see is what ships**
-  (same `next/font` + Tailwind, same metric-matched fallback).
+  (same `next/font` + Tailwind, same metric-matched fallback). The menu is always the set your
+  agent composed for your brief — with none composed, the tool refuses rather than silently
+  photographing a generic starter menu.
 
-Tools: `font_lab_screenshot_directions({ projectDir, baseUrl })` → show the images → the human
-picks → `font_lab_select({ projectDir, directionId })` → `font_lab_apply`.
+Tools: `font_lab_compose_directions({ projectDir, directions, brief })` (persists the menu) →
+`font_lab_screenshot_directions({ projectDir })` → show the hero shots → the human picks →
+`font_lab_select({ projectDir, directionId })` → `font_lab_apply` → `font_lab_verify`.
 
 ### 2. Live — the full UI, when you want to drive
 

@@ -24,6 +24,8 @@ import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
 import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer } from "./state.mjs";
+import { detectEnvironment, remoteWorkflowNote } from "./environ.mjs";
+import { startManagedServer, probeHttp } from "./dev-server.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -34,6 +36,11 @@ const CENSUS_TEMPLATE = fileURLToPath(new URL("./templates/fl-census.ts", import
 
 const ROLES = ["display", "body", "mono"];
 const slugId = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+// Where HEADLESS previews download woff2 bytes: inside the self-ignored state dir, so a
+// screenshot/portable-sheet session leaves ZERO untracked files in the repo. Only an actual
+// ship (apply / the Next panel bundle) writes fonts under public/ — see buildParityBundles.
+const fontCacheDir = (dir) => path.join(ensureFlDir(dir), "fonts");
 
 // The deterministic fallback menu, but SEEDED to this project — the same project always yields the
 // same spread, while two different projects yield different (still diverse, still non-generic)
@@ -70,23 +77,30 @@ export function analyze(projectDir) {
 // avoid, the distinctive references to reach for, and the rationale rule. This is how the
 // "ask what they're going for, then reach past the defaults" experience reaches every agent —
 // including ones that never read the skill. The HUMAN still makes the final pick.
-export function start(projectDir) {
+export function start(projectDir, { remote } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
   const context = gatherContext(dir); // the project's own palette, brand docs, and copy voice (B2)
   const { seed } = deriveSignals(path.basename(dir), context); // rotates the brief's references per project
   const cap = analysis.capabilities;
+  // Where is the agent running? A cloud/container session changes WHICH choosing moment to lead
+  // with (the human can't reach this machine's localhost), never the loop itself.
+  const environment = detectEnvironment({ remote });
+  const workflowNote = remoteWorkflowNote(environment);
   // The intake + taste steps are identical on every stack; only HOW the human previews and how
   // the pick ships differ. Hand the agent the right path for THIS project instead of assuming Next.
   const previewShip = cap.livePanel
-    ? "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
+    ? environment.remote && !environment.portForwarded
+      ? "this is a Next project (live panel capable), but in THIS remote session the human can't reach the panel — drive the pick with `font_lab_screenshot_directions` (it can start the dev server itself; show the hero shots in chat), then `font_lab_select` → `apply`. Mention the live panel as what they'd get running locally."
+      : "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
     : cap.autoApply
-      ? `the live in-app panel is Next-only, so SKIP init — but the REAL-SITE preview still works here: with the dev server running, \`font_lab_screenshot_directions\` screenshots your actual pages in each direction (census paint — no panel, no project writes). No dev server? \`font_lab_preview\` builds the portable specimen sheet (+ \`font_lab_preview_screenshots\` for chat). Then record the pick (\`font_lab_select\`) and \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
-      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}) — but previews still work: \`font_lab_screenshot_directions\` paints the REAL running site per direction (any framework, dev server required), or \`font_lab_preview\` with no dev server. Record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
+      ? `the live in-app panel is Next-only, so SKIP init — but the REAL-SITE preview still works here: \`font_lab_screenshot_directions\` screenshots your actual pages in each direction (census paint — no panel, no project writes), and it will START the dev server itself if none is running (managed, 127.0.0.1, stopped after). No dev server possible? \`font_lab_preview\` builds the portable specimen sheet (+ \`font_lab_preview_screenshots\` for chat). Then record the pick (\`font_lab_select\`) and \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
+      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}) — but previews still work: \`font_lab_screenshot_directions\` paints the REAL running site per direction (any framework; it can start the dev server itself), or \`font_lab_preview\` with no dev server. Record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
   return {
     analysis,
     capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
     shipNote: analysis.shipNote,
+    environment: { ...environment, ...(workflowNote ? { workflowNote } : {}) },
     context, // the project's own palette, brand docs, and copy voice (B2)
     brief: designBrief({ seed }),
     nextStep:
@@ -94,7 +108,8 @@ export function start(projectDir) {
       "project, not a generic default. Then ask the human the intake questions in `brief.intake` " +
       "and wait for the answers, compose tailored directions for their brief (reach past " +
       "`brief.avoid`; draw on `brief.references`), and let the HUMAN pick. `curate` is the " +
-      "fallback when there's no brief. To preview + ship: " + previewShip,
+      "fallback when there's no brief. To preview + ship: " + previewShip +
+      (workflowNote ? " ENVIRONMENT: " + workflowNote : ""),
   };
 }
 
@@ -270,7 +285,24 @@ export async function composeDirections(specs, { projectDir, force = false, brie
   // than tailored to what the user actually asked for. Not a block (autonomous use is valid).
   if (!brief || !String(brief).trim())
     warnings.push("No `brief` was provided — if the user is present, ask them the intake questions (font_lab_start) and pass their answers as `brief`, so the options are tailored to what they actually want rather than inferred.");
-  return { directions, warnings };
+  // Persist the composed set as THE prepared menu on every stack — not just after the Next-only
+  // `init`. This is what screenshot_directions and select resolve against by default, so a
+  // non-Next flow can never silently drift back to the starter menu (the dogfood's cloud trap),
+  // and a pick by id always resolves against the directions the human actually saw.
+  let persisted = false;
+  if (projectDir) {
+    const dir = path.resolve(projectDir);
+    writePreviewSet(dir, directions);
+    writeMenuState(dir, { mode: "composed", count: directions.length });
+    persisted = true;
+  }
+  return {
+    directions,
+    warnings,
+    ...(persisted
+      ? { persisted: ".font-lab/preview.json — this set is now the default for font_lab_screenshot_directions / font_lab_preview / font_lab_select on every framework" }
+      : { persisted: false, note: "pass projectDir to persist this set as the project's default preview menu (recommended — screenshots and select then resolve against it automatically)" }),
+  };
 }
 
 function suggest(fam, role) {
@@ -300,6 +332,24 @@ export function readPreviewSet(dir) {
   } catch {
     return [];
   }
+}
+
+// ONE resolution order for every headless choosing surface (screenshots, the portable sheet,
+// select): explicit directions → the persisted composed set → the deterministic starter menu,
+// the last ONLY when the caller allows it. Exported for tests. The MCP layer passes
+// allowFallback:false, so a tool call can never silently capture a menu nobody composed — the
+// exact trap from the cloud dogfood: the doc promised "never silently the starter menu" while
+// the non-Next path (which has no init to persist a set) did precisely that.
+export function resolveCaptureSet(dir, analysis, { directions, vibe, count, allowFallback = true } = {}) {
+  if (directions && directions.length) return { directions, source: "explicit" };
+  const prepared = readPreviewSet(dir);
+  if (prepared.length) return { directions: prepared, source: "preview-set" };
+  if (allowFallback) return { directions: fallbackDirections(dir, analysis, { vibe, count }), source: "fallback" };
+  throw new Error(
+    "no directions to render: none were passed, and no composed set exists yet (.font-lab/preview.json). " +
+      "Run font_lab_compose_directions with projectDir first — it persists the composed menu as the default here — " +
+      "or pass allowFallback:true to deliberately use the deterministic starter menu (NOT tailored to this project's brief).",
+  );
 }
 
 // ── prepare the live preview (build parity bundles into the project) ──────────
@@ -364,14 +414,16 @@ function specimenDirections(directions, stacks) {
   }));
 }
 
-export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, log } = {}) {
+export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, allowFallback = true, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, { vibe, count });
+  const resolved = resolveCaptureSet(dir, analysis, { directions, vibe, count, allowFallback });
+  const dirs = resolved.directions;
   await ensureAdmitted(dir, dirs);
 
   const families = [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles?.[r]?.family ?? d[r]).filter(Boolean)))];
-  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, specFor: mergedSpecFor(dir), log });
+  // cacheDir: specimen bytes are inlined into the HTML — they never need to live in the repo.
+  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, cacheDir: fontCacheDir(dir), specFor: mergedSpecFor(dir), log });
 
   const ctx = gatherContext(dir);
   const cssText = analysis.cssFile ? (() => { try { return readFileSync(path.join(dir, analysis.cssFile), "utf8"); } catch { return ""; } })() : "";
@@ -389,6 +441,8 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
     framework: analysis.framework,
     inline: !!inline && fetch !== false,
     fonts: families,
+    directionsSource: resolved.source,
+    ...(resolved.source === "fallback" ? { menuWarning: fallbackNotice("fallback") } : {}),
     directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
     nextStep:
       "Open the HTML (it's self-contained — fonts embedded, opens offline) and have the human compare. " +
@@ -401,10 +455,10 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
 // Headless capture of the specimen sheet: open the local HTML, wait for the embedded render check
 // to run, screenshot each card, and report per-face load verdicts — a VERIFIED capture (never a
 // silent Times-in-disguise shot). No dev server, no init, no panel; works on any framework.
-export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executablePath, directions, vibe, count, fetch = true, inline = true } = {}) {
+export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executablePath, directions, vibe, count, fetch = true, inline = true, allowFallback = true } = {}) {
   const dir = path.resolve(projectDir);
   let html = htmlPath;
-  if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline })).path;
+  if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline, allowFallback })).path;
   const chromium = await loadChromium();
   const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
@@ -692,9 +746,18 @@ export async function status(projectDir, { port = 7777 } = {}) {
       up = res.status < 500;
     } catch {}
     devServer = { url: ds.origin, up, lastSeen: ds.at ?? null };
-    if (!up) devServer.hint = `The dev server at ${ds.origin} is not responding — restart it (as a background task) before the live panel, screenshots, or verify can work.`;
+    if (!up) devServer.hint = `The dev server at ${ds.origin} is not responding. The LIVE PANEL needs it restarted (background task, bound to 127.0.0.1); font_lab_screenshot_directions and font_lab_verify will start the project's dev server themselves.`;
   }
-  return { ...state, endpoint, backups, devServer, menu: readMenuState(dir), versions: panelDrift(dir) };
+  const environment = detectEnvironment();
+  return {
+    ...state,
+    endpoint,
+    backups,
+    devServer,
+    menu: readMenuState(dir),
+    versions: panelDrift(dir),
+    environment: { kind: environment.kind, remote: environment.remote, ...(environment.remote ? { note: remoteWorkflowNote(environment) } : {}) },
+  };
 }
 
 // Compare the version that installed the project's panel against the running tool. Surfaces the
@@ -791,7 +854,7 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
   if (!analysis.supported)
     throw new Error(
       analysis.applyMode === "css-entry"
-        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still previews AND ships: compose → font_lab_screenshot_directions (screenshots your REAL running site per direction — needs only the dev server, no panel) or font_lab_preview (portable specimen sheet when no dev server) → font_lab_select → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
+        ? `the live in-app panel is Next-only, but this ${analysis.framework} project still previews AND ships: compose → font_lab_screenshot_directions (screenshots your REAL running site per direction — no panel needed, and it starts the dev server itself when none is running) or font_lab_preview (portable specimen sheet when no dev server can run) → font_lab_select → apply (self-hosted @font-face into ${analysis.capabilities.applyTarget}). Skip init.`
         : `project not supported yet: ${analysis.reasons.join("; ")}`,
     );
   const appDir = resolveAppDir(dir);
@@ -953,7 +1016,10 @@ export function undo(projectDir) {
 export function selectDirection(projectDir, { directionId, directions, vibe, count, roles: roleSrc } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  const dirs = directions && directions.length ? directions : fallbackDirections(dir, analysis, { vibe, count });
+  // Resolve the id against the SAME set the human was shown: explicit → the persisted composed
+  // set → the deterministic starter. Before the composed set persisted on every stack, a
+  // non-Next pick-by-id could only match the starter menu — the composed ids didn't exist here.
+  const dirs = resolveCaptureSet(dir, analysis, { directions, vibe, count }).directions;
   const byId = (id) => dirs.find((d) => d.id === id || slugId(d.name) === id);
   const chosen = byId(directionId);
   if (!chosen) throw new Error(`no direction "${directionId}" — available: ${dirs.map((d) => d.id).join(", ")}`);
@@ -978,7 +1044,9 @@ export function selectDirection(projectDir, { directionId, directions, vibe, cou
 
 // Ready-to-run commands to launch the FULL live editor (flip / mix / compare in a real browser),
 // for when the screenshots aren't enough. Detects the project's dev command + package manager.
-export function liveInstructions(projectDir) {
+// In a remote/container session the framing flips: these are commands for the HUMAN'S OWN
+// machine (after pulling the branch) — never a URL handoff to a localhost the human can't reach.
+export function liveInstructions(projectDir, { remote } = {}) {
   const dir = path.resolve(projectDir);
   let devCmd = "npm run dev";
   try {
@@ -994,9 +1062,19 @@ export function liveInstructions(projectDir) {
       devCmd = `${pm} dev`;
     }
   } catch {}
+  const environment = detectEnvironment({ remote });
+  const note =
+    environment.remote && !environment.portForwarded
+      ? "IMPORTANT — this session runs in a remote container the human's browser cannot reach: localhost URLs here are for YOUR headless browser only. These commands are for the human to run ON THEIR OWN MACHINE after pulling this branch, if they want the full live flip/mix/edit experience. In this session, keep driving the pick from screenshots — do not promise the human a localhost URL."
+      : environment.remote
+        ? "This workspace forwards ports (Codespaces/Gitpod-style): the live panel can work through the FORWARDED URL for these ports — hand the human the forwarded link your platform shows, not a raw localhost one."
+        : "Run these in a local terminal — your Mac/Linux terminal, or the integrated terminal in VS Code / Cursor / the Claude Code IDE extension — to flip, mix, and compare the directions live on your real site.";
   return {
-    note: "Run these in a local terminal — your Mac/Linux terminal, or the integrated terminal in VS Code / Cursor / the Claude Code IDE extension — to flip, mix, and compare the directions live on your real site.",
-    who: "AGENT WITH A LOCAL TERMINAL (Cursor, Claude Code, Windsurf, …): run the dev server and the :7777 endpoint YOURSELF as background tasks and leave them running (skip whichever is already up) — do NOT run them in the foreground, they never exit and your turn will hang. Then tell the human to open the site and pick. CLOUD / CONTAINER AGENT (no reach to the user's localhost): hand these commands to the human to run and tell them which URL to open — you can't start or reach these processes yourself.",
+    note,
+    environment: { kind: environment.kind, remote: environment.remote },
+    who: environment.remote
+      ? "CLOUD / CONTAINER AGENT (this session): you can run every headless step yourself — install, compose, font_lab_screenshot_directions (it starts the dev server itself), select, apply, verify. What you canNOT do is host the live panel for the human: the two long-running processes below only make sense on a machine whose localhost the human can open."
+      : "AGENT WITH A LOCAL TERMINAL (Cursor, Claude Code, Windsurf, …): run the dev server and the :7777 endpoint YOURSELF as background tasks and leave them running (skip whichever is already up) — do NOT run them in the foreground, they never exit and your turn will hang. Then tell the human to open the site and pick.",
     steps: [
       "npx font-lab init --project .          # scaffold the live panel + parity bundles (reversible)",
       `${devCmd}                              # start your dev server (background task; leave running)`,
@@ -1117,6 +1195,18 @@ export function paintPlanFor(direction, stacks) {
   });
 }
 
+// One capture = TWO artifacts per direction: the full-page PNG (detail / archives) and a
+// viewport-sized JPEG "hero shot" (~10× smaller) that actually fits a chat thread or a phone —
+// the surface where remote humans make the pick. scale:'css' keeps the JPEG at CSS pixels
+// instead of the 2× device raster.
+async function shoot(page, out, id, fullPage) {
+  const screenshot = path.join(out, `${id}.png`);
+  await page.screenshot({ path: screenshot, fullPage });
+  const heroShot = path.join(out, `${id}.hero.jpg`);
+  await page.screenshot({ path: heroShot, type: "jpeg", quality: 80, scale: "css" });
+  return { screenshot, heroShot };
+}
+
 // Headless capture WITHOUT the panel — the real-site preview for every non-Next framework.
 // Injects the parity @font-face (base64-inlined; zero project writes, no dev-server asset
 // dependency), then paints the RENDERED page per direction through the census — the exact
@@ -1125,7 +1215,9 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
   await ensureAdmitted(dir, dirs);
   const families = [...new Set(dirs.flatMap((d) => ROLES.map((r) => d.roles?.[r]?.family ?? d[r]).filter(Boolean)))];
   const inline = fetch !== false; // offline builds can't inline bytes — fall back to /fontlab URLs
-  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, specFor: mergedSpecFor(dir), log });
+  // cacheDir: the bytes are inlined into the injected CSS, so previewing writes NOTHING to the
+  // repo — public/<staticDir>/fontlab stays reserved for fonts that actually ship.
+  const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, cacheDir: fontCacheDir(dir), specFor: mergedSpecFor(dir), log });
   const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
   const chromium = await loadChromium();
   const { browser, via } = await launchBrowser(chromium, { executablePath });
@@ -1153,9 +1245,7 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
     await page.evaluate(() => { window.__flCensus.census(); });
 
     const shots = [];
-    const curPath = path.join(out, "current.png");
-    await page.screenshot({ path: curPath, fullPage });
-    shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", screenshot: curPath });
+    shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", ...(await shoot(page, out, "current", fullPage)) });
 
     for (const d of dirs) {
       const plan = paintPlanFor(d, stacks);
@@ -1164,8 +1254,7 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
       }, plan);
       await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
       await page.waitForTimeout(350);
-      const file = path.join(out, `${d.id}.png`);
-      await page.screenshot({ path: file, fullPage });
+      const files = await shoot(page, out, d.id, fullPage);
       await page.evaluate(() => window.__flCensus.clearPaint());
       shots.push({
         id: d.id,
@@ -1173,7 +1262,7 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
         vibe: d.vibe,
         rationale: d.rationale,
         fonts: Object.fromEntries(plan.map((e) => [e.role, e.family])),
-        screenshot: file,
+        ...files,
       });
     }
     return {
@@ -1183,6 +1272,7 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
       browser: via,
       mode: "painted",
       note: "No panel needed on this stack: the REAL rendered page was painted per direction through the census (the same machinery the Next panel flips with), with the parity @font-face injected inline — faithful to what ships, zero project writes.",
+      shotsNote: "Each direction has TWO images: `heroShot` (viewport JPEG, chat/phone-sized — show THESE to the human) and `screenshot` (full-page PNG, for detail on request).",
       facesLoaded,
       shots,
       live: liveInstructions(dir),
@@ -1194,88 +1284,123 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
 
 // Headless capture: screenshot the REAL running site in each direction — the images the human
 // picks from, faithful to what ships. On Next with the panel init'd it drives the panel; on any
-// other framework it paints the rendered page directly (capturePainted). Requires only a dev
-// server at baseUrl. Makes no project edits. Returns a manifest the agent shows.
-export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath, fetch = true, log } = {}) {
-  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
-  if (!baseUrl) throw new Error("captureDirections: baseUrl is required (your running dev server, e.g. http://localhost:3000 or :5173) — start it as a background task and pass its URL. (On Next the panel auto-reports it once opened with the endpoint up; elsewhere pass it explicitly.)");
+// other framework it paints the rendered page directly (capturePainted). Makes no project edits.
+// Returns a manifest the agent shows.
+//
+// The dev server is REACHABLE-OR-STARTED: pass a live baseUrl and it's used; otherwise (nothing
+// passed, nothing recorded, or the recorded one is dead) Font Lab starts the project's own dev
+// command itself — bound to 127.0.0.1, health-checked, torn down after the capture — because on
+// cloud harnesses "just background the dev server" is the single biggest time sink (sandboxed
+// shells reap it; IPv6 default hosts refuse to bind). ensureServer:false forbids the spawn.
+export async function captureDirections(projectDir, { baseUrl, routes = ["/"], outDir, directions, viewport, fullPage = true, executablePath, fetch = true, ensureServer, allowFallback = true, log = () => {} } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
-  // Direction default: the PREPARED preview set first (the tailored menu the human is already
-  // browsing), never straight to the deterministic starter spread — capturing the wrong menu
-  // silently recreates the "options were never tailored" trap.
-  const prepared = readPreviewSet(dir);
-  const dirs = directions && directions.length ? directions : prepared.length ? prepared : fallbackDirections(dir, analysis, {});
+  const resolved = resolveCaptureSet(dir, analysis, { directions, allowFallback });
+  const dirs = resolved.directions;
   const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
+
+  let managed = null;
+  let serverNote = null;
+  if (!baseUrl) baseUrl = readDevServer(dir)?.origin;
+  if (!(baseUrl && (await probeHttp(baseUrl)))) {
+    if (ensureServer === false)
+      throw new Error(
+        `captureDirections: ${baseUrl ? `the dev server at ${baseUrl} isn't responding` : "no dev server is running (none passed, none recorded)"} and ensureServer:false forbids starting one. ` +
+          "Start it yourself — bind 127.0.0.1 (an IPv6 `::` host dies with EAFNOSUPPORT on IPv4-only containers) and use a harness-managed background task (a plain `&` won't survive sandboxed shells) — then pass baseUrl.",
+      );
+    managed = await startManagedServer(dir, { framework: analysis.framework, log });
+    serverNote = `${baseUrl ? `the dev server at ${baseUrl} wasn't responding` : "no dev server was running"} — started \`${managed.command}\` (managed: bound to 127.0.0.1, stopped after the capture)`;
+    baseUrl = managed.origin;
+  }
+
   const base = baseUrl.replace(/\/+$/, "");
   const route = routes[0] || "/";
+  const annotate = (result) => ({
+    ...result,
+    directionsSource: resolved.source, // explicit | preview-set | fallback — never a silent starter
+    ...(resolved.source === "fallback" ? { menuWarning: fallbackNotice("fallback") } : {}),
+    ...(managed ? { managedServer: { command: managed.command, origin: managed.origin, stopped: true } } : {}),
+    ...(serverNote ? { serverNote } : {}),
+  });
 
-  // No live panel on this stack? Paint the real page headlessly — same images, no init needed.
-  if (!analysis.capabilities.livePanel) return capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch, log });
-
-  const chromium = await loadChromium();
-  const { browser, via } = await launchBrowser(chromium, { executablePath });
   try {
-    const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
-    // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. a design
-    // skill's live mode, HMR sockets) keeps the network busy so `networkidle` never fires and times
-    // out. We gate readiness on the panel mounting + fonts being ready instead, which is what we
-    // actually need for a faithful shot.
-    await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
-    await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 }).catch(() => {
-      throw new Error(`no Font Lab panel at ${base + route} — run font_lab_init (then reload the page) first; the panel mounts dev-only`);
-    });
-    await page.evaluate(async () => {
-      await document.fonts.ready;
-    });
+    // No live panel on this stack? Paint the real page headlessly — same images, no init needed.
+    if (!analysis.capabilities.livePanel)
+      return annotate(await capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch, log }));
 
-    const setPanel = (v) =>
-      page.evaluate((vis) => {
-        const h = document.getElementById("fontlab-panel-host");
-        if (h) h.style.visibility = vis;
-      }, v);
-
-    const shots = [];
-    // current / before
-    await setPanel("hidden");
-    const curPath = path.join(out, "current.png");
-    await page.screenshot({ path: curPath, fullPage });
-    await setPanel("visible");
-    shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", screenshot: curPath });
-
-    for (const d of dirs) {
-      const clicked = await page.evaluate((id) => {
-        const host = document.getElementById("fontlab-panel-host");
-        const btn = host?.shadowRoot?.querySelector(`button[data-fl-id="${id}"]`);
-        if (!btn) return false;
-        btn.click();
-        return true;
-      }, d.id);
-      if (!clicked) {
-        shots.push({ id: d.id, name: d.name, vibe: d.vibe, rationale: d.rationale, error: "no panel chip — direction not in the preview build (re-run init/preparePreview with these directions)" });
-        continue;
-      }
+    const chromium = await loadChromium();
+    const { browser, via } = await launchBrowser(chromium, { executablePath });
+    try {
+      const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
+      // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. a design
+      // skill's live mode, HMR sockets) keeps the network busy so `networkidle` never fires and times
+      // out. We gate readiness on the panel mounting + fonts being ready instead, which is what we
+      // actually need for a faithful shot.
+      await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
+      await page.waitForSelector("#fontlab-panel-host", { timeout: 20000 }).catch(() => {
+        throw new Error(`no Font Lab panel at ${base + route} — run font_lab_init (then reload the page) first; the panel mounts dev-only`);
+      });
       await page.evaluate(async () => {
         await document.fonts.ready;
       });
-      await page.waitForTimeout(350);
+
+      const setPanel = (v) =>
+        page.evaluate((vis) => {
+          const h = document.getElementById("fontlab-panel-host");
+          if (h) h.style.visibility = vis;
+        }, v);
+
+      const shots = [];
+      // current / before
       await setPanel("hidden");
-      const file = path.join(out, `${d.id}.png`);
-      await page.screenshot({ path: file, fullPage });
+      const curFiles = await shoot(page, out, "current", fullPage);
       await setPanel("visible");
-      shots.push({
-        id: d.id,
-        name: d.name,
-        vibe: d.vibe,
-        rationale: d.rationale,
-        fonts: { display: d.roles.display.family, body: d.roles.body.family, mono: d.roles.mono.family },
-        screenshot: file,
+      shots.push({ id: "current", name: "Current (before)", vibe: "—", rationale: "the site as it is today", ...curFiles });
+
+      for (const d of dirs) {
+        const clicked = await page.evaluate((id) => {
+          const host = document.getElementById("fontlab-panel-host");
+          const btn = host?.shadowRoot?.querySelector(`button[data-fl-id="${id}"]`);
+          if (!btn) return false;
+          btn.click();
+          return true;
+        }, d.id);
+        if (!clicked) {
+          shots.push({ id: d.id, name: d.name, vibe: d.vibe, rationale: d.rationale, error: "no panel chip — direction not in the preview build (re-run init/preparePreview with these directions)" });
+          continue;
+        }
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+        });
+        await page.waitForTimeout(350);
+        await setPanel("hidden");
+        const files = await shoot(page, out, d.id, fullPage);
+        await setPanel("visible");
+        shots.push({
+          id: d.id,
+          name: d.name,
+          vibe: d.vibe,
+          rationale: d.rationale,
+          fonts: { display: d.roles.display.family, body: d.roles.body.family, mono: d.roles.mono.family },
+          ...files,
+        });
+      }
+      return annotate({
+        baseUrl: base,
+        route,
+        outDir: out,
+        browser: via,
+        mode: "panel",
+        shotsNote: "Each direction has TWO images: `heroShot` (viewport JPEG, chat/phone-sized — show THESE to the human) and `screenshot` (full-page PNG, for detail on request).",
+        shots,
+        live: liveInstructions(dir),
       });
+    } finally {
+      await browser.close();
     }
-    return { baseUrl: base, route, outDir: out, browser: via, mode: "panel", shots, live: liveInstructions(dir) };
   } finally {
-    await browser.close();
+    if (managed) await managed.stop();
   }
 }
 
@@ -1289,11 +1414,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
 // Requires the project's dev server running (like captureDirections). Makes no edits.
 const RECEIPT_VOICE = { display: "heading", body: "body", mono: "label" };
 
-export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets, executablePath } = {}) {
-  // The panel reports its origin to the endpoint on every connect — use it so the receipt
-  // doesn't demand a URL the system already knows.
-  if (!baseUrl) baseUrl = readDevServer(path.resolve(projectDir))?.origin;
-  if (!baseUrl) throw new Error("verifyShip: baseUrl is required (your running dev server, e.g. http://localhost:3000) — none recorded yet (the panel reports it once opened with the endpoint up)");
+export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets, executablePath, ensureServer, log = () => {} } = {}) {
   const dir = path.resolve(projectDir);
   const sel = readSelection(dir);
   const tg = targets || {
@@ -1304,41 +1425,62 @@ export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets,
   if (!Object.values(tg).some(Boolean))
     throw new Error("verifyShip: nothing to verify — no selection.json (pick first) and no explicit targets {display,body,mono}");
 
+  // The panel reports its origin to the endpoint on every connect — use it so the receipt
+  // doesn't demand a URL the system already knows. And like captureDirections, the server is
+  // reachable-or-started: a receipt right after apply shouldn't fail because the dev server
+  // died between the screenshots and the ship.
+  let managed = null;
+  if (!baseUrl) baseUrl = readDevServer(dir)?.origin;
+  if (!(baseUrl && (await probeHttp(baseUrl)))) {
+    if (ensureServer === false)
+      throw new Error(
+        `verifyShip: ${baseUrl ? `the dev server at ${baseUrl} isn't responding` : "no dev server is running (none passed, none recorded)"} and ensureServer:false forbids starting one — start it yourself (bind 127.0.0.1, harness-managed background task) and pass baseUrl.`,
+      );
+    managed = await startManagedServer(dir, { framework: analyzeProject(dir).framework, log });
+    baseUrl = managed.origin;
+  }
+
   const chromium = await loadChromium();
   const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
   const base = baseUrl.replace(/\/+$/, "");
-  const { browser, via } = await launchBrowser(chromium, { executablePath });
   const routesOut = [];
+  let via = null;
   try {
-    // bypassCSP: a strict dev CSP (connect-src 'self', upgrade-insecure-requests) must not be
-    // able to block the measurement script. (The same CSP is a product hazard for the live
-    // panel — see spike/cluster-paint/RESULTS.md finding 1.)
-    const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 1280, height: 900 } });
-    for (const route of routes.length ? routes : ["/"]) {
-      const page = await ctx.newPage();
-      await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
-      await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
-      await page.waitForTimeout(400); // hydration settle
-      await page.addScriptTag({ content: censusSrc }); // no-ops if the panel already loaded it
-      const measured = await page.evaluate((args) => {
-        const fc = window.__flCensus;
-        fc.clearPaint(); // ship truth: never measure through a preview paint
-        const clusters = fc.recensus();
-        const voices = {};
-        const residue = [];
-        for (const role of Object.keys(args.targets)) {
-          const fam = args.targets[role];
-          if (!fam) continue;
-          voices[role] = fc.voiceCoverage(args.voice[role], fam);
-          for (const c of fc.residueFor(args.voice[role], fam)) residue.push({ role, target: fam, ...c });
-        }
-        return { clusters, voices, residue };
-      }, { targets: tg, voice: RECEIPT_VOICE });
-      routesOut.push({ route, ...measured });
-      await page.close();
+    const { browser, via: browserVia } = await launchBrowser(chromium, { executablePath });
+    via = browserVia;
+    try {
+      // bypassCSP: a strict dev CSP (connect-src 'self', upgrade-insecure-requests) must not be
+      // able to block the measurement script. (The same CSP is a product hazard for the live
+      // panel — see spike/cluster-paint/RESULTS.md finding 1.)
+      const ctx = await browser.newContext({ bypassCSP: true, viewport: { width: 1280, height: 900 } });
+      for (const route of routes.length ? routes : ["/"]) {
+        const page = await ctx.newPage();
+        await page.goto(base + route, { waitUntil: "load", timeout: 30000 });
+        await page.evaluate(async () => { await document.fonts.ready; }).catch(() => {});
+        await page.waitForTimeout(400); // hydration settle
+        await page.addScriptTag({ content: censusSrc }); // no-ops if the panel already loaded it
+        const measured = await page.evaluate((args) => {
+          const fc = window.__flCensus;
+          fc.clearPaint(); // ship truth: never measure through a preview paint
+          const clusters = fc.recensus();
+          const voices = {};
+          const residue = [];
+          for (const role of Object.keys(args.targets)) {
+            const fam = args.targets[role];
+            if (!fam) continue;
+            voices[role] = fc.voiceCoverage(args.voice[role], fam);
+            for (const c of fc.residueFor(args.voice[role], fam)) residue.push({ role, target: fam, ...c });
+          }
+          return { clusters, voices, residue };
+        }, { targets: tg, voice: RECEIPT_VOICE });
+        routesOut.push({ route, ...measured });
+        await page.close();
+      }
+    } finally {
+      await browser.close();
     }
   } finally {
-    await browser.close();
+    if (managed) await managed.stop();
   }
 
   const residue = routesOut.flatMap((r) => r.residue.map((c) => ({ route: r.route, ...c })));
@@ -1360,6 +1502,7 @@ export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets,
     receipt,
     receiptPath: path.relative(dir, receiptPath),
     workOrder,
+    ...(managed ? { managedServer: { command: managed.command, origin: managed.origin, stopped: true } } : {}),
     nextStep: converged
       ? "Converged — every measured voice renders the pick on these routes. Tell the human, then font_lab_status → sourceChanges for what to commit."
       : "Not fully converged. The workOrder names every unreached spot with provenance — execute it (ask the human first about intentional brand islands), then re-run font_lab_verify until converged.",

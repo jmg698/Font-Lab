@@ -22,6 +22,13 @@ ship the order.
 
 ## Setup — do as much yourself as you can, then guide the human
 
+**MCP tools not live yet?** Right after `npx font-lab install` the `font_lab_*` tools don't load
+until the session reloads — but you don't have to wait (and never hand-roll an MCP client): every
+tool is also a one-shot CLI, **`npx font-lab run <tool> '<json-args>'`** (same table, same JSON
+out — e.g. `npx font-lab run font_lab_start '{"projectDir":"/abs/path"}'`, or `npx font-lab run
+start --project .`). `npx font-lab run` lists them. Use it for the whole first loop if you have
+to, and any time the MCP server drops mid-session; the reload just makes the tools native.
+
 The live panel needs **two long-running local processes up at the same time**: the **dev server**
 and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Neither ever exits.
 
@@ -29,12 +36,25 @@ and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Nei
   case): **start BOTH yourself as background tasks and leave them running** (skip whichever is
   already up). Never start them in the foreground — they don't return and your turn will hang. Then
   the human just opens their site.
-- **If you're a cloud / container agent** with no reach to the user's localhost: you can still
-  install, scaffold the panel, and ship — but you **cannot start or reach** those processes. Hand
-  the human the exact commands (`font_lab_live_instructions({ projectDir })`) and the URL to open,
-  and drive the pick from screenshots (`font_lab_screenshot_directions`).
-- **Only the human can:** reload the session once after install (so the MCP tools load) and make the
-  actual pick / retype copy in their browser.
+- **If you're a cloud / container agent** (`font_lab_start` detects this and returns an
+  `environment` block — trust it, or pass `remote: true` if it misses): the human **cannot reach
+  this machine's localhost by design**, so the live panel and :7777 are simply not the choosing
+  moment here — say so up front, never hand over a localhost URL. You still run the ENTIRE loop
+  yourself: install → intake → compose → **`font_lab_screenshot_directions`** (it starts the dev
+  server itself — see below — and returns chat-sized `heroShot` images to show the human) →
+  `font_lab_select` → `apply` → `font_lab_verify`. Copy edits: make the source edits yourself —
+  the panel's double-click-to-edit needs the human on this machine's localhost. Only when the
+  human wants to flip live do you offer `font_lab_live_instructions` — framed as commands for
+  THEIR machine after pulling the branch (the tool words it correctly when remote).
+- **Only the human can:** reload the session once after install (so the MCP tools load — the `run`
+  CLI covers you until then) and make the actual pick.
+
+**Dev servers in containers** — `font_lab_screenshot_directions` and `font_lab_verify` manage this
+for you (spawn the project's dev command bound to **127.0.0.1**, health-check, capture, stop). If
+you must start one by hand anyway: bind `127.0.0.1` explicitly (template configs pinning
+`host: "::"` die with EAFNOSUPPORT on IPv4-only containers), use a harness-managed background
+task (a plain `&` in a sandboxed shell is reaped between calls), and health-check with an HTTP
+request — a `curl` exit code alone can't distinguish "server dead" from "sandbox blocked it".
 
 The goal is that the human does nothing you could have done for them — you handle setup, scaffolding,
 and shipping; they keep the taste decision.
@@ -49,14 +69,16 @@ act on the `mcpVersionDrift` warning if it rides your tool results.
 
 ## The loop
 
-Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
+Use the `font-lab` MCP tools (or their identical CLI form, `npx font-lab run <tool> '<json>'`)
+in this order:
 
 1. **Start & intake** — `font_lab_start({ projectDir })`. This analyzes the project AND returns
-   a `context` block (the project's existing **color palette**, any **brand/design docs**, and a
-   **sample of the real copy**) plus Font Lab's *design brief*: the framing questions to **ask
-   the human first** (what feeling? how bold a departure? any brand to evoke or avoid?), a
-   strategy scaffold, the overexposed default fonts to avoid, and distinctive references to reach
-   for. **Read the `context` so your options fit THIS project, then ask the intake questions and
+   an `environment` block (local vs remote/container, with the workflow consequences — trust it,
+   or pass `remote: true/false` to override detection), a `context` block (the project's existing
+   **color palette**, any **brand/design docs**, and a **sample of the real copy**) plus Font
+   Lab's *design brief*: the framing questions to **ask the human first** (what feeling? how bold
+   a departure? any brand to evoke or avoid?), a strategy scaffold, the overexposed default fonts
+   to avoid, and distinctive references to reach for. **Read the `context` so your options fit THIS project, then ask the intake questions and
    wait for the answers before proposing any fonts** — this is what makes the result tailored to
    *them* instead of a generic default. (`font_lab_start` runs the analysis for you. **Route by
    its `capabilities`, never by framework name** — a non-Next stack is a different route through
@@ -70,7 +92,10 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
    auto-ship — still compose + preview + record the pick, then hand the human the generated block
    for `capabilities.applyTarget`. `shipNote` names the path in one line — relay it to the user.)
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
-   assemble tailored directions with `font_lab_compose_directions({ directions: [...] })`.
+   assemble tailored directions with `font_lab_compose_directions({ projectDir, directions: [...] })`.
+   **Always pass `projectDir`**: the composed set persists as the project's default menu
+   (`.font-lab/preview.json`), which is what `screenshot_directions` / `preview` / `select`
+   resolve against on every framework — skip it and those tools have nothing to default to.
    Reach past the overexposed defaults and give each direction a one-line rationale tied to what
    they asked for. You are **not limited to the catalog**: any of ~1,500 Google fonts works, plus
    a curated bench of distinctive **open-foundry** faces (Cabinet Grotesk, General Sans, Clash
@@ -142,16 +167,24 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by
      default; pass `--host 0.0.0.0` only if the human wants to flip from another device.
 
-   - **Headless real-site screenshots (ANY framework — needs only the running dev server):**
-     call `font_lab_screenshot_directions({ projectDir, baseUrl })`. On Next (panel init'd) it
-     drives the real panel; on **every other framework** it paints the rendered page through the
-     census — the same machinery the panel flips with — with the parity fonts injected inline
-     (no `init`, no project writes). Either way the images are the human's **actual pages** in
-     each direction, faithful to what ships. **Show those images to the human** and ask them to
-     pick an id. Record it with `font_lab_select({ projectDir, directionId })` (supports a mixed
-     pick via `roles`). You are still only preparing the menu — **the human makes the call.**
-     This is the default choosing moment off Next, and the right path for web/cloud/phone
-     sessions: start the dev server as a background task and use it.
+   - **Headless real-site screenshots (ANY framework — the default choosing moment off Next, and
+     the right path for web/cloud/phone sessions):** call
+     `font_lab_screenshot_directions({ projectDir })`. **It manages the dev server itself**: if
+     none is reachable (nothing passed, nothing recorded, or dead), it starts the project's own
+     dev command — bound to 127.0.0.1, health-checked, stopped after the capture — so you never
+     fight sandboxed-shell backgrounding or IPv6 binds; pass `baseUrl` to use a server you
+     already run, or `ensureServer: false` to forbid the spawn. On Next (panel init'd) it drives
+     the real panel; on **every other framework** it paints the rendered page through the census
+     — the same machinery the panel flips with — with the parity fonts injected inline (no
+     `init`, no project writes: preview woff2 cache under `.font-lab/fonts/`, never `public/`).
+     Directions default to your composed set; with none composed it **errors** rather than
+     silently capturing the starter menu. Either way the images are the human's **actual pages**
+     in each direction, faithful to what ships. Each direction returns a `heroShot`
+     (viewport JPEG, chat/phone-sized — **show these**) and a `screenshot` (full-page PNG, for
+     detail). Ask the human to pick an id and record it with
+     `font_lab_select({ projectDir, directionId })` (supports a mixed pick via `roles`; it
+     resolves ids against the same composed set the human saw). You are still only preparing the
+     menu — **the human makes the call.**
 
    - **Portable sheet (no dev server at all):** `font_lab_preview({ projectDir, directions })`
      builds a single self-contained HTML sheet — one card per direction, the parity fonts
@@ -199,8 +232,16 @@ Use the `font-lab` MCP tools (or the CLIs in `cli/`) in this order:
      production (the panel is dev-only and dead-code-eliminated) but it isn't their content:
      offer it as a separate "chore: add Font Lab dev tooling" commit, or leave it uncommitted.
    `.font-lab/` itself is runtime state and **ignores itself** (a `*` .gitignore inside it) — it
-   should never appear in their diff. If it does, the project predates the self-ignore and the
-   files are already tracked: `git rm -r --cached .font-lab` fixes it once.
+   should never appear in their diff (headless preview fonts and shots live in there too, so a
+   preview session leaves the tree clean; `public/fontlab/` appears only after an actual apply).
+   If it does, the project predates the self-ignore and the files are already tracked:
+   `git rm -r --cached .font-lab` fixes it once.
+   **Ephemeral workspace exception:** in a remote container that loses uncommitted work when
+   reclaimed (`font_lab_start`'s `environment` says so), committing IS how work survives — don't
+   leave the piles uncommitted waiting for a human who isn't at this machine. Commit them
+   yourself, still as the two separate labeled commits above, on the branch you're already
+   working on, and tell the human exactly what you committed. Never push anywhere they didn't
+   designate, and never merge.
 
 ## Copy edits — same endpoint, no extra setup
 
@@ -258,9 +299,13 @@ still has a clean next step instead of a dead end.
   `font_lab_rewire_dead_roles` to fix it (points the raw usage at the published leaf var so the
   font renders); it's reversible via `font_lab_undo`.
 - **Reversible.** Every apply backs up first; offer `undo` if they don't love it.
-- **The human commits.** End the session by proposing the commit plan from `font_lab_status`'s
-  `sourceChanges` (their content edits separate from Font Lab's scaffolding) — but never run
-  `git commit` or `git push` yourself unless they explicitly ask.
+- **The human commits — except where nothing survives otherwise.** End the session by proposing
+  the commit plan from `font_lab_status`'s `sourceChanges` (their content edits separate from
+  Font Lab's scaffolding) — and never run `git commit` or `git push` yourself unless they
+  explicitly ask. The one exception: an EPHEMERAL remote workspace (see the environment block),
+  where uncommitted work is lost on reclaim — there, make the two labeled commits yourself on
+  your working branch and report them; pushing anywhere the human didn't designate stays off
+  the table.
 - **Headless needs a Chromium.** Font Lab ships a light Playwright driver (`playwright-core`, an
   optional dependency), so `font_lab_screenshot_directions` works out of the box — it drives
   **whatever Chromium is already on the machine** (the user's system Chrome/Edge, a pre-installed

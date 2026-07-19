@@ -62,3 +62,6 @@ jobs:
 
       - name: Context — project palette/copy extraction across framework conventions
         run: node context-test.mjs
+
+      - name: Cloud loop — run-CLI bridge, composed-set persistence, no silent starter menu, managed dev server, environment detection
+        run: node cloud-loop-test.mjs
