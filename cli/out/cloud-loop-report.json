@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "name": "run with no tool prints usage + tool list, exits 1",
+      "pass": true
+    },
+    {
+      "name": "run --list exits 0 (explicit list is a success)",
+      "pass": true
+    },
+    {
+      "name": "run <tool> prints the tool's JSON on stdout",
+      "pass": true
+    },
+    {
+      "name": "run accepts short names + --project convenience",
+      "pass": true
+    },
+    {
+      "name": "run enforces required args (same message as MCP)",
+      "pass": true
+    },
+    {
+      "name": "run rejects unknown tools with the known list",
+      "pass": true
+    },
+    {
+      "name": "run surfaces tool errors as {error} JSON, exit 2",
+      "pass": true
+    },
+    {
+      "name": "composeDirections persists .font-lab/preview.json",
+      "pass": true
+    },
+    {
+      "name": "composeDirections records the menu as composed/tailored",
+      "pass": true
+    },
+    {
+      "name": "persisted set round-trips through readPreviewSet",
+      "pass": true
+    },
+    {
+      "name": "resolveCaptureSet: explicit directions win",
+      "pass": true
+    },
+    {
+      "name": "resolveCaptureSet: composed set is the default",
+      "pass": true
+    },
+    {
+      "name": "select resolves the id against the COMPOSED set (not starter)",
+      "pass": true
+    },
+    {
+      "name": "no composed set + no fallback → actionable refusal (never silent starter)",
+      "pass": true
+    },
+    {
+      "name": "allowFallback:true still yields the deterministic starter deliberately",
+      "pass": true
+    },
+    {
+      "name": "captureDirections refuses BEFORE any server/browser work",
+      "pass": true
+    },
+    {
+      "name": "preview font cache targets .font-lab/fonts, public/ untouched",
+      "pass": true
+    },
+    {
+      "name": "CLAUDE_CODE_REMOTE marks a remote container",
+      "pass": true
+    },
+    {
+      "name": "Codespaces marks remote WITH port forwarding",
+      "pass": true
+    },
+    {
+      "name": "no markers → local",
+      "pass": true
+    },
+    {
+      "name": "explicit remote:true overrides a local detection",
+      "pass": true
+    },
+    {
+      "name": "explicit remote:false overrides a cloud marker",
+      "pass": true
+    },
+    {
+      "name": "start carries the environment + workflow consequences",
+      "pass": true
+    },
+    {
+      "name": "live_instructions reframes for remote (no localhost handoff)",
+      "pass": true
+    },
+    {
+      "name": "hostArgsFor: next → -H 127.0.0.1",
+      "pass": true
+    },
+    {
+      "name": "hostArgsFor: vite family → --host 127.0.0.1",
+      "pass": true
+    },
+    {
+      "name": "hostArgsFor: compound script → no guessed flags",
+      "pass": true
+    },
+    {
+      "name": "normalizeOrigin pins localhost/:: to 127.0.0.1",
+      "pass": true
+    },
+    {
+      "name": "detectDevCommand reads the fixture's dev script",
+      "pass": true
+    },
+    {
+      "name": "managed server starts and reports a 127.0.0.1 origin",
+      "pass": true
+    },
+    {
+      "name": "managed server answers HTTP",
+      "pass": true
+    },
+    {
+      "name": "managed command carries the forced host bind",
+      "pass": true
+    },
+    {
+      "name": "stop() tears the server down",
+      "pass": true
+    },
+    {
+      "name": "no dev script → actionable error (bind + background-task guidance)",
+      "pass": true
+    }
+  ]
+}

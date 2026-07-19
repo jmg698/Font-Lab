@@ -7,7 +7,7 @@
 // to build is the caller's choice (the curator default, or the agent's own composition).
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, statSync, renameSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { get as catalogGet } from "./catalog.mjs";
 import { fontsForDirections } from "./curator.mjs";
@@ -46,23 +46,44 @@ function overrides(main, fallback) {
   };
 }
 
+// A woff2 with real bytes at p, or null. Guards against a truncated/failed earlier download —
+// a zero-byte file must never be "cached".
+const usableWoff2 = (p) => {
+  try {
+    return existsSync(p) && statSync(p).size > 0 ? p : null;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Self-host each family's variable woff2 + compute next/font's exact adjusted fallback, and
  * return the ready-to-inject CSS. This is the FRAMEWORK-AGNOSTIC core — plain `@font-face` +
  * font-family stacks keyed on nothing next/font-specific. Both the Next panel (via
  * generateCatalog) and the css-entry ship path (codegen) build on it.
  *
- * @param projectDir absolute path; woff2 are written under `<staticDir>/fontlab/`
+ * Two destinations, one cache:
+ *   • SHIP builds (no cacheDir) write under `<staticDir>/fontlab/` — those bytes are a runtime
+ *     asset the site serves, so they belong in the repo.
+ *   • PREVIEW builds pass cacheDir (`.font-lab/fonts/`, self-ignored) — screenshots and the
+ *     portable sheet inline the bytes, so previewing must leave ZERO untracked files in the repo.
+ * Either way `.font-lab/fonts/` doubles as a download cache: bytes fetched for a preview are
+ * copied (byte-identical) into the ship dir at apply time instead of re-downloaded.
+ *
+ * @param projectDir absolute path
  * @param families   family names (each a catalog member or an admitted spec via opts.specFor)
- * @param opts       { log?, fetch?, specFor?, staticDir? }  fetch:false skips network (tests);
- *                   staticDir defaults to "public" (SvelteKit passes "static")
+ * @param opts       { log?, fetch?, specFor?, staticDir?, cacheDir?, inline? }
+ *                   fetch:false skips network (tests); staticDir defaults to "public"
+ *                   (SvelteKit passes "static"); cacheDir redirects the woff2 writes (previews)
  * @returns { faceCss: string[], stacks: Record<family,string>, fonts: string[] }
  */
 export async function buildParityBundles(projectDir, families, opts = {}) {
   const log = opts.log || (() => {});
   const staticDir = opts.staticDir || "public";
-  const PUBLIC = path.join(projectDir, staticDir, "fontlab") + path.sep;
-  mkdirSync(PUBLIC, { recursive: true });
+  const shipDir = path.join(projectDir, staticDir, "fontlab") + path.sep;
+  const previewCache = path.join(projectDir, ".font-lab", "fonts") + path.sep;
+  const DEST = opts.cacheDir ? path.resolve(opts.cacheDir) + path.sep : shipDir;
+  mkdirSync(DEST, { recursive: true });
 
   const arial = await metricsFor("arial");
   const timesNewRoman = await metricsFor("timesNewRoman");
@@ -73,19 +94,35 @@ export async function buildParityBundles(projectDir, families, opts = {}) {
   for (const family of families) {
     const spec = specFor(family); // catalog member (proven path) OR an admitted non-catalog spec
 
+    const file = DEST + slug(family) + ".woff2";
+    // Reuse bytes any earlier build already fetched (either location) — same bytes preview →
+    // ship is exactly the parity promise, and repeat previews stop re-downloading every font.
+    const cached = [file, previewCache + slug(family) + ".woff2", shipDir + slug(family) + ".woff2"].map(usableWoff2).find(Boolean);
     let srcUrl = null;
     if (opts.fetch !== false) {
-      if (spec.css2) {
-        const css = execFileSync("curl", ["-sSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });
-        const m = css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/) || css.match(/url\((https:[^)]+\.woff2)\)/);
-        if (!m) throw new Error(`Could not find latin woff2 for "${family}"`);
-        srcUrl = m[1];
-      } else if (spec.woff2Url) {
-        srcUrl = spec.woff2Url; // admitted foundry font — self-host its woff2 directly
-      } else {
-        throw new Error(`No font source (css2 or woff2Url) for "${family}"`);
+      // The served URL is needed to download AND (for non-catalog fonts with no capsize key) to
+      // derive metrics — resolve it unless the cache covers both needs.
+      if (!cached || !spec.capsize) {
+        if (spec.css2) {
+          const css = execFileSync("curl", ["-fsSL", "-A", UA, `https://fonts.googleapis.com/css2?family=${spec.css2}&display=swap`], { encoding: "utf8" });
+          const m = css.match(/\/\* latin \*\/\s*@font-face\s*\{[^}]*?url\((https:[^)]+\.woff2)\)/) || css.match(/url\((https:[^)]+\.woff2)\)/);
+          if (!m) throw new Error(`Could not find latin woff2 for "${family}"`);
+          srcUrl = m[1];
+        } else if (spec.woff2Url) {
+          srcUrl = spec.woff2Url; // admitted foundry font — self-host its woff2 directly
+        } else if (!cached) {
+          throw new Error(`No font source (css2 or woff2Url) for "${family}"`);
+        }
       }
-      execFileSync("curl", ["-sSL", "-A", UA, "-o", PUBLIC + slug(family) + ".woff2", srcUrl]);
+      if (!cached) {
+        // curl -f + tmp-then-rename: an HTTP error page or a cut connection must never leave a
+        // poisoned .woff2 behind for the cache reuse above to trust.
+        const tmp = file + ".tmp";
+        execFileSync("curl", ["-fsSL", "--retry", "2", "-A", UA, "-o", tmp, srcUrl]);
+        renameSync(tmp, file);
+      } else if (cached !== file) {
+        copyFileSync(cached, file);
+      }
     }
 
     const main = spec.capsize ? await metricsFor(spec.capsize) : await metricsFromUrl(srcUrl, spec);
@@ -96,17 +133,17 @@ export async function buildParityBundles(projectDir, families, opts = {}) {
 
     // src: a self-hosted path by default; a base64 data URI when inlining (a fully offline,
     // single-file preview). Inlining needs the fetched bytes — fall back to the path if absent.
-    const woff2Path = PUBLIC + slug(family) + ".woff2";
+    // (The `/fontlab/` URL only resolves for ship builds; cacheDir callers always inline.)
     let src = `url('/fontlab/${slug(family)}.woff2') format('woff2')`;
-    if (opts.inline && existsSync(woff2Path)) {
-      src = `url('data:font/woff2;base64,${readFileSync(woff2Path).toString("base64")}') format('woff2')`;
+    if (opts.inline && usableWoff2(file)) {
+      src = `url('data:font/woff2;base64,${readFileSync(file).toString("base64")}') format('woff2')`;
     }
     faceCss.push(
       `@font-face{font-family:'FL ${family}';font-style:normal;font-weight:100 900;font-display:swap;src:${src};}`,
       `@font-face{font-family:'FL ${family} Fallback';src:local('${fbName}');size-adjust:${o.sizeAdjust};ascent-override:${o.ascent};descent-override:${o.descent};line-gap-override:${o.lineGap};}`,
     );
     stacks[family] = `'FL ${family}', 'FL ${family} Fallback', ${generic(main.category)}`;
-    log(`  ${family.padEnd(20)} -> ${slug(family)}.woff2  (fallback ${fbName}, size-adjust ${o.sizeAdjust})`);
+    log(`  ${family.padEnd(20)} -> ${slug(family)}.woff2  (fallback ${fbName}, size-adjust ${o.sizeAdjust}${cached ? ", cached" : ""})`);
   }
   return { faceCss, stacks, fonts: families };
 }

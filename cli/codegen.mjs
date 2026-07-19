@@ -445,9 +445,14 @@ function ensureLocalFontFile(projectDir, analysis, layoutPath, family, woff2Url)
   if (!existsSync(dest)) {
     mkdirSync(fontsDir, { recursive: true });
     // The preview already self-hosted this exact file — prefer it (byte-identical, offline).
-    const staged = path.join(projectDir, analysis.staticDir || "public", "fontlab", famSlug(family) + ".woff2");
-    if (existsSync(staged)) copyFileSync(staged, dest);
-    else if (woff2Url) execFileSync("curl", ["-sSL", "-A", CURL_UA, "-o", dest, woff2Url]);
+    // Two possible homes: the Next panel's public bundle, or the headless preview cache
+    // (.font-lab/fonts/ — where screenshot/portable previews download so the repo stays clean).
+    const staged = [
+      path.join(projectDir, analysis.staticDir || "public", "fontlab", famSlug(family) + ".woff2"),
+      path.join(projectDir, ".font-lab", "fonts", famSlug(family) + ".woff2"),
+    ].find((p) => existsSync(p));
+    if (staged) copyFileSync(staged, dest);
+    else if (woff2Url) execFileSync("curl", ["-fsSL", "-A", CURL_UA, "-o", dest, woff2Url]);
     else throw new Error(`no self-hostable woff2 for "${family}" — run font_lab_check_fonts (or prepare the preview) first`);
   }
   // next/font/local resolves src relative to the declaring file (layout.tsx).

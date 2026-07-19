@@ -25,6 +25,8 @@ For: **any framework with a CSS seam** — Next.js gets the full live-panel expe
 
 Install auto-detects which agents you have and wires them all — skill, MCP server, config, each in the right format. On a stack with no seam at all, Font Lab **refuses to half-apply** and hands you the generated code with a clear reason instead.
 
+Newly registered MCP tools load on the next session reload — but the agent never has to wait: every tool also runs as a one-shot CLI, `npx font-lab run <tool> '<json-args>'` (same tool table, same JSON out), so the loop starts the moment install finishes. That's also the fallback whenever an MCP server drops mid-session.
+
 ## Frameworks — what ships where
 
 The taste engine, shippability gate, portable preview, and screenshots work on **every** stack. What varies is the preview surface and how the pick lands in your code — `font-lab analyze` prints the exact verdict for your project:
@@ -68,9 +70,9 @@ The Font Lab panel sits on top of your running site — your real pages, your re
 - **Change receipts** — see exactly what changed across the page after every edit
 - **Undo everything** — every modification ships with a reversal command
 
-The panel runs headless too: the agent screenshots your site in each direction and shows you the images in chat. Works on a phone, on the web, anywhere your agent runs.
+The panel runs headless too: the agent screenshots your site in each direction and shows you the images in chat — a chat-sized hero shot per direction, with the full-page capture behind it. Works on a phone, on the web, anywhere your agent runs.
 
-The live panel is Next-only — but the **real-site preview isn't**. On every other framework, Font Lab paints your actual running pages in each direction (the same render-first census machinery the panel flips with, injected headlessly — no scaffolding, no source writes) and hands you verified screenshots to pick from. With no dev server at all, the fallback is the **portable preview**: a self-contained HTML specimen sheet (fonts embedded, opens offline) on your own palette and copy — clearly labeled as specimen cards, never passed off as your pages.
+The live panel is Next-only — but the **real-site preview isn't**. On every other framework, Font Lab paints your actual running pages in each direction (the same render-first census machinery the panel flips with, injected headlessly — no scaffolding, no source writes; preview fonts cache in self-ignored state, so your `git status` stays clean until you actually ship). If no dev server is running, the screenshot tool **starts your project's own dev command itself** — bound to 127.0.0.1, health-checked, stopped after the capture — which is what makes the loop work unattended in cloud/container agents (Claude Code on the web, and friends) where the human can't reach the agent's localhost. With no dev server possible at all, the fallback is the **portable preview**: a self-contained HTML specimen sheet (fonts embedded, opens offline) on your own palette and copy — clearly labeled as specimen cards, never passed off as your pages.
 
 ## Honesty
 

@@ -29,7 +29,7 @@ const isServeFlag = (a) => ["--project", "--port", "--host", "--once", "--apply"
 let SUB;
 if (!first || ["help", "--help", "-h"].includes(first)) SUB = "help";
 else if (["--version", "-v", "version"].includes(first)) SUB = "version";
-else if (["install", "uninstall", "mcp", "serve", "upgrade"].includes(first)) SUB = first;
+else if (["install", "uninstall", "mcp", "serve", "upgrade", "run"].includes(first)) SUB = first;
 else if (isServeFlag(first)) SUB = "serve";
 else SUB = "help"; // unknown word or flag -> help; never surprise-boot the server
 
@@ -41,6 +41,8 @@ if (SUB === "install" || SUB === "uninstall") {
   await runUpgrade();
 } else if (SUB === "mcp") {
   await import("./mcp.mjs"); // self-runs the stdio server on import
+} else if (SUB === "run") {
+  await runTool();
 } else if (SUB === "version") {
   try {
     const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
@@ -57,6 +59,11 @@ if (SUB === "install" || SUB === "uninstall") {
       "  font-lab upgrade [--project <dir>]  one-command upgrade: package install + panel re-stamp +",
       "                 endpoint shutdown + MCP/skill re-pin (then reload your agent session)",
       "  font-lab mcp                      run the MCP server (stdio)",
+      "  font-lab run [<tool>] [<json>]    call any font_lab_* tool one-shot, JSON in/out — the",
+      "                 SAME tools as the MCP server (use when MCP isn't live yet: fresh install",
+      "                 before a session reload, or a dropped server). `font-lab run` lists them.",
+      "                 e.g.: font-lab run font_lab_start '{\"projectDir\":\"/path/to/site\"}'",
+      "                       font-lab run analyze --project .",
       "  font-lab serve [--project <dir>] [--port <n>] [--host <ip>] [--once] [--apply]",
       "                 pick write-back endpoint (loopback-only by default; --once exits on the",
       "                 first pick OR 'more options' request — the final stdout line is the",
@@ -66,6 +73,74 @@ if (SUB === "install" || SUB === "uninstall") {
   );
 } else {
   runServe();
+}
+
+// ---- run: any font_lab_* tool as a one-shot CLI call ---------------------------------------
+// The MCP server's twin (same tool table — tools.mjs), for the two MCP dead zones: right after
+// `font-lab install` (tools aren't live until the human reloads the session — but the agent has
+// work to do NOW) and a dropped/reconnecting server mid-session on cloud harnesses. JSON args
+// in (inline, --args, or stdin via '-'), the tool's JSON result on stdout, logs on stderr —
+// identical behavior to the MCP call by construction.
+async function runTool() {
+  const { TOOLS, findTool, missingArgsError, invokeTool, withDeliveryNotes } = await import("./tools.mjs");
+  const { refreshAgentHeartbeat } = await import("./state.mjs");
+  const argv = process.argv.slice(3);
+  const flagVal = (flag) => {
+    const i = argv.indexOf(flag);
+    return i !== -1 && argv[i + 1] ? argv[i + 1] : null;
+  };
+  const positional = argv.filter((a, i) => (a === "-" || !a.startsWith("--")) && argv[i - 1] !== "--args" && argv[i - 1] !== "--project");
+  const name = positional[0];
+
+  if (!name) {
+    const listed = argv.includes("--list"); // an explicit list is a success, a bare `run` is usage help
+    console.error("font-lab run — call any Font Lab tool one-shot (same table the MCP server serves).");
+    console.error("usage: font-lab run <tool> ['<json-args>' | --args '<json>' | - (stdin)] [--project <dir>]\n");
+    for (const t of TOOLS) console.error(`  ${t.name.padEnd(32)} ${t.description.split(/[.!—]/)[0].slice(0, 90)}`);
+    console.error("\nexample: font-lab run font_lab_start '{\"projectDir\":\"/abs/path\"}'   (or: font-lab run start --project .)");
+    process.exit(listed ? 0 : 1);
+  }
+  const tool = findTool(name);
+  if (!tool) {
+    console.error(`unknown tool "${name}" — known: ${TOOLS.map((t) => t.name).join(", ")}`);
+    process.exit(1);
+  }
+
+  let raw = flagVal("--args") ?? positional[1] ?? null;
+  if (raw === "-") {
+    raw = "";
+    for await (const chunk of process.stdin) raw += chunk;
+  }
+  let args = {};
+  if (raw && raw.trim()) {
+    try {
+      args = JSON.parse(raw);
+    } catch (e) {
+      console.error(`--args isn't valid JSON (${e.message}). Pass the tool's arguments as one JSON object, e.g. '{"projectDir":"/abs/path"}'.`);
+      process.exit(1);
+    }
+  }
+  // Convenience: --project <dir> fills projectDir so simple calls need no JSON at all.
+  const proj = flagVal("--project");
+  if (proj && args.projectDir === undefined && tool.inputSchema?.properties?.projectDir) args.projectDir = path.resolve(proj);
+
+  const missing = missingArgsError(tool, args);
+  if (missing) {
+    console.error(missing);
+    console.error(`schema: ${JSON.stringify(tool.inputSchema)}`);
+    process.exit(1);
+  }
+  if (args.projectDir) { try { refreshAgentHeartbeat(args.projectDir); } catch {} }
+  const log = (m) => process.stderr.write(String(m) + "\n");
+  try {
+    const out = await invokeTool(tool, args, { log });
+    const payload = withDeliveryNotes(tool.name, args, out);
+    console.log(JSON.stringify(payload ?? null, null, 2));
+    process.exit(0);
+  } catch (e) {
+    console.log(JSON.stringify({ error: e.message }, null, 2));
+    process.exit(2);
+  }
 }
 
 // ---- upgrade: the four version copies, moved in one command --------------------------------
