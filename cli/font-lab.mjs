@@ -31,7 +31,7 @@ if (!first || ["help", "--help", "-h"].includes(first)) SUB = "help";
 else if (["--version", "-v", "version"].includes(first)) SUB = "version";
 else if (["install", "uninstall", "mcp", "serve", "upgrade", "run"].includes(first)) SUB = first;
 else if (isServeFlag(first)) SUB = "serve";
-else SUB = "help"; // unknown word or flag -> help; never surprise-boot the server
+else SUB = "maybe-tool"; // an unknown WORD may be a tool name; anything else -> help, never surprise-boot the server
 
 if (SUB === "install" || SUB === "uninstall") {
   const { runInstall, runUninstall } = await import("./install.mjs");
@@ -43,6 +43,14 @@ if (SUB === "install" || SUB === "uninstall") {
   await import("./mcp.mjs"); // self-runs the stdio server on import
 } else if (SUB === "run") {
   await runTool();
+} else if (SUB === "maybe-tool") {
+  // `font-lab init`, `font-lab screenshot_directions`, … — the dogfood typo class: a tool name
+  // without `run` used to print the generic help, which read as "init doesn't exist". Any word
+  // that resolves in the tool table IS a run call; everything else still gets help (and a flag
+  // never lands here, so a metadata probe can't boot the server by accident).
+  const { findTool } = await import("./tools.mjs");
+  if (!first.startsWith("-") && findTool(first)) await runTool(2);
+  else printHelp();
 } else if (SUB === "version") {
   try {
     const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
@@ -51,6 +59,12 @@ if (SUB === "install" || SUB === "uninstall") {
     console.log("unknown");
   }
 } else if (SUB === "help") {
+  printHelp();
+} else {
+  runServe();
+}
+
+function printHelp() {
   console.log(
     [
       "Font Lab",
@@ -64,6 +78,7 @@ if (SUB === "install" || SUB === "uninstall") {
       "                 before a session reload, or a dropped server). `font-lab run` lists them.",
       "                 e.g.: font-lab run font_lab_start '{\"projectDir\":\"/path/to/site\"}'",
       "                       font-lab run analyze --project .",
+      "                 (`font-lab <tool>` with no `run` works too: font-lab init --project .)",
       "  font-lab serve [--project <dir>] [--port <n>] [--host <ip>] [--once] [--apply]",
       "                 pick write-back endpoint (loopback-only by default; --once exits on the",
       "                 first panel event — a pick, a 'more options' request, or done ✓ — with",
@@ -72,8 +87,6 @@ if (SUB === "install" || SUB === "uninstall") {
       "  font-lab --version                print the version and exit (never starts a server)",
     ].join("\n"),
   );
-} else {
-  runServe();
 }
 
 // ---- run: any font_lab_* tool as a one-shot CLI call ---------------------------------------
@@ -82,10 +95,10 @@ if (SUB === "install" || SUB === "uninstall") {
 // work to do NOW) and a dropped/reconnecting server mid-session on cloud harnesses. JSON args
 // in (inline, --args, or stdin via '-'), the tool's JSON result on stdout, logs on stderr —
 // identical behavior to the MCP call by construction.
-async function runTool() {
+async function runTool(argvFrom = 3) {
   const { TOOLS, findTool, missingArgsError, invokeTool, withDeliveryNotes } = await import("./tools.mjs");
   const { refreshAgentHeartbeat } = await import("./state.mjs");
-  const argv = process.argv.slice(3);
+  const argv = process.argv.slice(argvFrom); // 3 after `run <tool>`; 2 for the bare `<tool>` alias
   const flagVal = (flag) => {
     const i = argv.indexOf(flag);
     return i !== -1 && argv[i + 1] ? argv[i + 1] : null;

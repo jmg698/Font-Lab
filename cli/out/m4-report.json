@@ -1,6 +1,6 @@
 {
   "catalogSize": 41,
-  "directions": 12,
+  "directions": 21,
   "results": [
     {
       "name": "catalog is ~40 fonts",
@@ -27,219 +27,23 @@
       "pass": true
     },
     {
-      "name": "editorial-serif: body \"Libre Franklin\" in catalog",
+      "name": "editorial-serif: body \"Hanken Grotesk\" in catalog",
       "pass": true
     },
     {
-      "name": "editorial-serif: Libre Franklin suits role body",
+      "name": "editorial-serif: Hanken Grotesk suits role body",
       "pass": true
     },
     {
-      "name": "editorial-serif: mono \"JetBrains Mono\" in catalog",
+      "name": "editorial-serif: mono \"Spline Sans Mono\" in catalog",
       "pass": true
     },
     {
-      "name": "editorial-serif: JetBrains Mono suits role mono",
+      "name": "editorial-serif: Spline Sans Mono suits role mono",
       "pass": true
     },
     {
       "name": "editorial-serif: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: display \"Bricolage Grotesque\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: Bricolage Grotesque suits role display",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: body \"Figtree\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: Figtree suits role body",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: mono \"JetBrains Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: JetBrains Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "modern-grotesque: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: display \"Geist\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: Geist suits role display",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: body \"Geist\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: Geist suits role body",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: mono \"Geist Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: Geist Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "clean-geometric: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: display \"Bricolage Grotesque\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: Bricolage Grotesque suits role display",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: body \"Hanken Grotesk\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: Hanken Grotesk suits role body",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: mono \"Spline Sans Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: Spline Sans Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "warm-humanist: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: display \"Playfair Display\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: Playfair Display suits role display",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: body \"Source Serif 4\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: Source Serif 4 suits role body",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: mono \"Roboto Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: Roboto Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "classic-editorial: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "technical: display \"Space Grotesk\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "technical: Space Grotesk suits role display",
-      "pass": true
-    },
-    {
-      "name": "technical: body \"Sora\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "technical: Sora suits role body",
-      "pass": true
-    },
-    {
-      "name": "technical: mono \"Fira Code\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "technical: Fira Code suits role mono",
-      "pass": true
-    },
-    {
-      "name": "technical: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: display \"Cormorant\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: Cormorant suits role display",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: body \"Work Sans\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: Work Sans suits role body",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: mono \"JetBrains Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: JetBrains Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "elegant-contrast: has name/vibe/rationale",
-      "pass": true
-    },
-    {
-      "name": "expressive: display \"Unbounded\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "expressive: Unbounded suits role display",
-      "pass": true
-    },
-    {
-      "name": "expressive: body \"Manrope\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "expressive: Manrope suits role body",
-      "pass": true
-    },
-    {
-      "name": "expressive: mono \"Geist Mono\" in catalog",
-      "pass": true
-    },
-    {
-      "name": "expressive: Geist Mono suits role mono",
-      "pass": true
-    },
-    {
-      "name": "expressive: has name/vibe/rationale",
       "pass": true
     },
     {
@@ -251,23 +55,191 @@
       "pass": true
     },
     {
-      "name": "modern-serif: body \"Inter\" in catalog",
+      "name": "modern-serif: body \"Public Sans\" in catalog",
       "pass": true
     },
     {
-      "name": "modern-serif: Inter suits role body",
+      "name": "modern-serif: Public Sans suits role body",
       "pass": true
     },
     {
-      "name": "modern-serif: mono \"Geist Mono\" in catalog",
+      "name": "modern-serif: mono \"Spline Sans Mono\" in catalog",
       "pass": true
     },
     {
-      "name": "modern-serif: Geist Mono suits role mono",
+      "name": "modern-serif: Spline Sans Mono suits role mono",
       "pass": true
     },
     {
       "name": "modern-serif: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "text-serif: display \"Source Serif 4\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "text-serif: Source Serif 4 suits role display",
+      "pass": true
+    },
+    {
+      "name": "text-serif: body \"Source Sans 3\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "text-serif: Source Sans 3 suits role body",
+      "pass": true
+    },
+    {
+      "name": "text-serif: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "text-serif: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "text-serif: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: display \"Cormorant\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: Cormorant suits role display",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: body \"Libre Franklin\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: Libre Franklin suits role body",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "elegant-contrast: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: display \"Crimson Pro\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: Crimson Pro suits role display",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: body \"Instrument Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: Instrument Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "refined-serif: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: display \"Bricolage Grotesque\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: Bricolage Grotesque suits role display",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: body \"Hanken Grotesk\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: Hanken Grotesk suits role body",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "modern-grotesque: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: display \"Familjen Grotesk\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: Familjen Grotesk suits role display",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: body \"Public Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: Public Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "clean-grotesque: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: display \"Archivo\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: Archivo suits role display",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: body \"Source Sans 3\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: Source Sans 3 suits role body",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "engineered-grotesque: has name/vibe/rationale",
       "pass": true
     },
     {
@@ -299,6 +271,34 @@
       "pass": true
     },
     {
+      "name": "expressive: display \"Unbounded\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "expressive: Unbounded suits role display",
+      "pass": true
+    },
+    {
+      "name": "expressive: body \"Onest\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "expressive: Onest suits role body",
+      "pass": true
+    },
+    {
+      "name": "expressive: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "expressive: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "expressive: has name/vibe/rationale",
+      "pass": true
+    },
+    {
       "name": "friendly-rounded: display \"Gabarito\" in catalog",
       "pass": true
     },
@@ -307,19 +307,19 @@
       "pass": true
     },
     {
-      "name": "friendly-rounded: body \"Plus Jakarta Sans\" in catalog",
+      "name": "friendly-rounded: body \"Public Sans\" in catalog",
       "pass": true
     },
     {
-      "name": "friendly-rounded: Plus Jakarta Sans suits role body",
+      "name": "friendly-rounded: Public Sans suits role body",
       "pass": true
     },
     {
-      "name": "friendly-rounded: mono \"Roboto Mono\" in catalog",
+      "name": "friendly-rounded: mono \"Spline Sans Mono\" in catalog",
       "pass": true
     },
     {
-      "name": "friendly-rounded: Roboto Mono suits role mono",
+      "name": "friendly-rounded: Spline Sans Mono suits role mono",
       "pass": true
     },
     {
@@ -327,31 +327,283 @@
       "pass": true
     },
     {
-      "name": "quiet-minimal: display \"Manrope\" in catalog",
+      "name": "dramatic-display: display \"Darker Grotesque\" in catalog",
       "pass": true
     },
     {
-      "name": "quiet-minimal: Manrope suits role display",
+      "name": "dramatic-display: Darker Grotesque suits role display",
       "pass": true
     },
     {
-      "name": "quiet-minimal: body \"Manrope\" in catalog",
+      "name": "dramatic-display: body \"Libre Franklin\" in catalog",
       "pass": true
     },
     {
-      "name": "quiet-minimal: Manrope suits role body",
+      "name": "dramatic-display: Libre Franklin suits role body",
       "pass": true
     },
     {
-      "name": "quiet-minimal: mono \"Geist Mono\" in catalog",
+      "name": "dramatic-display: mono \"Spline Sans Mono\" in catalog",
       "pass": true
     },
     {
-      "name": "quiet-minimal: Geist Mono suits role mono",
+      "name": "dramatic-display: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "dramatic-display: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: display \"Hanken Grotesk\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: Hanken Grotesk suits role display",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: body \"Hanken Grotesk\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: Hanken Grotesk suits role body",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "warm-humanist: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: display \"Albert Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: Albert Sans suits role display",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: body \"Source Sans 3\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: Source Sans 3 suits role body",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "friendly-humanist: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "technical: display \"Mona Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical: Mona Sans suits role display",
+      "pass": true
+    },
+    {
+      "name": "technical: body \"Instrument Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical: Instrument Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "technical: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "technical: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: display \"Red Hat Display\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: Red Hat Display suits role display",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: body \"Public Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: Public Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "technical-poise: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "system-technical: display \"Archivo\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "system-technical: Archivo suits role display",
+      "pass": true
+    },
+    {
+      "name": "system-technical: body \"Mona Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "system-technical: Mona Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "system-technical: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "system-technical: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "system-technical: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: display \"Onest\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: Onest suits role display",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: body \"Onest\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: Onest suits role body",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "quiet-minimal: Spline Sans Mono suits role mono",
       "pass": true
     },
     {
       "name": "quiet-minimal: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: display \"Epilogue\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: Epilogue suits role display",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: body \"Epilogue\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: Epilogue suits role body",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "minimal-epilogue: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: display \"Instrument Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: Instrument Sans suits role display",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: body \"Instrument Sans\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: Instrument Sans suits role body",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: mono \"Spline Sans Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: Spline Sans Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "modern-neutral: has name/vibe/rationale",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: display \"Geist\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: Geist suits role display",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: body \"Geist\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: Geist suits role body",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: mono \"Geist Mono\" in catalog",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: Geist Mono suits role mono",
+      "pass": true
+    },
+    {
+      "name": "clean-geometric: has name/vibe/rationale",
       "pass": true
     },
     {

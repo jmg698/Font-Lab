@@ -6,7 +6,7 @@ description: >-
   CSS ("pick a font", "these fonts look generic/AI-generated", "make the headings nicer",
   "what typeface should I use", "change the font"). Font Lab asks what they're going for,
   then shows tasteful, ready-to-ship font directions tailored to it and rendered on their
-  OWN site (live panel on Next; portable preview + screenshots elsewhere), lets the human
+  OWN site (live panel on Next; real-site screenshots everywhere else), lets the human
   pick, and ships the exact code for the stack — next/font + Tailwind on Next, self-hosted
   @font-face (Tailwind v4 @theme, v3 utility overrides, or the project's own font vars)
   everywhere else — reversibly. The human keeps the taste decision; you do the typing.
@@ -93,9 +93,10 @@ in this order:
    for `capabilities.applyTarget`. `shipNote` names the path in one line — relay it to the user.)
 2. **Compose the menu for their brief** — using the intake answers and the brief's references,
    assemble tailored directions with `font_lab_compose_directions({ projectDir, directions: [...] })`.
-   **Always pass `projectDir`**: the composed set persists as the project's default menu
+   **`projectDir` is required**: the composed set persists as the project's default menu
    (`.font-lab/preview.json`), which is what `screenshot_directions` / `preview` / `select`
-   resolve against on every framework — skip it and those tools have nothing to default to.
+   resolve against on every framework — the tool refuses without it so a later capture can
+   never dead-end on "no composed set". Its result names your `nextStep` for this stack.
    Reach past the overexposed defaults and give each direction a one-line rationale tied to what
    they asked for. You are **not limited to the catalog**: any of ~1,500 Google fonts works, plus
    a curated bench of distinctive **open-foundry** faces (Cabinet Grotesk, General Sans, Clash
@@ -167,8 +168,8 @@ in this order:
      whether it shipped, and whether the endpoint is up. The endpoint binds to **127.0.0.1** by
      default; pass `--host 0.0.0.0` only if the human wants to flip from another device.
 
-   - **Headless real-site screenshots (ANY framework — the default choosing moment off Next, and
-     the right path for web/cloud/phone sessions):** call
+   - **Headless real-site screenshots (ANY framework — THE choosing moment off Next, and the
+     right path for web/cloud/phone sessions):** call
      `font_lab_screenshot_directions({ projectDir })`. **It manages the dev server itself**: if
      none is reachable (nothing passed, nothing recorded, or dead), it starts the project's own
      dev command — bound to 127.0.0.1, health-checked, stopped after the capture — so you never
@@ -180,21 +181,29 @@ in this order:
      Directions default to your composed set; with none composed it **errors** rather than
      silently capturing the starter menu. Either way the images are the human's **actual pages**
      in each direction, faithful to what ships. Each direction returns a `heroShot`
-     (viewport JPEG, chat/phone-sized — **show these**) and a `screenshot` (full-page PNG, for
-     detail). Ask the human to pick an id and record it with
+     (viewport JPEG, chat/phone-sized) and a `screenshot` (full-page PNG, for detail) — and over
+     MCP the heroShots **ride the tool result as inline images**: show them to the human in the
+     SAME turn, never send them hunting through `.font-lab/previews/` in a file manager. Ask the
+     human to pick an id and record it with
      `font_lab_select({ projectDir, directionId })` (supports a mixed pick via `roles`; it
      resolves ids against the same composed set the human saw). You are still only preparing the
-     menu — **the human makes the call.**
+     menu — **the human makes the call.** If it errors on a missing Playwright driver, `npm i -D
+     playwright-core` **in the project** and retry the same call — the install is picked up
+     immediately (MCP and CLI alike, no session reload).
 
-   - **Portable sheet (no dev server at all):** `font_lab_preview({ projectDir, directions })`
-     builds a single self-contained HTML sheet — one card per direction, the parity fonts
-     **embedded** (opens offline), rendered on the project's own palette and copy (when it can be
-     found). Each card has a live **render-check badge** (a real width-diff — it flags a font
-     that silently fell back, unlike `document.fonts.check`), and
-     `font_lab_preview_screenshots` renders the sheet headlessly for chat. Record the pick with
-     `font_lab_select`. These are **specimen cards** — real faces, honest render check, but not
-     the human's pages (the sheet labels itself when it had to fall back to stock copy). Reach
-     for it only when no dev server can run, or the human wants an offline artifact to keep.
+   - **Portable sheet (LOCKED last resort — the tool enforces the ladder):**
+     `font_lab_preview({ projectDir })` builds a self-contained HTML sheet of **generic specimen
+     cards** — real faces, honest render-check badge (a real width-diff — it flags a font that
+     silently fell back, unlike `document.fonts.check`), but **not the human's pages**. Because a
+     dev server that isn't running is NOT a reason (screenshot_directions starts one itself), this
+     tool **refuses until a real `font_lab_screenshot_directions` attempt has failed on
+     infrastructure** (no Chromium could launch, the dev server wouldn't serve — Font Lab records
+     the failure and unlocks the sheet automatically, echoing why as `unlockedBecause`). Don't
+     try to lead with it, and never present `.font-lab/preview.html` as "the preview" — if you're
+     ever unsure which surface is right, `font_lab_status`'s `preview` block says where things
+     stand. The only other unlock is `force: true`, for when the human **explicitly** wants an
+     offline artifact to keep. `font_lab_preview_screenshots` (same lock) renders the sheet's
+     cards headlessly for chat; record the pick with `font_lab_select`.
 
    - **No browser anywhere?** (headless capture can't launch a Chromium and the human can't open
      an HTML file): every css-entry apply is fenced and byte-reversible, so a scripted
@@ -315,7 +324,11 @@ still has a clean next step instead of a dead end.
   optional dependency), so `font_lab_screenshot_directions` works out of the box — it drives
   **whatever Chromium is already on the machine** (the user's system Chrome/Edge, a pre-installed
   cloud build, or a full `playwright` bundle); no exact version match required (pass `executablePath`
-  to force one). If the tool reports no browser could launch, the one-time fix is `npx playwright
-  install chromium` (or install a system Chrome). If it still won't, don't fake a pick — hand the
-  human `font_lab_live_instructions` and let them choose in a real browser. The live, local path is
-  always the highest-fidelity option.
+  to force one). Driver resolution is **project-first**: if the tool reports no driver, `npm i -D
+  playwright-core` in the project and **retry the same call** — the running MCP server picks the
+  install up immediately, no session reload (the CLI resolves identically, so the two can't
+  disagree). If no browser can launch, the one-time fix is `npx playwright install chromium` (or
+  install a system Chrome). If it still won't, don't fake a pick — the failure has unlocked the
+  portable sheet (`font_lab_preview`) for a human who can open HTML, and
+  `font_lab_live_instructions` lets them choose in a real browser. The live, local path is always
+  the highest-fidelity option.

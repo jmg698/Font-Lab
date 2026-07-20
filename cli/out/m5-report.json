@@ -129,6 +129,10 @@
       "pass": true
     },
     {
+      "name": "MCP compose REQUIRES projectDir (persistence can't be skipped)",
+      "pass": true
+    },
+    {
       "name": "MCP rejects unknown tool",
       "pass": true
     },
