@@ -29,6 +29,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cpSync, rmSync, mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { writeInstallManifest, clearInstallManifest } from "./state.mjs";
+import { VERSION } from "./version.mjs";
 
 const PKG_NAME = "font-lab"; // single source of truth for the published name
 const SKILL_NAME = "font-lab";
@@ -240,7 +242,7 @@ export function agentsBlock() {
     "",
     "**Setup — who starts what (this is where it usually goes wrong):** the live panel needs TWO long-running local processes up at the same time — the **dev server** (your project's `npm run dev` / `pnpm dev` / …) and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Neither ever exits.",
     "- **If you have a local terminal** (Cursor, Claude Code, Windsurf, VS Code, Gemini CLI): **start BOTH yourself as background tasks and leave them running** (skip whichever is already up). Do NOT run them in the foreground — they never return and your turn will hang. Then tell the human to open their site.",
-    "- **If you're a cloud / container agent** (`font_lab_start`'s `environment` block detects this): the human cannot reach this machine's localhost — the live panel and :7777 are not the choosing moment here, so say so up front and never hand over a localhost URL. Run the whole loop yourself headlessly: screenshots (chat-sized `heroShot` images) → `font_lab_select` → `apply` → `font_lab_verify`; make copy edits directly in source. In an EPHEMERAL workspace (work lost on reclaim), commit the human's changes and Font Lab's scaffolding as separate labeled commits on your working branch and say what you committed — never push anywhere the human didn't designate.",
+    "- **If you're a cloud / container agent** (`font_lab_start`'s `environment` block detects this): the human cannot reach this machine's localhost — the live panel and :7777 are not the choosing moment here, so say so up front and never hand over a localhost URL. Run the whole loop yourself headlessly: screenshots (chat-sized `heroShot` images) → `font_lab_select` → `apply` → `font_lab_verify`; make copy edits directly in source. In an EPHEMERAL workspace (work lost on reclaim), run `font_lab_finish` first (scaffolding out, commit plan in), then commit the ship pile on your working branch with the plan's commands and say what you committed — never push anywhere the human didn't designate.",
     "- **Only the human can:** reload this session once after install so the MCP tools load (the `run` CLI covers you until then), and make the actual pick / retype copy in their browser.",
     "",
     "1. **Start & intake** — `font_lab_start({ projectDir })` analyzes the project and returns a design brief + the `environment` block. **Ask the human its framing questions first** (what feeling? how bold a departure? brand to evoke or avoid?) and wait for answers before proposing any fonts.",
@@ -250,7 +252,7 @@ export function agentsBlock() {
     "",
     "**Copy edits ride the same endpoint:** with the panel up and `:7777` running, the human can double-click any text on the page, retype it, and it saves to their source (reversibly). If edits appear to save then revert, it's almost always one of: the endpoint isn't running, it's pointed at the wrong folder (`--project` must be the site root), or the site isn't in dev mode — tell the human which to fix rather than leaving it looking broken.",
     "",
-    "**When they're done, hand the repo back clean:** `font_lab_status` → `sourceChanges` lists every source file Font Lab wrote this session (copy edits, font applies, panel scaffolding). Propose the commit plan from it — their content edits in one commit, Font Lab's scaffolding (the `layout.tsx` mount, `app/_fontlab/`, `public/fontlab/`) as a separate chore commit or left uncommitted — and never `git commit`/`git push` unless they explicitly ask. `.font-lab/` is runtime state and ignores itself; it never belongs in a commit.",
+    "**When they're done, hand the repo back clean with `font_lab_finish`:** the panel's *done ✓* button, the human saying they're finished, or a `pendingCleanup` note on any tool result all mean the same thing — call `font_lab_finish({ projectDir })`. It strips the dev-panel scaffolding (the `layout.tsx` mount, `app/_fontlab/`, `public/fontlab/` preview fonts) and returns a git-verified `commitPlan`: the ship pile (their copy edits + font apply, with ready-to-run `git add` / `git commit` commands) separated from anything that isn't theirs. Relay the commands; never `git commit`/`git push` yourself unless they explicitly ask. The scaffolding and `.font-lab/` are self-ignoring (nested .gitignore), so `git status` shows the product diff only; pass `uninstall:true` when the human wants Font Lab's MCP/instructions wiring gone too.",
     "",
     "Prefer `guaranteed` (WYSIWYG) faces; when only `best-effort` is possible, relay the fidelity warning honestly.",
     AGENTS_END,
@@ -399,6 +401,10 @@ export function runInstall() {
   const hosts = selectHosts(project);
   const tag = dry ? " (dry-run, nothing written)" : "";
   const steps = [];
+  // The footprint receipt: every path this install wires, in and out of the repo. Written to
+  // .font-lab/install.json so status can show the whole footprint and finish/uninstall can
+  // explain exactly what stays or goes.
+  const footprint = [];
 
   console.log(`Font Lab — install${tag}`);
   console.log(`  hosts   ${hosts.map((h) => HOSTS[h].label).join(", ")}`);
@@ -408,6 +414,7 @@ export function runInstall() {
       const { file, changed, entry } = writeMcpFor(h, project, dry);
       const cmd = [entry.command, ...entry.args].join(" ");
       steps.push(`mcp[${h}]  → ${tildify(file)}  (${cmd})${changed ? "" : "  (already set)"}`);
+      footprint.push({ kind: "mcp", host: h, scope: HOSTS[h].mcpScope, path: tildify(file) });
     }
   }
 
@@ -426,20 +433,26 @@ export function runInstall() {
         cpSync(src, dest, { recursive: true });
       }
       steps.push(`skill   → ${tildify(dest)}`);
+      footprint.push({ kind: "skill", host: "claude", scope: "global", path: tildify(dest) });
       const hk = writeClaudeHook(project, dry);
       steps.push(hk.file
         ? `hook    → ${rel(hk.file)}${hk.changed ? "" : "  (already set)"}  (undelivered pick surfaces at turn start)`
         : `hook    skipped — ${hk.skipped}`);
+      if (hk.file) footprint.push({ kind: "hook", host: "claude", scope: "project", path: rel(hk.file) });
     }
     if (hosts.includes("cursor")) {
       const cr = writeCursorRules(project, dry);
       steps.push(`rules   → ${rel(cr.file)}${cr.changed ? "" : "  (already current)"}  (check font_lab_status before font replies)`);
+      footprint.push({ kind: "rules", host: "cursor", scope: "project", path: rel(cr.file) });
     }
     if (hosts.some((h) => HOSTS[h].instructions === "agents")) {
       const { file, changed } = writeAgents(project, dry);
       steps.push(`agents  → ${rel(file)}${changed ? "" : "  (already current)"}`);
+      footprint.push({ kind: "agents", scope: "project", path: rel(file) });
     }
   }
+
+  if (!dry) writeInstallManifest(project, { version: VERSION, at: new Date().toISOString(), hosts, entries: footprint });
 
   for (const s of steps) console.log(`  ${s}`);
   console.log();
@@ -459,48 +472,47 @@ export function runInstall() {
   console.log(`  Then just ask: "use Font Lab to pick new fonts". Undo with \`font-lab uninstall\`.`);
 }
 
-export function runUninstall() {
-  const dry = has("--dry-run");
-  const project = path.resolve(arg("--project", process.cwd()));
-  const tag = dry ? " (dry-run, nothing written)" : "";
-  console.log(`Font Lab — uninstall${tag}`);
+// The programmatic core of uninstall — every host's MCP registration, the Claude skill, the
+// AGENTS.md block, and the turn-start delivery hooks — callable by font_lab_finish
+// ({ uninstall: true }) as well as the CLI. Returns what was removed; prints nothing.
+export function uninstallAll(project, { dry = false } = {}) {
+  const removed = [];
 
   // MCP from every known host (so you don't have to remember which you installed)
-  let any = false;
   for (const [h, def] of Object.entries(HOSTS)) {
     const m = def.mcp(project);
-    const removed = m.format === "toml" ? removeTomlMcp(m.file, dry) : removeJsonMcp(m.file, m.key, dry);
-    if (removed) {
-      console.log(`  removed mcp[${h}]  ${tildify(m.file)}`);
-      any = true;
-    }
+    const r = m.format === "toml" ? removeTomlMcp(m.file, dry) : removeJsonMcp(m.file, m.key, dry);
+    if (r) removed.push({ what: `mcp[${h}]`, file: tildify(m.file) });
   }
 
   // the Claude skill
   const dest = path.join(skillsDir(), SKILL_NAME);
   if (existsSync(dest)) {
     if (!dry) rmSync(dest, { recursive: true, force: true });
-    console.log(`  removed skill   ${tildify(dest)}`);
-    any = true;
+    removed.push({ what: "skill", file: tildify(dest) });
   }
 
   // the AGENTS.md block
-  if (removeAgents(project, dry)) {
-    console.log(`  removed agents  ${rel(path.join(project, "AGENTS.md"))}`);
-    any = true;
-  }
+  if (removeAgents(project, dry)) removed.push({ what: "agents", file: rel(path.join(project, "AGENTS.md")) });
 
   // host-native turn-start delivery (Claude Code hook, Cursor rules)
-  if (removeClaudeHook(project, dry)) {
-    console.log(`  removed hook    ${rel(path.join(project, ".claude", "settings.json"))} (pending-pick entry)`);
-    any = true;
-  }
-  if (removeCursorRules(project, dry)) {
-    console.log(`  removed rules   ${rel(path.join(project, CURSOR_RULES_REL))}`);
-    any = true;
-  }
+  if (removeClaudeHook(project, dry)) removed.push({ what: "hook", file: rel(path.join(project, ".claude", "settings.json")) });
+  if (removeCursorRules(project, dry)) removed.push({ what: "rules", file: rel(path.join(project, CURSOR_RULES_REL)) });
 
-  if (!any) console.log(`  nothing to remove (Font Lab wasn't installed for any host here).`);
+  if (!dry) clearInstallManifest(project); // the footprint receipt goes with the footprint
+
+  return removed;
+}
+
+export function runUninstall() {
+  const dry = has("--dry-run");
+  const project = path.resolve(arg("--project", process.cwd()));
+  const tag = dry ? " (dry-run, nothing written)" : "";
+  console.log(`Font Lab — uninstall${tag}`);
+
+  const removed = uninstallAll(project, { dry });
+  for (const r of removed) console.log(`  removed ${r.what.padEnd(8)} ${r.file}`);
+  if (!removed.length) console.log(`  nothing to remove (Font Lab wasn't installed for any host here).`);
 }
 
 // Allow running directly as a bin (`font-lab-install`) in addition to the `font-lab install`

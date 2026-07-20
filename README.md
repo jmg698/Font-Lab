@@ -57,6 +57,7 @@ Font Lab lives in two places: the **npm package** and the **panel code stamped i
 2. **Compose.** Your agent composes a small set of font directions (display + body + mono, each with a rationale), reaching past the overexposed AI defaults. A built-in anti-generic rubric rejects menus that are all Inter/Geist/Space Grotesk.
 3. **Pick.** You compare them on your own site — screenshots in chat (works on web or phone) or a live flip/mix/compare panel locally. **You always make the pick.**
 4. **Ship.** The agent writes the real code for your stack — `next/font` + Tailwind on Next.js; self-hosted `@font-face` wired through Tailwind's theme, v3 utilities, or your own CSS font variables elsewhere. Every change is reversible.
+5. **Finish clean.** Click **done ✓** (or say so) and the agent runs `font_lab_finish`: the dev-panel scaffolding comes out, and you get a git-verified commit plan — your copy edits and font change with ready-to-run commands, nothing of Font Lab's mixed in. The scaffolding and state are self-ignoring in git the whole session, so `git status` was never noisy to begin with.
 
 ## The panel
 
@@ -69,6 +70,7 @@ The Font Lab panel sits on top of your running site — your real pages, your re
 - **Edit words** — double-click any text, retype it, and it saves straight to your source files
 - **Change receipts** — see exactly what changed across the page after every edit
 - **Undo everything** — every modification ships with a reversal command
+- **Done ✓** — one click ends the session cleanly: your agent strips the dev tooling and hands you the exact commit plan
 
 The panel runs headless too: the agent screenshots your site in each direction and shows you the images in chat — a chat-sized hero shot per direction, with the full-page capture behind it. Works on a phone, on the web, anywhere your agent runs.
 

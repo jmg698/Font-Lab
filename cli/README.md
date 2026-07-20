@@ -118,6 +118,12 @@ Once installed, just ask *"use Font Lab to pick fonts."* The agent runs a consis
    live (the flip/mix/compare panel on your real site). **You always make the pick.**
 4. **Ship** — `font_lab_apply` writes the exact `next/font` + Tailwind code, reversibly
    (`font_lab_undo`).
+5. **Finish** — click **done ✓** in the panel (or just say so) and the agent runs
+   `font_lab_finish`: the dev-panel scaffolding comes out of the project (your applied fonts and
+   copy edits stay), and you get a git-verified **commit plan** — exactly which files are yours
+   to commit, with ready-to-run `git add` / `git commit` commands. Nothing of Font Lab's lingers:
+   the panel dirs and `.font-lab/` state are **self-ignoring** (a nested `.gitignore`), so
+   `git status` shows your product diff and nothing else, the whole session long.
 
 Every direction is gated for **preview == ship**: *guaranteed* (byte-for-byte), or *best-effort*
 with an honest "may render slightly differently once applied" note so you decide with eyes open.
@@ -386,6 +392,7 @@ font consts in a fenced block, merges the `<html>` className) and `app/globals.c
 | `../skill/font-lab/SKILL.md` | the skill manifest — how an agent drives the loop and the rules (human picks; catalog-only; be honest about coverage) |
 | `font-lab.mjs` | the CLI: the localhost write-back endpoint (`POST /select` → `.font-lab/selection.json` + `picks.log.jsonl`); `--apply` ships on pick |
 | `codegen.mjs` | the ship engine (M2+M3): `applySelection` / `undo` — analyzer-gated branch selection, ts-morph + fenced markers, backup-first. Handles both the role-var path and the **adopt-existing-variable** path (real sites) |
+| `commit-plan.mjs` | **the commit moment:** folds Font Lab's edit ledger against real `git status` into the two-pile plan (`ship` vs scaffold/hooks/not-yours) with ready-to-run commands — what `font_lab_finish` and `font_lab_status.commitPlan` return |
 | `apply.mjs` / `undo.mjs` / `rewire.mjs` | thin CLI wrappers around the ship engine (`rewire` fixes dead roles) |
 | `loop-test.mjs` / `apply-test.mjs` / `m3-test.mjs` / `m4-test.mjs` / `m5-test.mjs` / `m6-test.mjs` | headless e2e of the loop (M1), ship engine (M2), analyzer + branch selection (M3), catalog + curator (M4), engine + MCP over stdio (M5), and the polished panel — mixed picks / pin / multi-route — in a real browser (M6) |
 | `run-m1.sh` … `run-m6.sh` | loop test; apply+build+render+idempotency/reversibility; analyzer+codegen; catalog+curator; engine+MCP; mixed-picks/pin/multi-route in a browser |

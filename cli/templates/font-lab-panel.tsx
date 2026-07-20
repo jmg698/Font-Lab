@@ -504,6 +504,8 @@ export function FontLabDevPanel() {
         .keysdoor:hover { border-color: rgba(242,239,229,.6); }
         .keysdoor[aria-expanded="true"] { background: #F2EFE5; color: #100F0D; border-color: #F2EFE5; }
         .keysdoor[aria-expanded="true"] kbd { color: #100F0D; border-color: rgba(16,15,13,.4); }
+        /* "done ✓" — the session's off-switch, boxed like keysdoor; sits beside it, not auto-pushed */
+        .donedoor { margin-left: 6px; }
         kbd { border: 1px solid rgba(242,239,229,.28); border-radius: 2px; padding: 1px 4px; font-family: inherit; font-size: 8.5px; color: rgba(242,239,229,.8); }
         .ver { font-size: 8.5px; color: rgba(242,239,229,.35); }
 
@@ -593,6 +595,7 @@ export function FontLabDevPanel() {
         <div class="colophon">
           ${spineHTML}
           <button class="keysdoor" id="keysDoor" aria-expanded="false" title="every key, grouped by act — ? opens · esc closes"><kbd>?</kbd> keys</button>
+          <button class="keysdoor donedoor" id="doneDoor" title="Finished choosing? Tell your agent to hand the repo back clean — dev panel out, commit plan in">done ✓</button>
           <span class="ver">v${PANEL_VERSION}</span>
         </div>
       </div>`;
@@ -1471,6 +1474,35 @@ export function FontLabDevPanel() {
       }
     }
 
+    // ---- "done ✓" — the session's off-switch ---------------------------------------------
+    // The human says the choosing is over. The signal is durable (like a pick): a parked agent
+    // gets it now; otherwise it rides the agent's next Font Lab call — either way the agent runs
+    // font_lab_finish (dev panel out of the repo, git-verified commit plan in). Same honest
+    // two-state ack as Pick: only PARKED presence earns "wrapping up now".
+    async function doDone() {
+      try {
+        const res = await fetch(ENDPOINT + "/done", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        if (!res.ok) { setStatus(`Endpoint error ${res.status} — try again.`, "warn"); return; }
+        let ack: { agentParked?: boolean } = {};
+        try { ack = await res.json(); } catch {}
+        if (ack.agentParked) setStatus("Done ✓ — your agent is wrapping up: dev panel out, commit plan in your chat.", "good");
+        else {
+          setStatusHTML(
+            `Done ✓ — your agent will wrap up on its next Font Lab call, or just say <button class="linkish" id="doneCopy">“finish with Font Lab”</button>`,
+            "good",
+          );
+          shadow.getElementById("doneCopy")?.addEventListener("click", async () => {
+            const btn = shadow.getElementById("doneCopy");
+            if (!btn) return;
+            try { await navigator.clipboard.writeText("finish with Font Lab"); btn.textContent = "Copied ✓"; }
+            catch { btn.textContent = "“finish with Font Lab”"; }
+          });
+        }
+      } catch {
+        setStatus("Endpoint offline — run `npx font-lab`, then click done ✓ again.", "warn");
+      }
+    }
+
     // ---- "more options" — the in-panel demand channel ------------------------------------
     // The human didn't like what's on the menu (or they're on the seeded STARTER menu and want
     // ones tailored to them). They tell Font Lab what they're after; we hand that mini-brief to a
@@ -1719,6 +1751,7 @@ export function FontLabDevPanel() {
     $("pick").addEventListener("click", () => void doPick());
     $("beforeTog").addEventListener("click", toggleBefore);
     $("keysDoor").addEventListener("click", () => setKeys(!state.keysOpen));
+    $("doneDoor").addEventListener("click", () => void doDone());
     // the back page is reference, not controls — a click anywhere on it flips it back over,
     // so a first-run reader is never stuck hunting for the keyboard. "Got it" is the same act,
     // made visible; both routes (and esc / ?) land in setKeys(false).

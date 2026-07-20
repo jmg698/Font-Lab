@@ -33,21 +33,45 @@ export const menuPath = (projectDir) => path.join(flDir(projectDir), MENU_FILE);
 export const requestPath = (projectDir) => path.join(flDir(projectDir), REQUEST_FILE);
 export const heartbeatPath = (projectDir) => path.join(flDir(projectDir), HEARTBEAT_FILE);
 
-// Every .font-lab writer funnels through here so the state dir is born self-ignoring: a `*`
-// .gitignore INSIDE it keeps all of this runtime state out of the human's git diff without ever
-// touching their root .gitignore (the .next / cargo-target pattern — git honors nested ignore
-// files even untracked). Existing installs heal on their next state write. Never overwrites a
-// .gitignore the human put there themselves; deleting ours is the opt-out.
-export function ensureFlDir(projectDir) {
-  const dir = flDir(projectDir);
+// ---- self-ignoring dirs ------------------------------------------------------------------
+// The trick that keeps Font Lab out of the human's git diff: a `*` .gitignore INSIDE a dir we
+// own keeps everything there out of `git status` without ever touching the root .gitignore
+// (the .next / cargo-target pattern — git honors nested ignore files even untracked). The
+// first line always starts with GITIGNORE_MARK so we can recognize OUR file later and remove
+// it without ever clobbering a .gitignore the human wrote themselves (their edit is the opt-out).
+
+export const GITIGNORE_MARK = "# Font Lab";
+
+export function ensureSelfIgnoredDir(dir, note) {
   mkdirSync(dir, { recursive: true });
   const gi = path.join(dir, ".gitignore");
   if (!existsSync(gi)) {
     try {
-      writeFileSync(gi, "# Font Lab local state (backups, picks, heartbeats) — regenerated as needed; never commit.\n*\n");
+      writeFileSync(gi, `${GITIGNORE_MARK} ${note} — regenerated as needed; never commit.\n*\n`);
     } catch {} // a state write must not fail because the marker couldn't be written
   }
   return dir;
+}
+
+// Remove a .gitignore only when WE wrote it (first line carries the mark). Used when a dir
+// changes meaning from preview staging to ship destination (css-entry apply self-hosts real
+// runtime assets into <staticDir>/fontlab/ — those bytes belong in the repo), and by the
+// tracked-scaffold opt-in.
+export function removeFontLabGitignore(dir) {
+  const gi = path.join(dir, ".gitignore");
+  try {
+    if (existsSync(gi) && readFileSync(gi, "utf8").startsWith(GITIGNORE_MARK)) {
+      rmSync(gi, { force: true });
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+// Every .font-lab writer funnels through here so the state dir is born self-ignoring.
+// Existing installs heal on their next state write.
+export function ensureFlDir(projectDir) {
+  return ensureSelfIgnoredDir(flDir(projectDir), "local state (backups, picks, heartbeats)");
 }
 
 // Backups are undo state, not history: undo only ever restores the run named by latest.txt /
@@ -203,6 +227,88 @@ export function writeRequest(projectDir, { brief, exclude } = {}) {
 export const readRequest = (projectDir) => readJson(requestPath(projectDir));
 export const clearRequest = (projectDir) => rmSync(requestPath(projectDir), { force: true });
 
+// ---- the "I'm done" signal ---------------------------------------------------------------
+// The panel's Done button (and font-lab serve's POST /done) land here: the human says the
+// choosing session is over. Persisted like the "more options" ask so it survives no agent
+// listening at click time; font_lab_finish (or any tool result's pendingCleanup note) picks it
+// up. Cleared by finish.
+
+export const DONE_FILE = "done.json";
+export const donePath = (projectDir) => path.join(flDir(projectDir), DONE_FILE);
+
+export function writeDoneRequest(projectDir, { note } = {}) {
+  ensureFlDir(projectDir);
+  const req = { status: "pending", at: new Date().toISOString(), ...(note ? { note: String(note).slice(0, 200) } : {}) };
+  writeFileSync(donePath(projectDir), JSON.stringify(req, null, 2) + "\n");
+  return req;
+}
+
+export const readDoneRequest = (projectDir) => {
+  const r = readJson(donePath(projectDir));
+  return r?.status === "pending" ? r : null;
+};
+export const clearDoneRequest = (projectDir) => rmSync(donePath(projectDir), { force: true });
+
+// ---- scaffold presence -------------------------------------------------------------------
+// The tiny fs-only answer to "is the dev-panel scaffolding still in the project?" — shared by
+// the commit plan, the pendingCleanup piggyback, and the turn-start hook (which must stay
+// light: no engine import). The layout marker string is the same fence engine.init writes.
+
+export const INIT_MARKER = "// font-lab:init:start";
+
+// The dirs Font Lab may scaffold for the live panel, relative to the project root. public/
+// fontlab is scaffold ONLY on the panel path — a css-entry apply ships real runtime assets
+// there, which is why classification always cross-checks panelScaffold too.
+export const PANEL_DIRS = ["app/_fontlab", "src/app/_fontlab"];
+export const PREVIEW_FONT_DIR = "public/fontlab";
+
+export function scaffoldMounted(projectDir) {
+  for (const d of PANEL_DIRS) if (existsSync(path.join(projectDir, d))) return true;
+  for (const d of ["app", "src/app"]) {
+    try {
+      if (readFileSync(path.join(projectDir, d, "layout.tsx"), "utf8").includes(INIT_MARKER)) return true;
+    } catch {}
+  }
+  return false;
+}
+
+// The human's choice to keep the panel scaffolding tracked in git (`font_lab_init` with
+// tracked:true). Persisted so a later prepare/more-directions rebuild doesn't silently re-add
+// the self-ignore they opted out of.
+export const SCAFFOLD_PREFS_FILE = "scaffold.json";
+export const scaffoldPrefsPath = (projectDir) => path.join(flDir(projectDir), SCAFFOLD_PREFS_FILE);
+
+export function writeScaffoldPrefs(projectDir, { tracked } = {}) {
+  ensureFlDir(projectDir);
+  const prefs = { tracked: tracked === true, at: new Date().toISOString() };
+  writeFileSync(scaffoldPrefsPath(projectDir), JSON.stringify(prefs, null, 2) + "\n");
+  return prefs;
+}
+
+export const readScaffoldPrefs = (projectDir) => readJson(scaffoldPrefsPath(projectDir));
+
+// ---- the install footprint ---------------------------------------------------------------
+// `font-lab install` touches files in AND out of the repo (MCP configs, skill dir, AGENTS.md
+// block, hooks). The manifest is the receipt: what got wired, where, at which version — so
+// status can show the full footprint honestly and the commit plan can classify the in-repo
+// hooks. Removal stays registry-driven (install.mjs knows every host); the manifest documents.
+
+export const INSTALL_MANIFEST_FILE = "install.json";
+export const installManifestPath = (projectDir) => path.join(flDir(projectDir), INSTALL_MANIFEST_FILE);
+
+export function writeInstallManifest(projectDir, manifest) {
+  try {
+    ensureFlDir(projectDir);
+    writeFileSync(installManifestPath(projectDir), JSON.stringify(manifest, null, 2) + "\n");
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+export const readInstallManifest = (projectDir) => readJson(installManifestPath(projectDir));
+export const clearInstallManifest = (projectDir) => rmSync(installManifestPath(projectDir), { force: true });
+
 export function setAgentWaiting(projectDir, on) {
   ensureFlDir(projectDir);
   if (on) writeFileSync(waitingPath(projectDir), JSON.stringify({ since: new Date().toISOString(), pid: process.pid }) + "\n");
@@ -329,6 +435,8 @@ export function readHandoffState(projectDir) {
     agentWaiting: parked || !!heartbeatFresh,
     waitingSince: waiting?.since ?? null,
     request: request?.status === "pending" ? { at: request.at ?? null, brief: request.brief ?? {} } : null,
+    // The human's in-panel "I'm done" click, pending until font_lab_finish clears it.
+    done: readDoneRequest(projectDir),
     // "What did Font Lab actually change?" — the deduped source files, for the commit moment.
     sourceChanges: readSourceChanges(projectDir),
   };

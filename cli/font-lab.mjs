@@ -66,8 +66,9 @@ if (SUB === "install" || SUB === "uninstall") {
       "                       font-lab run analyze --project .",
       "  font-lab serve [--project <dir>] [--port <n>] [--host <ip>] [--once] [--apply]",
       "                 pick write-back endpoint (loopback-only by default; --once exits on the",
-      "                 first pick OR 'more options' request — the final stdout line is the",
-      "                 event JSON — so a background task wakes your agent for either)",
+      "                 first panel event — a pick, a 'more options' request, or done ✓ — with",
+      "                 the event JSON as the final stdout line, so a background task wakes",
+      "                 your agent for any of them)",
       "  font-lab --version                print the version and exit (never starts a server)",
     ].join("\n"),
   );
@@ -230,7 +231,7 @@ async function runUpgrade() {
 
 async function runServe() {
 
-const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, readMenuState, ensureFlDir, writeDevServer } = await import("./state.mjs");
+const { readHandoffState, writeAppliedStamp, writeRequest, readRequest, writeDoneRequest, readMenuState, ensureFlDir, writeDevServer } = await import("./state.mjs");
 const { VERSION, cmpVersions, isRealVersion } = await import("./version.mjs");
 const { watch } = await import("node:fs");
 
@@ -245,10 +246,11 @@ const PORT = Number(arg("--port", "7777"));
 const HOST = arg("--host", "127.0.0.1");
 const PROJECT = path.resolve(arg("--project", process.cwd()));
 const AUTO_APPLY = process.argv.includes("--apply"); // pick -> ship, in one step
-// --once: exit on the first EVENT — a pick OR a "more options" request — with the event JSON as
-// the final stdout line. This turns both panel events into a process-exit signal — the one thing
-// every agent harness reliably watches. (An agent runs `font-lab serve --once` as a background
-// task, is woken when it exits, handles the event, and relaunches it.)
+// --once: exit on the first EVENT — a pick, a "more options" request, or the human's done ✓ —
+// with the event JSON as the final stdout line. This turns every panel event into a
+// process-exit signal — the one thing every agent harness reliably watches. (An agent runs
+// `font-lab serve --once` as a background task, is woken when it exits, handles the event, and
+// relaunches it.)
 const ONCE = process.argv.includes("--once");
 const FLDIR = path.join(PROJECT, ".font-lab");
 const SELECTION = path.join(FLDIR, "selection.json");
@@ -449,6 +451,32 @@ const server = http.createServer((req, res) => {
             }
           })();
         }
+      } catch (e) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: String(e) }));
+      }
+    });
+    return;
+  }
+  // ---- "I'm done": the panel's done ✓ lands here -----------------------------------------
+  // The human says the choosing session is over. Persisted like the "more options" ask so no
+  // listening agent is required at click time: a parked agent (--once / font_lab_wait) gets the
+  // event now; otherwise it rides every later tool result (pendingHumanDone) and the turn-start
+  // hook until font_lab_finish clears it.
+  if (req.method === "POST" && req.url === "/done") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { note } = JSON.parse(body || "{}");
+        const pres = statusPayload();
+        const saved = writeDoneRequest(PROJECT, { note });
+        console.log(`\n  ✔ done — the human finished choosing${pres.agentParked ? " (an agent is listening)" : ""}`);
+        console.log(`      → font_lab_finish strips the dev-panel scaffolding and returns the commit plan.`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, agentParked: pres.agentParked, agentRecent: pres.agentRecent, request: saved }));
+        broadcast("status", statusPayload());
+        if (ONCE) exitWithEvent({ event: "done", done: true, request: saved });
       } catch (e) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: String(e) }));

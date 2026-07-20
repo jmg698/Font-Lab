@@ -11,7 +11,7 @@
 
 try {
   const path = await import("node:path");
-  const { pendingPick, readRequest } = await import("./state.mjs");
+  const { pendingPick, readRequest, readDoneRequest, readHandoffState, scaffoldMounted } = await import("./state.mjs");
   const project = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const pick = pendingPick(path.resolve(project));
   if (pick) {
@@ -36,6 +36,19 @@ try {
     console.log(
       `[Font Lab] UNFULFILLED "GET MORE" REQUEST: the human asked for more font options in the live panel ${ago} ago${brief ? ` (brief — ${brief})` : ""} and nothing has composed them yet. ` +
         `Compose fresh directions honoring the brief (font_lab_compose_directions), avoiding the families in request.exclude, then font_lab_more_directions to append them to the panel.`,
+    );
+  }
+  // The end-of-loop delivery: a *done ✓* click (or a shipped pick with the scaffolding still
+  // mounted) surfaces the moment the human next says anything — finish is easy to forget, and
+  // forgotten scaffolding is exactly how repos get confusing at commit time.
+  const proj = path.resolve(project);
+  if (readDoneRequest(proj)) {
+    console.log(
+      `[Font Lab] THE HUMAN IS DONE: they clicked *done ✓* in the Font Lab panel. Run font_lab_finish — it strips the dev-panel scaffolding and returns the git-verified commit plan to relay (uninstall:true if they're done with Font Lab entirely).`,
+    );
+  } else if (scaffoldMounted(proj) && readHandoffState(proj).applied?.current) {
+    console.log(
+      `[Font Lab] CLEANUP PENDING: the pick has shipped but the dev-panel scaffolding is still mounted. If the human is done choosing, run font_lab_finish (scaffolding out — applied fonts stay — commit plan in).`,
     );
   }
 } catch {} // a hook must never break the turn it rides on
