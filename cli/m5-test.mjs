@@ -126,8 +126,12 @@ try {
     const cu = await rpc("tools/call", { name: "font_lab_curate", arguments: { projectDir: CLEAN, count: 3 } });
     assert("MCP curate call returns 3 directions", JSON.parse(cu.result.content[0].text).length === 3);
 
-    const bad = await rpc("tools/call", { name: "font_lab_compose_directions", arguments: { directions: [{ display: "Geist", body: "Geist", mono: "Geist Mono" }] } });
+    const bad = await rpc("tools/call", { name: "font_lab_compose_directions", arguments: { projectDir: CLEAN, directions: [{ display: "Geist", body: "Geist", mono: "Geist Mono" }] } });
     assert("MCP surfaces tool errors in-band (isError)", bad.result.isError === true && /too generic|overexposed/.test(bad.result.content[0].text));
+
+    // compose without projectDir is the dogfood's silent-persistence trap — now a schema refusal
+    const noProj = await rpc("tools/call", { name: "font_lab_compose_directions", arguments: { directions: [{ display: "Fraunces", body: "Hanken Grotesk", mono: "Spline Sans Mono" }] } });
+    assert("MCP compose REQUIRES projectDir (persistence can't be skipped)", noProj.result?.isError === true && /missing required argument/i.test(noProj.result.content[0].text) && /projectDir/.test(noProj.result.content[0].text));
 
     const unknown = await rpc("tools/call", { name: "font_lab_nope", arguments: {} });
     assert("MCP rejects unknown tool", !!unknown.error);

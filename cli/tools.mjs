@@ -81,11 +81,11 @@ export const TOOLS = [
   {
     name: "font_lab_compose_directions",
     description:
-      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Pass the user's stated direction as `brief` — if you omit it, the result is INFERRED rather than tailored, and you'll get a warning telling you to ask first. Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, ~1,500 Google fonts, or a curated open-foundry face) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte). ALWAYS pass projectDir: the composed set is then persisted (.font-lab/preview.json) as the project's default menu, so font_lab_screenshot_directions / font_lab_preview / font_lab_select resolve against EXACTLY these directions on every framework.",
+      "The PRIMARY way to build the menu: assemble tailored font directions for the user's brief (from font_lab_start's intake answers). Pass the user's stated direction as `brief` — if you omit it, the result is INFERRED rather than tailored, and you'll get a warning telling you to ask first. Reach PAST the overexposed defaults — give each direction a distinctive face and a one-line rationale tying it to what they asked for. Each direction needs display, body, and mono families. Families can be ANY shippable font (catalog, ~1,500 Google fonts, or a curated open-foundry face) — the gate admits them; check uncertain ones first with font_lab_check_fonts. REJECTS a menu that's too generic (any direction overexposed in both display and body, or a set whose every display is an overexposed default) — fix it with distinctive faces, or pass force:true only if the user explicitly wants the default look. Returns validated, preview-ready directions plus warnings (overexposed-default flags, and a best-effort fidelity note when a font can't be guaranteed byte-for-byte) and the stack's `nextStep`. projectDir is REQUIRED: the composed set persists (.font-lab/preview.json) as the project's default menu, so font_lab_screenshot_directions / font_lab_preview / font_lab_select resolve against EXACTLY these directions on every framework — a compose that didn't persist is how a later capture dead-ends with 'no composed set'.",
     inputSchema: {
       type: "object",
       properties: {
-        projectDir: { ...proj, description: "The project root — pass it: admitted fonts are cached for the preview build AND the composed set persists as the project's default preview menu (what screenshots/select resolve against)." },
+        projectDir: { ...proj, description: "The project root (REQUIRED). Admitted fonts are cached for the preview build AND the composed set persists as the project's default preview menu — what screenshots/select resolve against on every framework." },
         brief: { type: "string", description: "The user's stated direction from intake (what feeling / how bold / brand). Omitting it warns you to ask first." },
         force: { type: "boolean", description: "Override the anti-generic gate (use only when the user explicitly wants overexposed default fonts)." },
         directions: {
@@ -104,7 +104,7 @@ export const TOOLS = [
           },
         },
       },
-      required: ["directions"],
+      required: ["projectDir", "directions"],
     },
     handler: (a) => engine.composeDirections(a.directions, { projectDir: a.projectDir, force: a.force, brief: a.brief }),
   },
@@ -279,7 +279,7 @@ export const TOOLS = [
   {
     name: "font_lab_screenshot_directions",
     description:
-      "Screenshot the human's REAL RUNNING SITE in each curated direction — the headless choosing moment, and it works on ANY framework. On Next.js with the panel init'd it drives the panel; on every other stack (Vite / Astro / Remix / SvelteKit / TanStack / plain CSS) it paints the rendered page directly through the census — the same machinery the panel flips with — after injecting the parity @font-face inline (no init, no project writes: preview fonts cache under .font-lab/, never public/). If NO dev server is reachable it STARTS the project's own dev command itself (managed: bound to 127.0.0.1 — sidesteps IPv6-only binds and sandboxed-shell backgrounding — health-checked, and stopped after the capture); pass ensureServer:false to forbid that, or baseUrl to use a server you already run. Directions default to the composed set persisted by font_lab_compose_directions (.font-lab/preview.json) — with none, it ERRORS rather than silently capturing the untailored starter menu (allowFallback:true opts in deliberately). Returns a manifest per direction {id, name, vibe, rationale, fonts, screenshot (full-page PNG), heroShot (viewport JPEG — chat/phone-sized, SHOW THESE)} plus a 'current' before-shot — show the hero shots to the human and ask them to pick an id. PREFER THIS over font_lab_preview whenever a dev server exists or can be started: these are their actual pages, not specimen cards. Makes no edits.",
+      "Screenshot the human's REAL RUNNING SITE in each curated direction — THE choosing moment on every framework (and the ONLY sanctioned preview surface off Next until it has actually failed: the generic font_lab_preview sheet stays locked behind a failed attempt here). On Next.js with the panel init'd it drives the panel; on every other stack (Vite / Astro / Remix / SvelteKit / TanStack / plain CSS) it paints the rendered page directly through the census — the same machinery the panel flips with — after injecting the parity @font-face inline (no init, no project writes: preview fonts cache under .font-lab/, never public/). If NO dev server is reachable it STARTS the project's own dev command itself (managed: bound to 127.0.0.1 — sidesteps IPv6-only binds and sandboxed-shell backgrounding — health-checked, and stopped after the capture); pass ensureServer:false to forbid that, or baseUrl to use a server you already run. Directions default to the composed set persisted by font_lab_compose_directions (.font-lab/preview.json) — with none, it ERRORS rather than silently capturing the untailored starter menu (allowFallback:true opts in deliberately). Returns a manifest per direction {id, name, vibe, rationale, fonts, screenshot (full-page PNG), heroShot (viewport JPEG — chat/phone-sized)} plus a 'current' before-shot — over MCP the heroShots ALSO ride the result as inline image blocks, so show them to the human IMMEDIATELY (no file hunting) and ask them to pick an id. If it errors on a missing Playwright driver, install one in the project (`npm i -D playwright-core`) and RETRY THIS TOOL — the install is picked up without a session restart. Makes no edits.",
     inputSchema: {
       type: "object",
       properties: {
@@ -289,6 +289,7 @@ export const TOOLS = [
         allowFallback: { type: "boolean", description: "Capture the deterministic starter menu when nothing was composed — only if the user explicitly wants the untailored default." },
         ensureServer: { type: "boolean", description: "Default true: start the project's dev server (managed, 127.0.0.1, stopped after) when none is reachable. false forbids starting processes." },
         routes: { type: "array", items: { type: "string" }, description: "Route(s) to capture; defaults to ['/']." },
+        inlineImages: { type: "boolean", description: "Default true over MCP: heroShots ride the result as image content blocks so the human sees them in-chat immediately. false returns paths only." },
         outDir: { type: "string", description: "Where to write images; defaults to <project>/.font-lab/previews." },
         executablePath: { type: "string", description: "Optional path to a Chrome/Chromium binary. Usually unnecessary — it finds a system/pre-installed browser automatically." },
       },
@@ -309,24 +310,25 @@ export const TOOLS = [
   {
     name: "font_lab_preview",
     description:
-      "Build a self-contained HTML 'choosing sheet' — one card per direction, the parity fonts EMBEDDED (opens offline), rendered on the project's own palette and copy (when found; the sheet labels itself honestly when it had to fall back to stock specimen text). This is the NO-DEV-SERVER fallback: it works on ANY framework and needs nothing running — the right choice when no dev server can start, or the human wants an offline artifact. These are SPECIMEN CARDS, not the human's pages: when a dev server exists or can be started (any framework), prefer font_lab_screenshot_directions — it screenshots their REAL site per direction. Directions default to the composed set persisted by font_lab_compose_directions; with none, it ERRORS rather than silently rendering the untailored starter menu (allowFallback:true opts in deliberately). Returns the HTML file path — SHOW it to the human (or open it) and have them pick an id. Each card carries a live render-check badge: a real width-diff that catches a font that silently failed to load, NOT a fonts.check false-positive. Fetches + inlines the fonts. Then select_direction → apply.",
+      "LAST-RESORT specimen sheet — a self-contained HTML file of GENERIC CARDS (one per direction, parity fonts embedded, opens offline), rendered on the project's palette and copy. These are NOT the human's pages, so this tool is LOCKED until the real-site path has actually been tried: it REFUSES unless a font_lab_screenshot_directions attempt failed on infrastructure (no Chromium could launch, the dev server wouldn't serve — recorded automatically in .font-lab/capture-blocked.json), or you pass force:true because the human EXPLICITLY asked for a portable offline artifact. On every framework the choosing surface is font_lab_screenshot_directions — it manages the dev server itself, so 'no dev server running' is NOT a reason to be here. When unlocked: directions default to the composed set (errors rather than silently rendering the starter menu; allowFallback:true opts in), the result carries `unlockedBecause`, and each card has a live render-check badge (a real width-diff, not a fonts.check false-positive). SHOW the sheet, have the human pick an id, then font_lab_select → apply.",
     inputSchema: {
       type: "object",
       properties: {
         projectDir: proj,
         directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to render (from compose_directions). Defaults to the persisted composed set." },
         allowFallback: { type: "boolean", description: "Render the deterministic starter menu when nothing was composed — only if the user explicitly wants the untailored default." },
+        force: { type: "boolean", description: "Bypass the screenshots-first lock — ONLY when the human explicitly asked for the portable offline sheet." },
         vibe: { type: "string" },
         count: { type: "number" },
       },
       required: ["projectDir"],
     },
-    handler: (a, { log }) => engine.previewSpecimen(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
+    handler: (a, { log }) => engine.previewSpecimen(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, screenshotFirst: true, force: a.force === true, vibe: a.vibe, count: a.count, log }),
   },
   {
     name: "font_lab_preview_screenshots",
     description:
-      "VERIFIED screenshots of the portable preview sheet (font_lab_preview) — one PNG per direction card, each render-checked (a real width-diff catches a font that silently fell back; a failed load is reported, never passed off as the real face). Works on ANY framework, no dev server and no panel needed — the headless companion to font_lab_preview for cloud/web/phone sessions where the human can't open the HTML themselves. SHOW the images to the human and ask them to pick an id, then record it with font_lab_select. Directions default to the persisted composed set (or pass a prior sheet's htmlPath) — builds the sheet first if needed; with nothing composed it ERRORS rather than silently using the starter menu.",
+      "Headless captures of the LAST-RESORT specimen sheet (font_lab_preview) — one render-checked PNG per generic card. Same lock as font_lab_preview: REFUSES until a real font_lab_screenshot_directions attempt has failed on infrastructure (recorded automatically), or force:true because the human explicitly wants the offline sheet — on every framework the real-site captures are the choosing surface, and this needs a Chromium anyway (if a browser works, real-site screenshots usually work too; the genuine niche is a dev server that can't serve). When unlocked: each card is render-checked (a real width-diff catches a silently-fallen-back font; failures are reported, never passed off as the real face), the result carries `unlockedBecause`, and you SHOW the images and record the human's pick with font_lab_select. Directions default to the persisted composed set (or pass a prior sheet's htmlPath); with nothing composed it ERRORS rather than silently using the starter menu.",
     inputSchema: {
       type: "object",
       properties: {
@@ -334,12 +336,14 @@ export const TOOLS = [
         directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to render (from compose_directions). Omit if passing htmlPath; defaults to the persisted composed set." },
         htmlPath: { type: "string", description: "Path to an already-built preview sheet (from font_lab_preview) to screenshot as-is." },
         allowFallback: { type: "boolean", description: "Render the deterministic starter menu when nothing was composed — only if the user explicitly wants the untailored default." },
+        force: { type: "boolean", description: "Bypass the screenshots-first lock — ONLY when the human explicitly asked for the portable offline sheet." },
+        inlineImages: { type: "boolean", description: "Default true over MCP: card images ride the result as image content blocks. false returns paths only." },
         outDir: { type: "string", description: "Where to write PNGs; defaults to <project>/.font-lab/previews." },
         executablePath: { type: "string", description: "Optional Chrome/Chromium binary path (usually unnecessary)." },
       },
       required: ["projectDir"],
     },
-    handler: (a) => engine.screenshotSpecimen(a.projectDir, { htmlPath: a.htmlPath, outDir: a.outDir, executablePath: a.executablePath, directions: a.directions, allowFallback: a.allowFallback === true }),
+    handler: (a) => engine.screenshotSpecimen(a.projectDir, { htmlPath: a.htmlPath, outDir: a.outDir, executablePath: a.executablePath, directions: a.directions, allowFallback: a.allowFallback === true, screenshotFirst: true, force: a.force === true }),
   },
   {
     name: "font_lab_select",

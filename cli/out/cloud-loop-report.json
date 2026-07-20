@@ -41,6 +41,10 @@
       "pass": true
     },
     {
+      "name": "compose steers the non-panel stack to screenshot_directions (and off preview.html)",
+      "pass": true
+    },
+    {
       "name": "resolveCaptureSet: explicit directions win",
       "pass": true
     },
@@ -62,6 +66,50 @@
     },
     {
       "name": "captureDirections refuses BEFORE any server/browser work",
+      "pass": true
+    },
+    {
+      "name": "font_lab_preview REFUSES while screenshots are untried (gate before set resolution)",
+      "pass": true
+    },
+    {
+      "name": "the refusal names the escape hatch + the detected dev command",
+      "pass": true
+    },
+    {
+      "name": "font_lab_preview_screenshots shares the same lock",
+      "pass": true
+    },
+    {
+      "name": "a failed managed-server start records capture-blocked (stage: dev-server)",
+      "pass": true
+    },
+    {
+      "name": "the recorded failure unlocks the sheet and rides it as unlockedBecause",
+      "pass": true
+    },
+    {
+      "name": "clearCaptureBlocked re-locks (what a SUCCESSFUL capture does)",
+      "pass": true
+    },
+    {
+      "name": "force:true builds the sheet without a failed attempt",
+      "pass": true
+    },
+    {
+      "name": "without force, the same project still refuses (a forced build doesn't unlock)",
+      "pass": true
+    },
+    {
+      "name": "status.preview reports the composed set + the screenshot next step",
+      "pass": true
+    },
+    {
+      "name": "`font-lab analyze` (no run) dispatches the tool table",
+      "pass": true
+    },
+    {
+      "name": "an unknown word still prints help (never boots the server)",
       "pass": true
     },
     {

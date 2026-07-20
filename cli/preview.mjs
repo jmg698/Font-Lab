@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // `font-lab-preview` — build the portable, self-contained HTML choosing sheet for the project.
-// Works on ANY framework (no dev server, no in-app panel): the parity fonts are embedded, so the
-// human just opens the file and compares. Optionally screenshot it headlessly (--shots).
+// The parity fonts are embedded, so the human just opens the file and compares. Optionally
+// screenshot it headlessly (--shots).
 //
-//   node preview.mjs --project <dir> [--shots] [--no-inline] [--no-fetch]
+// LAST RESORT, enforced: these are generic specimen cards, not the human's pages, so this
+// refuses until a real font_lab_screenshot_directions attempt has failed on infrastructure
+// (recorded automatically) — or --force, when the human explicitly wants the offline artifact.
+//
+//   node preview.mjs --project <dir> [--force] [--shots] [--no-inline] [--no-fetch]
 
 import path from "node:path";
 import * as engine from "./engine.mjs";
@@ -19,7 +23,7 @@ const inline = !has("--no-inline");
 const rel = (p) => path.relative(process.cwd(), p) || ".";
 
 try {
-  const r = await engine.previewSpecimen(project, { fetch, inline, log: (m) => process.stderr.write(m + "\n") });
+  const r = await engine.previewSpecimen(project, { fetch, inline, screenshotFirst: true, force: has("--force"), log: (m) => process.stderr.write(m + "\n") });
   console.log(`Font Lab — preview sheet for ${r.framework} → ${r.rel}`);
   console.log(`  ${r.directions.length} direction(s), ${r.fonts.length} font(s)${r.inline ? ", embedded (opens offline)" : ""}`);
   console.log(`  open it: file://${r.path}`);
@@ -32,5 +36,6 @@ try {
   console.log(`    node select.mjs --project ${rel(project)} --direction <id>  &&  node apply.mjs --project ${rel(project)}`);
 } catch (e) {
   console.error("preview failed:", e.message);
+  if (/force:true/.test(String(e.message))) console.error("\n  (from this CLI, the escape hatch is --force)");
   process.exit(1);
 }

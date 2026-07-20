@@ -11,6 +11,7 @@
 // twin is the bridge for the MCP dead zones: right after install (tools not live until the
 // session reloads) and mid-session server drops on cloud harnesses.
 
+import { readFileSync } from "node:fs";
 import { TOOLS, missingArgsError, invokeTool, withDeliveryNotes } from "./tools.mjs";
 import { refreshAgentHeartbeat, clearAgentHeartbeat } from "./state.mjs";
 import { VERSION } from "./version.mjs";
@@ -22,6 +23,50 @@ const log = (...a) => process.stderr.write("[font-lab mcp] " + a.join(" ") + "\n
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
 const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
 const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
+
+// ---- inline images: the choosing moment reaches the CHAT, not a hidden folder --------------
+// The Vite dogfood's sharpest friction: screenshots of the human's real site landed as file
+// paths under .font-lab/previews/ and the human had to ask twice just to SEE them. MCP results
+// carry image content blocks, so the capture tools attach their shots directly — heroShot
+// (chat-sized JPEG) preferred, the specimen tool's card PNGs otherwise; the JSON text block
+// keeps the full-page paths for detail. `inlineImages: false` opts out; size caps keep a huge
+// run from flooding the transport (anything skipped is named so the agent reads it from disk).
+const IMAGE_TOOLS = new Set(["font_lab_screenshot_directions", "font_lab_preview_screenshots"]);
+const IMG_MAX_ONE = 4 * 1024 * 1024; // per-file cap, pre-base64
+const IMG_MAX_TOTAL = 24 * 1024 * 1024; // whole-result cap, pre-base64
+
+function shotImageBlocks(toolName, args, payload) {
+  if (!IMAGE_TOOLS.has(toolName) || args.inlineImages === false) return [];
+  const shots = Array.isArray(payload?.shots) ? payload.shots : [];
+  const blocks = [];
+  const skipped = [];
+  let total = 0;
+  for (const s of shots) {
+    const file = s?.heroShot || s?.screenshot;
+    if (!file) continue;
+    const label = [s.id, s.name && s.name !== s.id ? s.name : null].filter(Boolean).join(" — ");
+    try {
+      const bytes = readFileSync(file);
+      if (bytes.length > IMG_MAX_ONE || total + bytes.length > IMG_MAX_TOTAL) {
+        skipped.push(label || String(file));
+        continue;
+      }
+      total += bytes.length;
+      const fonts = s.fonts ? `  (${["display", "body", "mono"].map((r) => s.fonts[r]).filter(Boolean).join(" · ")})` : "";
+      blocks.push({ type: "text", text: `↓ ${label}${fonts}` });
+      blocks.push({ type: "image", data: bytes.toString("base64"), mimeType: /\.png$/i.test(file) ? "image/png" : "image/jpeg" });
+    } catch {
+      skipped.push(`${label || file} (unreadable)`);
+    }
+  }
+  if (blocks.length)
+    blocks.unshift({
+      type: "text",
+      text: "The direction images are attached below — SHOW THEM to the human now, in this same turn, and ask for a pick. Full-page PNGs live at the `screenshot` paths in the JSON above for detail.",
+    });
+  if (skipped.length) blocks.push({ type: "text", text: `Not inlined (size caps): ${skipped.join(", ")} — read those from their paths instead.` });
+  return blocks;
+}
 
 async function handle(msg) {
   const { id, method, params } = msg;
@@ -48,7 +93,8 @@ async function handle(msg) {
       try {
         const out = await invokeTool(tool, args, { log });
         const payload = withDeliveryNotes(tool.name, args, out);
-        return reply(id, { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] });
+        const content = [{ type: "text", text: JSON.stringify(payload, null, 2) }, ...shotImageBlocks(tool.name, args, payload)];
+        return reply(id, { content });
       } catch (e) {
         // tool-level errors are reported in-band so the agent can react
         return reply(id, { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });

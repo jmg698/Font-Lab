@@ -119,6 +119,14 @@
     {
       "name": "paintPlan: a family with no built stack stays null (reported, never faked)",
       "pass": true
+    },
+    {
+      "name": "screenshot: captures one image per card",
+      "pass": true
+    },
+    {
+      "name": "screenshot: render check ran (summary present)",
+      "pass": true
     }
   ]
 }

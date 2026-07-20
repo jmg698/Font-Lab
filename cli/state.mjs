@@ -332,6 +332,33 @@ export function writeDevServer(projectDir, origin) {
 
 export const readDevServer = (projectDir) => readJson(devServerPath(projectDir));
 
+// ---- the capture-blocked marker ------------------------------------------------------------
+// The real-site screenshot path (font_lab_screenshot_directions) is THE choosing surface on
+// every non-panel stack — the generic specimen sheet exists only for when it genuinely can't
+// run. This marker is how that ladder is ENFORCED instead of documented: a real capture attempt
+// that fails on infrastructure (no Playwright driver, no launchable browser, the dev server
+// wouldn't start, the page wouldn't render) records WHY here, and only then does the specimen
+// sheet unlock (font_lab_preview / font_lab_preview_screenshots check it). A successful capture
+// clears it. Nothing else writes it — so "the sheet was used" always implies "screenshots were
+// actually tried first" (or force:true, the human's explicit ask for the offline artifact).
+
+export const CAPTURE_BLOCKED_FILE = "capture-blocked.json";
+export const captureBlockedPath = (projectDir) => path.join(flDir(projectDir), CAPTURE_BLOCKED_FILE);
+
+export function writeCaptureBlocked(projectDir, { stage, error } = {}) {
+  try {
+    ensureFlDir(projectDir);
+    const rec = { stage: stage || "capture", error: String(error || "").slice(0, 600), at: new Date().toISOString() };
+    writeFileSync(captureBlockedPath(projectDir), JSON.stringify(rec, null, 2) + "\n");
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
+export const readCaptureBlocked = (projectDir) => readJson(captureBlockedPath(projectDir));
+export const clearCaptureBlocked = (projectDir) => rmSync(captureBlockedPath(projectDir), { force: true });
+
 export function refreshAgentHeartbeat(projectDir) {
   try {
     ensureFlDir(projectDir);

@@ -9,6 +9,10 @@
 //      detects the served URL, health-checks, and tears the process tree down
 //   6. previews leave ZERO files in the repo (fonts cache under .font-lab/, not public/)
 //   7. environment detection: cloud markers → remote, override wins, unknown → local
+//   8. screenshots-first is ENFORCED (the Vite dogfood): the generic specimen sheet REFUSES
+//      until a real capture attempt failed on infrastructure (recorded in capture-blocked.json)
+//      or force:true; a failed managed-server start writes that record; compose steers with a
+//      stack-aware nextStep; `font-lab <tool>` (no `run`) dispatches the tool table
 //
 //   node cli/cloud-loop-test.mjs
 
@@ -17,6 +21,7 @@ import { writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from "node
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import * as engine from "./engine.mjs";
+import { readCaptureBlocked, clearCaptureBlocked } from "./state.mjs";
 import { detectEnvironment } from "./environ.mjs";
 import { hostArgsFor, normalizeOrigin, startManagedServer, probeHttp, detectDevCommand } from "./dev-server.mjs";
 
@@ -119,6 +124,10 @@ try {
   const menu = JSON.parse(readFileSync(path.join(FX, ".font-lab", "menu.json"), "utf8"));
   assert("composeDirections records the menu as composed/tailored", menu.mode === "composed" && menu.tailored === true);
   assert("persisted set round-trips through readPreviewSet", engine.readPreviewSet(FX)[0]?.id === "statement");
+  assert(
+    "compose steers the non-panel stack to screenshot_directions (and off preview.html)",
+    /font_lab_screenshot_directions/.test(composed.nextStep || "") && /preview\.html/.test(composed.nextStep || ""),
+  );
 
   const analysis = engine.analyze(FX);
   assert("resolveCaptureSet: explicit directions win", engine.resolveCaptureSet(FX, analysis, { directions: [{ id: "x" }] }).source === "explicit");
@@ -147,6 +156,64 @@ try {
     captureRefused = e.message;
   }
   assert("captureDirections refuses BEFORE any server/browser work", !!captureRefused && /compose_directions/.test(captureRefused));
+
+  // ===================================================================== //
+  //  2b — screenshots-first, ENFORCED (the Vite dogfood's core fix)       //
+  // ===================================================================== //
+
+  // The tool layer refuses the generic sheet while the real-site path is untried — and the
+  // refusal itself is the steer: it names screenshot_directions and the force escape hatch.
+  // (`preview` with no `run` also proves the bare-tool CLI alias dispatches the tool table.)
+  const gateRefusal = runCli(["preview", "--project", BARE]);
+  const gateErr = JSON.parse(gateRefusal.stdout).error || "";
+  assert("font_lab_preview REFUSES while screenshots are untried (gate before set resolution)", gateRefusal.status === 2 && /font_lab_screenshot_directions/.test(gateErr));
+  assert("the refusal names the escape hatch + the detected dev command", /force:true/.test(gateErr) && /npm run dev/.test(gateErr));
+  const gateShots = runCli(["run", "font_lab_preview_screenshots", "--project", BARE]);
+  assert("font_lab_preview_screenshots shares the same lock", gateShots.status === 2 && /font_lab_screenshot_directions/.test(JSON.parse(gateShots.stdout).error || ""));
+
+  // A REAL capture attempt that fails on infrastructure (dev server can't serve) records why…
+  const BROKEN = path.join(TMP, "broken");
+  makeFixture(BROKEN);
+  writeFileSync(path.join(BROKEN, "server.mjs"), "process.exit(1);\n");
+  await engine.composeDirections(
+    [{ name: "Statement", vibe: "editorial", rationale: "test", display: "Fraunces", body: "Hanken Grotesk", mono: "Spline Sans Mono" }],
+    { projectDir: BROKEN, brief: "test" },
+  );
+  let brokenErr = null;
+  try {
+    await engine.captureDirections(BROKEN, { log: () => {} });
+  } catch (e) {
+    brokenErr = e.message;
+  }
+  const blocked = readCaptureBlocked(BROKEN);
+  assert("a failed managed-server start records capture-blocked (stage: dev-server)", !!brokenErr && blocked?.stage === "dev-server" && !!blocked.error);
+
+  // …and ONLY that record (or force) unlocks the sheet — with the reason echoed on the result.
+  const unlocked = await engine.previewSpecimen(BROKEN, { screenshotFirst: true, fetch: false, inline: false });
+  assert("the recorded failure unlocks the sheet and rides it as unlockedBecause", unlocked.unlockedBecause?.stage === "dev-server" && /screenshot_directions/.test(unlocked.gateNote || ""));
+  clearCaptureBlocked(BROKEN);
+  assert("clearCaptureBlocked re-locks (what a SUCCESSFUL capture does)", readCaptureBlocked(BROKEN) === null || readCaptureBlocked(BROKEN) === undefined);
+
+  // force:true is the human's explicit offline-artifact ask — no failed attempt needed.
+  const forced = await engine.previewSpecimen(FX, { screenshotFirst: true, force: true, fetch: false, inline: false });
+  assert("force:true builds the sheet without a failed attempt", !!forced.path && !forced.unlockedBecause);
+  let relocked = null;
+  try {
+    await engine.previewSpecimen(FX, { screenshotFirst: true, fetch: false, inline: false });
+  } catch (e) {
+    relocked = e.message;
+  }
+  assert("without force, the same project still refuses (a forced build doesn't unlock)", !!relocked && /font_lab_screenshot_directions/.test(relocked));
+
+  // status answers "can I capture right now?" without launching anything.
+  const st = await engine.status(FX);
+  assert("status.preview reports the composed set + the screenshot next step", st.preview?.composedSet?.exists === true && /screenshot_directions/.test(st.preview?.hint || ""));
+
+  // the bare-tool alias covers metadata probes too — and an unknown word still just prints help.
+  const aliasAn = runCli(["analyze", "--project", FX]);
+  assert("`font-lab analyze` (no run) dispatches the tool table", aliasAn.status === 0 && JSON.parse(aliasAn.stdout).framework === "vite");
+  const notATool = runCli(["definitely-not-a-tool"]);
+  assert("an unknown word still prints help (never boots the server)", /font-lab install/.test(notATool.stdout) && notATool.status === 0);
 
   // ===================================================================== //
   //  3 — preview hygiene: nothing lands in the repo                       //

@@ -11,7 +11,8 @@
 
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync, watch as fsWatch, statSync } from "node:fs";
 import { catalog, get as catalogGet, inCatalog } from "./catalog.mjs";
 import { curate as curateDirections } from "./curator.mjs";
@@ -23,10 +24,10 @@ import { admit as admitFont, normalize as normFamily, isShippable } from "./admi
 import { analyzeProject, toTarget, wiringFor } from "./analyzer.mjs";
 import { generateCatalog, buildParityBundles } from "./catalog-build.mjs";
 import { applySelection, undo as undoApply, rewireCoverage } from "./codegen.mjs";
-import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer, ensureSelfIgnoredDir, removeFontLabGitignore, readScaffoldPrefs, writeScaffoldPrefs, scaffoldMounted, readDoneRequest, clearDoneRequest, readInstallManifest, INIT_MARKER } from "./state.mjs";
+import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting, selectionPath, writeMenuState, readMenuState, readRequest, clearRequest, requestPath, ensureFlDir, appendSourceEdit, readDevServer, ensureSelfIgnoredDir, removeFontLabGitignore, readScaffoldPrefs, writeScaffoldPrefs, scaffoldMounted, readDoneRequest, clearDoneRequest, readInstallManifest, INIT_MARKER, writeCaptureBlocked, readCaptureBlocked, clearCaptureBlocked } from "./state.mjs";
 import { buildCommitPlan } from "./commit-plan.mjs";
 import { detectEnvironment, remoteWorkflowNote } from "./environ.mjs";
-import { startManagedServer, probeHttp } from "./dev-server.mjs";
+import { startManagedServer, probeHttp, detectDevCommand } from "./dev-server.mjs";
 import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
@@ -95,14 +96,21 @@ export function start(projectDir, { remote } = {}) {
       ? "this is a Next project (live panel capable), but in THIS remote session the human can't reach the panel — drive the pick with `font_lab_screenshot_directions` (it can start the dev server itself; show the hero shots in chat), then `font_lab_select` → `apply`. Mention the live panel as what they'd get running locally."
       : "`init` the live in-app panel, have the human flip/mix/pick in the browser, then `read_pick` → `apply`."
     : cap.autoApply
-      ? `the live in-app panel is Next-only, so SKIP init — but the REAL-SITE preview still works here: \`font_lab_screenshot_directions\` screenshots your actual pages in each direction (census paint — no panel, no project writes), and it will START the dev server itself if none is running (managed, 127.0.0.1, stopped after). No dev server possible? \`font_lab_preview\` builds the portable specimen sheet (+ \`font_lab_preview_screenshots\` for chat). Then record the pick (\`font_lab_select\`) and \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
-      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}) — but previews still work: \`font_lab_screenshot_directions\` paints the REAL running site per direction (any framework; it can start the dev server itself), or \`font_lab_preview\` with no dev server. Record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
+      ? `the live in-app panel is Next-only, so SKIP init — the choosing surface here is the human's REAL SITE: \`font_lab_screenshot_directions\` paints each direction onto their actual pages (census paint — no panel, no project writes) and STARTS the dev server itself if none is running (managed, 127.0.0.1, stopped after). Show the returned heroShot images to the human. The generic specimen sheet (\`font_lab_preview\`) is NOT a peer option — it stays locked until a real capture attempt fails on infrastructure, so don't reach for it (or open .font-lab/preview.html) first. Then record the pick (\`font_lab_select\`) and \`apply\` — it self-hosts the parity woff2 and rewires ${cap.applyTarget} (${analysis.framework}, no next/font), reversibly.`
+      : `no auto-ship branch here (${analysis.reasons.join("; ") || "unsupported stack"}) — but the REAL-SITE preview works all the same: \`font_lab_screenshot_directions\` paints each direction onto the running site (any framework; it starts the dev server itself) — show the heroShots. (The generic \`font_lab_preview\` sheet stays locked until a real capture attempt fails.) Record the pick (\`font_lab_select\`), then the human pastes Font Lab's generated @font-face + role mapping into ${cap.applyTarget || "their CSS entry"} by hand.`;
+  // The same routing as DATA — prose gets skimmed; a named primary/fallback pair survives it.
+  const previewPlan = cap.livePanel
+    ? environment.remote && !environment.portForwarded
+      ? { primary: "font_lab_screenshot_directions", fallback: "font_lab_preview — LOCKED until a real capture attempt fails (or force:true when the human explicitly wants the offline sheet)", note: "remote session: the human can't reach this machine's live panel — screenshots ARE the choosing moment." }
+      : { primary: "font_lab_init (live panel)", fallback: "font_lab_screenshot_directions for a headless pass", note: "Next App Router + local human: the in-browser panel is the best surface." }
+    : { primary: "font_lab_screenshot_directions", fallback: "font_lab_preview — LOCKED until a real capture attempt fails (or force:true when the human explicitly wants the offline sheet)", note: "non-Next stack: the human's real pages, captured per direction, are THE choosing surface. Never present .font-lab/preview.html as the preview." };
   return {
     analysis,
     capabilities: cap, // what an agent can actually do here — a paved path, not a refusal
     shipNote: analysis.shipNote,
     environment: { ...environment, ...(workflowNote ? { workflowNote } : {}) },
     context, // the project's own palette, brand docs, and copy voice (B2)
+    previewPlan,
     brief: designBrief({ seed }),
     nextStep:
       "Read `context` (the project's palette, brand docs, and copy) — your options must fit THIS " +
@@ -291,11 +299,21 @@ export async function composeDirections(specs, { projectDir, force = false, brie
   // non-Next flow can never silently drift back to the starter menu (the dogfood's cloud trap),
   // and a pick by id always resolves against the directions the human actually saw.
   let persisted = false;
+  let nextStep = null;
   if (projectDir) {
     const dir = path.resolve(projectDir);
     writePreviewSet(dir, directions);
     writeMenuState(dir, { mode: "composed", count: directions.length });
     persisted = true;
+    // Steer the very next call from the tool result itself (agents act on the result in front of
+    // them more reliably than on a skill read minutes ago — the Vite dogfood's ask): name THE
+    // choosing surface for this stack, and warn off the generic sheet where it isn't it.
+    try {
+      const cap = analyzeProject(dir).capabilities;
+      nextStep = cap.livePanel
+        ? "Next: font_lab_init({ projectDir, directions }) mounts the live panel with exactly these directions (the human flips/picks in their browser). Headless/remote instead? font_lab_screenshot_directions({ projectDir }) captures the real site per direction."
+        : "Next: font_lab_screenshot_directions({ projectDir }) — it starts the dev server itself if none is running, paints these directions onto the human's REAL pages, and returns chat-sized heroShot images. SHOW those to the human and ask for a pick (font_lab_select). Do NOT open or present .font-lab/preview.html — the generic specimen sheet is locked until a real capture attempt fails.";
+    } catch {} // steering is best-effort — composition stands even if analysis hiccups
   }
   return {
     directions,
@@ -303,6 +321,7 @@ export async function composeDirections(specs, { projectDir, force = false, brie
     ...(persisted
       ? { persisted: ".font-lab/preview.json — this set is now the default for font_lab_screenshot_directions / font_lab_preview / font_lab_select on every framework" }
       : { persisted: false, note: "pass projectDir to persist this set as the project's default preview menu (recommended — screenshots and select then resolve against it automatically)" }),
+    ...(nextStep ? { nextStep } : {}),
   };
 }
 
@@ -374,11 +393,49 @@ export async function preparePreview(projectDir, { directions, vibe, count, allo
   return { analysis, mode, provisional: mode === "fallback", warning: fallbackNotice(mode), prepared: result.fonts, directions: result.directions, outPath: result.outPath };
 }
 
+// ── the specimen gate: screenshots-first, ENFORCED ───────────────────────────
+// The portable sheet renders generic specimen cards — never the human's pages — so wherever the
+// real-site capture could work it is the WRONG choosing surface. Documentation alone didn't hold
+// (the Vite dogfood: preview.html was easier to reach than the real screenshots, so the human
+// was handed generic cards and asked "where's my site?"). So the ladder is enforced by the tools
+// themselves: the sheet unlocks only when
+//   • a real font_lab_screenshot_directions attempt FAILED on infrastructure — the failure is on
+//     record (.font-lab/capture-blocked.json) and rides the sheet result as `unlockedBecause`; or
+//   • force:true — the human EXPLICITLY asked for the portable offline artifact.
+// Engine callers opt in via screenshotFirst:true; the TOOL layer always passes it, so every
+// agent transport (MCP and `run` alike) gets the enforcement. Direct engine/test callers keep
+// the old behavior.
+function specimenGate(dir, analysis, { force = false } = {}) {
+  if (force) return { via: "force" };
+  const blocked = readCaptureBlocked(dir);
+  if (blocked)
+    return {
+      via: "capture-blocked",
+      unlockedBecause: blocked,
+      note:
+        `Specimen sheet unlocked because the real-site capture failed (${blocked.stage}: ${String(blocked.error).split("\n")[0]}). ` +
+        "These are generic cards, NOT the human's pages — if that failure is fixable (install a Chromium, fix the dev script), fix it and re-run font_lab_screenshot_directions instead.",
+    };
+  const { devCmd } = detectDevCommand(dir);
+  const panelNote = analysis?.capabilities?.livePanel
+    ? "This is a Next App Router project — the live panel (font_lab_init) is the best surface when the human is local; headless, "
+    : "";
+  throw new Error(
+    "refusing to build the GENERIC specimen sheet: the real-site preview hasn't been tried here, and specimen cards are never the choosing surface while the human's actual pages can be captured. " +
+      panelNote +
+      `call font_lab_screenshot_directions({ projectDir }) — it manages the dev server itself (detected dev command: ${devCmd ? `\`${devCmd}\`` : "none found — it will report that too"}), paints each direction onto the human's REAL pages, and returns chat-sized heroShot images to show them. ` +
+      "If that fails on infrastructure (no Chromium can launch, the dev server won't serve), this tool unlocks automatically with the failure on record. " +
+      "Pass force:true ONLY when the human explicitly asked for the portable offline sheet.",
+  );
+}
+
 // ── the portable "choosing moment" (framework-agnostic, no dev server) ────────
 // Build a single self-contained HTML sheet — the parity fonts embedded (base64 when inlined) —
 // that renders each direction on the project's own palette. Works on ANY project (it's just a
 // file the human opens), which is what the live in-app panel can't be. Carries a real width-diff
 // render check so a silently-fallen-back font is badged, not trusted (the fonts.check trap).
+// NOT the first resort: with screenshotFirst:true (every tool-layer call) it refuses until a
+// real-site capture attempt has failed — see specimenGate above.
 
 function resolvePalette(colors = []) {
   const by = {};
@@ -416,9 +473,10 @@ function specimenDirections(directions, stacks) {
   }));
 }
 
-export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, allowFallback = true, log } = {}) {
+export async function previewSpecimen(projectDir, { directions, vibe, count, inline = true, fetch = true, allowFallback = true, screenshotFirst = false, force = false, log } = {}) {
   const dir = path.resolve(projectDir);
   const analysis = analyzeProject(dir);
+  const gate = screenshotFirst ? specimenGate(dir, analysis, { force }) : null;
   const resolved = resolveCaptureSet(dir, analysis, { directions, vibe, count, allowFallback });
   const dirs = resolved.directions;
   await ensureAdmitted(dir, dirs);
@@ -445,6 +503,7 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
     fonts: families,
     directionsSource: resolved.source,
     ...(resolved.source === "fallback" ? { menuWarning: fallbackNotice("fallback") } : {}),
+    ...(gate?.unlockedBecause ? { unlockedBecause: gate.unlockedBecause, gateNote: gate.note } : {}),
     directions: dirs.map((d) => ({ id: d.id, name: d.name, vibe: d.vibe })),
     nextStep:
       "Open the HTML (it's self-contained — fonts embedded, opens offline) and have the human compare. " +
@@ -457,14 +516,17 @@ export async function previewSpecimen(projectDir, { directions, vibe, count, inl
 // Headless capture of the specimen sheet: open the local HTML, wait for the embedded render check
 // to run, screenshot each card, and report per-face load verdicts — a VERIFIED capture (never a
 // silent Times-in-disguise shot). No dev server, no init, no panel; works on any framework.
-export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executablePath, directions, vibe, count, fetch = true, inline = true, allowFallback = true } = {}) {
+export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executablePath, directions, vibe, count, fetch = true, inline = true, allowFallback = true, screenshotFirst = false, force = false } = {}) {
   const dir = path.resolve(projectDir);
+  // Same gate as previewSpecimen (this is just its headless capture): check ONCE here, then the
+  // internal sheet build below is already sanctioned.
+  const gate = screenshotFirst ? specimenGate(dir, analyzeProject(dir), { force }) : null;
   let html = htmlPath;
   if (!html) html = (await previewSpecimen(dir, { directions, vibe, count, fetch, inline, allowFallback })).path;
-  const chromium = await loadChromium();
+  const chromium = await loadChromium(dir);
   const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
-  const { browser, via } = await launchBrowser(chromium, { executablePath });
+  const { browser, via } = await launchBrowser(chromium, { executablePath, projectDir: dir });
   try {
     const page = await browser.newPage({ viewport: { width: 1120, height: 1400 }, deviceScaleFactor: 2 });
     await page.goto("file://" + html, { waitUntil: "load" });
@@ -485,7 +547,15 @@ export async function screenshotSpecimen(projectDir, { htmlPath, outDir, executa
       await el.screenshot({ path: file });
       shots.push({ id, screenshot: file, check: verdicts.cards.find((c) => c.id === id)?.check || "" });
     }
-    return { html, outDir: out, browser: via, verified: verdicts.allLoaded, summary: verdicts.summary, shots };
+    return {
+      html,
+      outDir: out,
+      browser: via,
+      verified: verdicts.allLoaded,
+      summary: verdicts.summary,
+      ...(gate?.unlockedBecause ? { unlockedBecause: gate.unlockedBecause, gateNote: gate.note } : {}),
+      shots,
+    };
   } finally {
     await browser.close();
   }
@@ -763,6 +833,10 @@ export async function status(projectDir, { port = 7777 } = {}) {
     backups,
     devServer,
     menu: readMenuState(dir),
+    // The "can I get real-site screenshots RIGHT NOW?" snapshot — composed set, captures and
+    // their freshness, whether a Playwright driver/browser resolves, and any recorded capture
+    // failure. Answers the dogfood's status ask without launching anything.
+    preview: previewReadiness(dir),
     versions: panelDrift(dir),
     environment: { kind: environment.kind, remote: environment.remote, ...(environment.remote ? { note: remoteWorkflowNote(environment) } : {}) },
     // The commit moment, answered up front: the git-verified two-pile plan (ship vs scaffold,
@@ -802,6 +876,70 @@ const statSafe = (p) => {
     return null;
   }
 };
+
+// Preview readiness for font_lab_status — cheap on purpose (resolution probes + directory reads,
+// never a browser launch), so status stays a fast snapshot. The `playwright.driver` field also
+// answers the MCP/CLI parity question up front: it reports WHICH install would be used
+// (project-first, mirroring loadChromium), so "installed it, still failing" has a place to look.
+function previewReadiness(dir) {
+  const set = readPreviewSet(dir);
+  const setStat = statSafe(previewSetPath(dir));
+  const shotsDir = path.join(dir, ".font-lab", "previews");
+  let shots = { count: 0, newestAt: null };
+  try {
+    const files = readdirSync(shotsDir).filter((f) => /\.(png|jpe?g)$/i.test(f));
+    let newest = 0;
+    for (const f of files) {
+      const s = statSafe(path.join(shotsDir, f));
+      if (s && s.mtimeMs > newest) newest = s.mtimeMs;
+    }
+    shots = { count: files.length, newestAt: newest ? new Date(newest).toISOString() : null };
+  } catch {}
+  const stale = !!(shots.newestAt && setStat && setStat.mtimeMs > new Date(shots.newestAt).getTime());
+  let driver = null;
+  const probes = [];
+  try { probes.push(["project", createRequire(path.join(dir, "package.json"))]); } catch {}
+  try { probes.push(["font-lab", createRequire(import.meta.url)]); } catch {}
+  for (const [where, req] of probes) {
+    for (const mod of ["playwright", "playwright-core"]) {
+      try {
+        req.resolve(mod);
+        driver = `${mod} (${where})`;
+        break;
+      } catch {}
+    }
+    if (driver) break;
+  }
+  const browser = discoverChromium(dir);
+  const blocked = readCaptureBlocked(dir);
+  const sheet = existsSync(path.join(dir, ".font-lab", "preview.html"));
+  return {
+    composedSet: { exists: set.length > 0, count: set.length, at: setStat ? setStat.mtime.toISOString() : null },
+    screenshots: {
+      dir: path.join(".font-lab", "previews"),
+      ...shots,
+      ...(stale ? { stale: true, hint: "the composed set changed after these were captured — re-run font_lab_screenshot_directions" } : {}),
+    },
+    playwright: {
+      driver,
+      discoveredBrowser: browser,
+      ...(driver
+        ? browser
+          ? {}
+          : { browserNote: "no browser in the Playwright caches — launch will try the system Chrome/Edge channels, or run `npx playwright install chromium`" }
+        : { hint: "no Playwright driver resolves — `npm i -D playwright-core` IN THE PROJECT (picked up immediately by MCP and CLI alike, no restart)" }),
+    },
+    ...(blocked ? { captureBlocked: { ...blocked, note: "a real-site capture attempt failed — the specimen-sheet fallback is unlocked, but fixing this and re-running font_lab_screenshot_directions is the better path" } } : {}),
+    ...(sheet ? { specimenSheet: { path: path.join(".font-lab", "preview.html"), note: "generic fallback artifact — NOT the human's pages; never present it while real-site captures can run" } } : {}),
+    hint: !set.length
+      ? "no composed set yet — run font_lab_compose_directions({ projectDir, directions }) after intake"
+      : shots.count === 0
+        ? "composed set ready, no captures yet — run font_lab_screenshot_directions({ projectDir })"
+        : stale
+          ? "captures predate the current composed set — re-run font_lab_screenshot_directions({ projectDir })"
+          : "captures exist — show the heroShot images and record the pick with font_lab_select",
+  };
+}
 
 // Fix a role the analyzer flags as dead (declared but not actually rendered). Reversible.
 export function rewire(projectDir) {
@@ -1195,10 +1333,17 @@ export function liveInstructions(projectDir, { remote } = {}) {
 // download layouts (old `chrome-linux/chrome` + headless_shell, new `chrome-linux64/...`), so we
 // can screenshot with whatever browser exists instead of demanding Playwright's exact bundled
 // revision. Returns the newest binary found, or null.
-function discoverChromium() {
+function discoverChromium(projectDir) {
   const roots = [];
   const pbp = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (pbp && pbp !== "0") roots.push(pbp);
+  // PLAYWRIGHT_BROWSERS_PATH=0 (or a project that set it at install time) keeps browsers inside
+  // the driver package itself — check the PROJECT's install too, so a browser the user installed
+  // into their repo is found no matter which process (MCP server, one-shot CLI) is asking.
+  if (projectDir) {
+    for (const pkg of ["playwright-core", "playwright"])
+      roots.push(path.join(path.resolve(projectDir), "node_modules", pkg, ".local-browsers"));
+  }
   const home = os.homedir();
   roots.push(path.join(home, ".cache", "ms-playwright")); // linux default
   roots.push(path.join(home, "Library", "Caches", "ms-playwright")); // macOS default
@@ -1240,14 +1385,34 @@ function discoverChromium() {
 // Launch Chromium from whatever the machine actually has — an explicit path, a pre-installed
 // build (cloud envs), the user's system Chrome/Edge, or Playwright's own bundle — first one that
 // launches wins. This sidesteps Playwright's hard pin to its exact bundled revision.
-// Load Playwright's `chromium` driver, tolerating the two ways it can be present. We ship
-// `playwright-core` as an OPTIONAL dependency (light — no bundled-browser download), so the
-// headless screenshot path works out of the box for `npx font-lab` users instead of throwing on a
-// missing devDependency. A full `playwright` (its own browser included) is preferred when present —
-// e.g. in this repo's tests. Either driver launches whatever Chromium is on the machine (system
-// Chrome/Edge or a pre-installed build; see launchBrowser). Throws ONE actionable error only when
-// neither module resolves — a real load error inside an installed driver is re-thrown as-is.
-async function loadChromium() {
+// Load Playwright's `chromium` driver, tolerating every way it can be present — CRUCIALLY
+// including the USER'S PROJECT. A bare `import("playwright")` resolves relative to THIS package's
+// own install (the npx cache when the MCP server was registered as `npx font-lab mcp`), which is
+// how the dogfood hit "CLI works after `npm i -D playwright`, the MCP server still says it's
+// missing": the two processes were resolving from different roots. So: resolve from the project's
+// node_modules FIRST (createRequire re-checks the disk on every call — a driver installed
+// mid-session is picked up by the running MCP server, no restart), then fall back to our own
+// dependencies (`playwright-core` ships as an optional dep so `npx font-lab` works out of the
+// box). A full `playwright` is preferred over `-core` at each root (it may carry its own
+// browser). Throws ONE actionable error only when nothing resolves anywhere — a real load error
+// inside an installed driver is re-thrown as-is.
+async function loadChromium(projectDir) {
+  if (projectDir) {
+    let requireFromProject = null;
+    try {
+      requireFromProject = createRequire(path.join(path.resolve(projectDir), "package.json"));
+    } catch {}
+    for (const mod of ["playwright", "playwright-core"]) {
+      let resolved = null;
+      try {
+        resolved = requireFromProject?.resolve(mod);
+      } catch {} // not installed in the project — try the next root
+      if (!resolved) continue;
+      const m = await import(pathToFileURL(resolved).href); // load errors inside a REAL install re-throw as-is
+      const chromium = m.chromium ?? m.default?.chromium;
+      if (chromium) return chromium;
+    }
+  }
   for (const mod of ["playwright", "playwright-core"]) {
     try {
       return (await import(mod)).chromium;
@@ -1256,15 +1421,17 @@ async function loadChromium() {
     }
   }
   throw new Error(
-    "Screenshots need a Playwright driver. Install one — `npm i playwright-core` (light; uses your " +
-      "system Chrome) or `npm i -D playwright` (bundles its own browser) — and, if no system Chrome is " +
-      "present, `npx playwright install chromium`. Or skip headless and use the live editor (liveInstructions()).",
+    "Screenshots need a Playwright driver. Install one IN THE PROJECT — `npm i -D playwright-core` " +
+      "(light; drives your system Chrome) or `npm i -D playwright` (can bundle its own browser) — then " +
+      "RETRY THIS SAME TOOL: the project's install is picked up immediately, from the MCP server and the " +
+      "CLI alike, no session restart. If no system Chrome/Edge exists either, also run `npx playwright " +
+      "install chromium`. Only if no browser can exist here, fall back to the live editor (liveInstructions()).",
   );
 }
 
-async function launchBrowser(chromium, { executablePath } = {}) {
+async function launchBrowser(chromium, { executablePath, projectDir } = {}) {
   const explicit = executablePath || process.env.FONT_LAB_CHROMIUM || process.env.PLAYWRIGHT_EXECUTABLE_PATH;
-  const discovered = discoverChromium();
+  const discovered = discoverChromium(projectDir);
   const attempts = [
     explicit && { label: `executablePath ${explicit}`, opts: { executablePath: explicit } },
     { label: "playwright bundled", opts: {} },
@@ -1322,8 +1489,8 @@ async function capturePainted(dir, analysis, dirs, { base, route, out, viewport,
   // repo — public/<staticDir>/fontlab stays reserved for fonts that actually ship.
   const { faceCss, stacks } = await buildParityBundles(dir, families, { fetch, inline, staticDir: analysis.staticDir, cacheDir: fontCacheDir(dir), specFor: mergedSpecFor(dir), log });
   const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
-  const chromium = await loadChromium();
-  const { browser, via } = await launchBrowser(chromium, { executablePath });
+  const chromium = await loadChromium(dir);
+  const { browser, via } = await launchBrowser(chromium, { executablePath, projectDir: dir });
   try {
     // bypassCSP: a strict dev CSP must not block the injected faces or the census (verifyShip's
     // finding) — the paint is measurement-grade, not a page mutation the site should police.
@@ -1403,6 +1570,16 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
   const out = outDir ? path.resolve(outDir) : path.join(ensureFlDir(dir), "previews");
   mkdirSync(out, { recursive: true });
 
+  // What the human SAW is what a later select must resolve against — so explicit, compose-shaped
+  // directions persist as the project's menu too (an inline pass could otherwise vanish: composed
+  // without persistence on another transport, captured here, then font_lab_select finds no set).
+  // Raw un-normalized shapes are left alone — compose is the normalizer, and persisting a
+  // roles-less direction would break select.
+  if (resolved.source === "explicit" && dirs.every((d) => d.id && ROLES.every((r) => d.roles?.[r]?.family))) {
+    writePreviewSet(dir, dirs);
+    writeMenuState(dir, { mode: "composed", count: dirs.length });
+  }
+
   let managed = null;
   let serverNote = null;
   if (!baseUrl) baseUrl = readDevServer(dir)?.origin;
@@ -1412,7 +1589,15 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
         `captureDirections: ${baseUrl ? `the dev server at ${baseUrl} isn't responding` : "no dev server is running (none passed, none recorded)"} and ensureServer:false forbids starting one. ` +
           "Start it yourself — bind 127.0.0.1 (an IPv6 `::` host dies with EAFNOSUPPORT on IPv4-only containers) and use a harness-managed background task (a plain `&` won't survive sandboxed shells) — then pass baseUrl.",
       );
-    managed = await startManagedServer(dir, { framework: analysis.framework, log });
+    try {
+      managed = await startManagedServer(dir, { framework: analysis.framework, log });
+    } catch (e) {
+      // A dev server that genuinely can't serve is an INFRASTRUCTURE failure of the real-site
+      // path — record it so the specimen-sheet fallback unlocks (see specimenGate). The
+      // ensureServer:false refusal above deliberately doesn't: the agent forbade the fix itself.
+      writeCaptureBlocked(dir, { stage: "dev-server", error: e.message });
+      throw e;
+    }
     serverNote = `${baseUrl ? `the dev server at ${baseUrl} wasn't responding` : "no dev server was running"} — started \`${managed.command}\` (managed: bound to 127.0.0.1, stopped after the capture)`;
     baseUrl = managed.origin;
   }
@@ -1427,13 +1612,20 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
     ...(serverNote ? { serverNote } : {}),
   });
 
+  // A capture that WORKED (re-)locks the specimen-sheet fallback; one that failed on
+  // infrastructure records why, which is the only thing that unlocks it (see specimenGate).
+  const succeed = (result) => {
+    clearCaptureBlocked(dir);
+    return result;
+  };
+
   try {
     // No live panel on this stack? Paint the real page headlessly — same images, no init needed.
     if (!analysis.capabilities.livePanel)
-      return annotate(await capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch, log }));
+      return succeed(annotate(await capturePainted(dir, analysis, dirs, { base, route, out, viewport, fullPage, executablePath, fetch, log })));
 
-    const chromium = await loadChromium();
-    const { browser, via } = await launchBrowser(chromium, { executablePath });
+    const chromium = await loadChromium(dir);
+    const { browser, via } = await launchBrowser(chromium, { executablePath, projectDir: dir });
     try {
       const page = await browser.newPage({ viewport: viewport || { width: 1280, height: 900 }, deviceScaleFactor: 2 });
       // Wait for `load`, not `networkidle`: a persistent third-party live script (e.g. a design
@@ -1489,7 +1681,7 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
           ...files,
         });
       }
-      return annotate({
+      return succeed(annotate({
         baseUrl: base,
         route,
         outDir: out,
@@ -1498,10 +1690,24 @@ export async function captureDirections(projectDir, { baseUrl, routes = ["/"], o
         shotsNote: "Each direction has TWO images: `heroShot` (viewport JPEG, chat/phone-sized — show THESE to the human) and `screenshot` (full-page PNG, for detail on request).",
         shots,
         live: liveInstructions(dir),
-      });
+      }));
     } finally {
       await browser.close();
     }
+  } catch (e) {
+    // Record WHY the real-site capture failed — the record is what unlocks the specimen-sheet
+    // fallback. Errors whose fix is a different Font Lab step (the Next panel isn't init'd)
+    // stay unrecorded: the sheet isn't the answer to those.
+    const msg = String(e?.message || e);
+    if (!/no Font Lab panel/.test(msg)) {
+      const stage = /Playwright driver/i.test(msg)
+        ? "playwright-driver"
+        : /launch a Chromium/i.test(msg)
+          ? "browser-launch"
+          : "capture";
+      writeCaptureBlocked(dir, { stage, error: msg });
+    }
+    throw e;
   } finally {
     if (managed) await managed.stop();
   }
@@ -1543,13 +1749,13 @@ export async function verifyShip(projectDir, { baseUrl, routes = ["/"], targets,
     baseUrl = managed.origin;
   }
 
-  const chromium = await loadChromium();
+  const chromium = await loadChromium(dir);
   const censusSrc = readFileSync(CENSUS_TEMPLATE, "utf8");
   const base = baseUrl.replace(/\/+$/, "");
   const routesOut = [];
   let via = null;
   try {
-    const { browser, via: browserVia } = await launchBrowser(chromium, { executablePath });
+    const { browser, via: browserVia } = await launchBrowser(chromium, { executablePath, projectDir: dir });
     via = browserVia;
     try {
       // bypassCSP: a strict dev CSP (connect-src 'self', upgrade-insecure-requests) must not be
