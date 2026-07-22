@@ -22,6 +22,7 @@ try {
       vibe: arg("--vibe", undefined),
       count: Number(arg("--count", "5")),
       fetch: !process.argv.includes("--no-fetch"),
+      allowVersionSkew: process.argv.includes("--allow-version-skew"),
       log: (m) => console.log(m),
     });
     console.log(`\nFont Lab — initialized ${rel(PROJECT)}`);

@@ -62,10 +62,28 @@ and shipping; they keep the taste decision.
 **Upgrading Font Lab is one command: `npx font-lab upgrade`.** It installs the new package,
 re-pins the MCP registration to the project's own install, re-stamps the panel (keeping the
 directions the human already has), and shuts down a stale `:7777` endpoint (the new `serve`
-also takes the port over from a stale one automatically). The only step it can't do: the human
-reloads the agent session so the MCP server restarts. `font_lab_status` reports every drift
+also takes the port over from a stale one automatically). The only step it can't do — and it is
+a **hard gate**, not a nicety: the human reloads the agent session so the MCP server restarts.
+Until then this process keeps running the old version, and `font_lab_init` will **refuse on the
+version skew** rather than stamp a broken panel. `font_lab_status` reports every drift
 (endpoint, panel, MCP vs installed package, dev server) — check it after any version bump, and
 act on the `mcpVersionDrift` warning if it rides your tool results.
+
+**VERIFY FIRST — prove the page works before you invite the human.** After `font_lab_init`
+(and again after any dev-server restart or CSP/config change), run
+`font_lab_healthcheck({ projectDir })` and act on it **before** telling the human to open the
+site. One read-only pass confirms: the homepage actually serves (a real GET → 200, and a 500
+body is sniffed to NAME the missing module — a stale scaffold's `Module not found:
+'./fl-census'` white page *looks* like a dead dev server and isn't); the panel scaffold is
+complete (every `app/_fontlab/` file present, every import resolving); versions align (running
+tool vs project install vs panel stamp vs `:7777` — `init` refuses to stamp on skew, `npx
+font-lab upgrade` is the fix); the endpoint is up; and the **CSP** isn't silently killing the
+panel (no dev `'unsafe-eval'` → the client tree never hydrates → no panel; no `connect-src`
+for `127.0.0.1:7777` → picks and copy edits fail — findings come with a paste-ready dev-only
+patch). **A white page or a missing panel is an agent failure to catch here, not a human setup
+step.** Two rules that ride with it: `ready:true` → arm your listener, *then* invite; and
+after any `next.config.*`/middleware CSP change, **restart the dev server** — Next reads
+headers at startup, so an un-restarted server keeps serving the old policy.
 
 ## The loop
 
@@ -117,10 +135,16 @@ in this order:
 3. **Set up the preview (Next only)** — `font_lab_init({ projectDir, directions })`, passing the directions
    you just composed. The panel shows **exactly those**. `init` **refuses without directions** —
    so you can't mount the generic default menu without doing the brief first; only pass
-   `allowFallback: true` if the user explicitly wants the deterministic default. If `analyze`
+   `allowFallback: true` if the user explicitly wants the deterministic default. It also
+   **refuses on version skew** (running tool ≠ project's installed font-lab — `npx font-lab
+   upgrade`, then the human reloads the session) and **self-checks the stamp** (a scaffold that
+   would 500 is refused, never reported as success). If `analyze`
    flagged a dead role and the user wants it to change, also call `font_lab_rewire_dead_roles`.
    (Already initialized and changing the set? `font_lab_prepare_preview({ projectDir, directions })`
    rebuilds without re-mounting.)
+   **Then verify before inviting:** dev server up → `font_lab_healthcheck({ projectDir })` →
+   clear any blockers (its `csp` findings carry a paste-ready dev-only patch; restart the dev
+   server after config edits) → only on `ready:true` do you arm a listener and invite the human.
    - **Want more options?** The menu is never capped. When the user asks "what else?", compose
      additional directions and call `font_lab_more_directions({ projectDir, directions })` — they're
      appended to the live panel (existing options kept). The human can also ask from **inside the
@@ -291,6 +315,11 @@ still has a clean next step instead of a dead end.
 - **The human picks.** Never choose the final font yourself. Prepare options; let them decide.
 - **Ask first.** Always gather the brief (`font_lab_start`'s intake questions) before proposing
   fonts. Tailored options are the whole point; a menu picked without a brief is a generic menu.
+- **Verify before you invite.** The live path is `init` → dev server → **`font_lab_healthcheck`
+  until `ready:true`** → arm a listener → *then* "open your site." A white page (Next 500 from a
+  stale scaffold) or a panel-less page (CSP blocking dev `'unsafe-eval'` or `connect-src`
+  `:7777`) is yours to catch before the human ever loads the page — and after any
+  `next.config.*`/CSP edit, restart the dev server (headers are startup-bound).
 - **Reach past the defaults.** The point is to escape the generic AI look. Do **not** propose
   the overexposed defaults (Inter, Geist, Space Grotesk, Roboto, Open Sans, Montserrat, Poppins,
   DM Sans, Manrope, Sora, Figtree, JetBrains/Roboto/Geist Mono, …) unless the brief specifically

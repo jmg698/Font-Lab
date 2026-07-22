@@ -239,7 +239,9 @@ async function runUpgrade() {
   }
 
   console.log(`\n  ✓ upgraded to v${VERSION}.`);
-  console.log(`  Last step (only you can): RELOAD your agent session so the MCP server restarts on the new version.`);
+  console.log(`  ⚠ HARD GATE — RELOAD your agent session now. The MCP server a session already loaded keeps`);
+  console.log(`    running the OLD version until it restarts; a skewed font_lab_init now REFUSES to stamp`);
+  console.log(`    (rather than shipping a broken panel), so nothing moves until the reload happens.`);
 }
 
 async function runServe() {

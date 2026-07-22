@@ -111,7 +111,7 @@ export const TOOLS = [
   {
     name: "font_lab_init",
     description:
-      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). NEXT.JS APP ROUTER ONLY (the panel mounts in layout.tsx): on any other framework (Vite/Astro/Remix/SvelteKit/TanStack/…) SKIP this and use font_lab_preview instead — the pick still ships via font_lab_apply. Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). Reported dead roles are SHIP scope, not a preview problem: the panel previews every role by painting the rendered page; a dead chain just means shipping that role needs font_lab_rewire_dead_roles or an agent edit (the pick declares this scope).",
+      "SET UP the live preview panel in the project, built from the directions YOU composed for the user's brief — self-hosts the bundles, installs the dev panel, mounts it (dev-only). NEXT.JS APP ROUTER ONLY (the panel mounts in layout.tsx): on any other framework (Vite/Astro/Remix/SvelteKit/TanStack/…) SKIP this and use font_lab_preview instead — the pick still ships via font_lab_apply. Pass the `directions` from font_lab_compose_directions; the panel shows exactly those. This REFUSES without directions (so the generic default menu can't be mounted without asking the user first) — only pass allowFallback:true if the user explicitly wants the deterministic default. Run after start → intake → compose. Idempotent + reversible (font_lab_uninit). GUARDED TWO WAYS: it refuses on font-lab VERSION SKEW (running tool ≠ the project's installed font-lab — the npx-cache trap that stamps broken panels; fix: `npx font-lab upgrade`, then reload the session; allowVersionSkew:true only for a deliberately mixed checkout), and it SELF-CHECKS the stamp before reporting success (every file present, every app/_fontlab/ import resolving — so a scaffold that would 500 is refused, never celebrated). AFTER a successful init: start the dev server, then run font_lab_healthcheck and DO NOT invite the human until it reports ready:true. Reported dead roles are SHIP scope, not a preview problem: the panel previews every role by painting the rendered page; a dead chain just means shipping that role needs font_lab_rewire_dead_roles or an agent edit (the pick declares this scope).",
     inputSchema: {
       type: "object",
       properties: {
@@ -119,12 +119,28 @@ export const TOOLS = [
         directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to show in the panel (from compose_directions)." },
         allowFallback: { type: "boolean", description: "Mount the deterministic default menu without a brief — only if the user explicitly wants it." },
         tracked: { type: "boolean", description: "Commit-track the panel scaffolding instead of self-ignoring it (default false: app/_fontlab/ and public/fontlab/ carry a nested .gitignore so they never show in git status). Set true only when the user explicitly wants the panel shared via git; the choice persists across rebuilds." },
+        allowVersionSkew: { type: "boolean", description: "Proceed despite a font-lab version mismatch between this process and the project's installed package. ONLY for a deliberately mixed checkout — the default refusal exists because skewed stamps ship broken panels." },
         vibe: { type: "string" },
         count: { type: "number" },
       },
       required: ["projectDir"],
     },
-    handler: (a, { log }) => engine.init(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, tracked: a.tracked, vibe: a.vibe, count: a.count, log }),
+    handler: (a, { log }) => engine.init(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, tracked: a.tracked, allowVersionSkew: a.allowVersionSkew === true, vibe: a.vibe, count: a.count, log }),
+  },
+  {
+    name: "font_lab_healthcheck",
+    description:
+      "VERIFY THE SETUP BEFORE INVITING THE HUMAN — run this after font_lab_init (and again after any dev-server restart or CSP/config change), and act on it: a white page or a missing panel is an AGENT failure to catch here, not a human setup step. One read-only pass checks: VERSION ALIGNMENT (this process vs the project's installed font-lab vs the panel stamp vs the :7777 endpoint — the npx-cache skew that stamps broken panels), SCAFFOLD COMPLETENESS (every app/_fontlab/ file present and every relative import resolving — the class that becomes `Module not found: Can't resolve './fl-census'` → Next 500 → a white page that reads as a dead server), the DEV SERVER (a real GET of the homepage — expects 200, and sniffs a 500 body to NAME the missing module instead of leaving you guessing), the PICK/EDIT ENDPOINT on :7777, and the CONTENT-SECURITY-POLICY (a strict CSP kills the panel silently: no dev 'unsafe-eval' → the client tree never hydrates → no panel; no connect-src for 127.0.0.1:7777 → picks and copy edits fail — findings come WITH a paste-ready dev-only patch, and the reminder that Next reads headers at STARTUP, so restart the dev server after config changes). Returns { ready, blockers, warnings, checks, nextStep }: ready:true → arm a listener, then invite the human; blockers → each carries its fix (usually `npx font-lab upgrade` or the CSP patch) — clear them and re-run until ready. A dev server that simply isn't running is only a warning (screenshot/verify tools start one themselves), but the LIVE panel path needs it up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectDir: proj,
+        baseUrl: { type: "string", description: "The dev server URL the human would open (e.g. http://localhost:3000). Optional — defaults to the recorded dev server; unreachable is a BLOCKER when passed explicitly, a warning otherwise." },
+        port: { type: "number", description: "Pick-endpoint port (default 7777)." },
+      },
+      required: ["projectDir"],
+    },
+    handler: (a) => engine.healthcheck(a.projectDir, { baseUrl: a.baseUrl, port: a.port ?? 7777 }),
   },
   {
     name: "font_lab_more_directions",
@@ -169,12 +185,13 @@ export const TOOLS = [
         projectDir: proj,
         directions: { type: "array", items: { type: "object" }, description: "The brief-driven directions to build (from compose_directions)." },
         allowFallback: { type: "boolean", description: "Build the deterministic default menu without a brief — only if the user explicitly wants it." },
+        allowVersionSkew: { type: "boolean", description: "Proceed despite a font-lab version mismatch between this process and the project's installed package (default: refuse — skewed stamps ship broken panels; fix with `npx font-lab upgrade`)." },
         vibe: { type: "string" },
         count: { type: "number" },
       },
       required: ["projectDir"],
     },
-    handler: (a, { log }) => engine.preparePreview(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, vibe: a.vibe, count: a.count, log }),
+    handler: (a, { log }) => engine.preparePreview(a.projectDir, { directions: a.directions, allowFallback: a.allowFallback === true, allowVersionSkew: a.allowVersionSkew === true, vibe: a.vibe, count: a.count, log }),
   },
   {
     name: "font_lab_wait",

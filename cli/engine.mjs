@@ -28,7 +28,9 @@ import { readHandoffState, writeAppliedStamp, clearAppliedStamp, setAgentWaiting
 import { buildCommitPlan } from "./commit-plan.mjs";
 import { detectEnvironment, remoteWorkflowNote } from "./environ.mjs";
 import { startManagedServer, probeHttp, detectDevCommand } from "./dev-server.mjs";
-import { VERSION, cmpVersions, isRealVersion } from "./version.mjs";
+import { VERSION, cmpVersions, isRealVersion, installedVersionIn } from "./version.mjs";
+import { scanCsp } from "./csp.mjs";
+import { versionSkew, checkScaffold, healthcheck as runHealthcheck } from "./healthcheck.mjs";
 
 const PANEL_TEMPLATE = fileURLToPath(new URL("./templates/font-lab-panel.tsx", import.meta.url));
 // The census (render-first classifier) — ONE source, consumed two ways: init copies it next to
@@ -376,8 +378,9 @@ export function resolveCaptureSet(dir, analysis, { directions, vibe, count, allo
 // Builds from the agent-composed `directions` (the tasteful, brief-driven path). With none, refuse
 // unless allowFallback — so the generic default menu isn't mounted without the agent asking first.
 // The MCP layer passes allowFallback:false (forcing intake); direct/CLI callers default to true.
-export async function preparePreview(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, log } = {}) {
+export async function preparePreview(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, allowVersionSkew = false, log } = {}) {
   const dir = path.resolve(projectDir);
+  assertNoVersionSkew(dir, { allow: allowVersionSkew, verb: "font_lab_prepare_preview" });
   const analysis = analyzeProject(dir);
   const mode = resolveDirectionsMode({ directions, allowFallback });
   const dirs = mode === "composed" ? directions : fallbackDirections(dir, analysis, { vibe, count });
@@ -837,7 +840,12 @@ export async function status(projectDir, { port = 7777 } = {}) {
     // their freshness, whether a Playwright driver/browser resolves, and any recorded capture
     // failure. Answers the dogfood's status ask without launching anything.
     preview: previewReadiness(dir),
-    versions: panelDrift(dir),
+    versions: (() => {
+      const v = { ...panelDrift(dir), installed: installedVersionIn(dir) };
+      const skew = versionSkew(dir);
+      if (skew) v.skew = skew; // the init-refusing mismatch, visible from status too
+      return v;
+    })(),
     environment: { kind: environment.kind, remote: environment.remote, ...(environment.remote ? { note: remoteWorkflowNote(environment) } : {}) },
     // The commit moment, answered up front: the git-verified two-pile plan (ship vs scaffold,
     // ready-to-run commands) — so "what do I actually commit?" never needs reverse-engineering.
@@ -946,6 +954,19 @@ export function rewire(projectDir) {
   return rewireCoverage(path.resolve(projectDir));
 }
 
+// The post-init healthcheck — "prove the page works BEFORE inviting the human." Versions,
+// scaffold completeness, a real homepage GET (with the 500 module-not-found sniff), the :7777
+// endpoint, and the CSP scan, folded into { ready, blockers, warnings, nextStep }. Read-only.
+// The skill rule it enforces: do not invite the human until ready:true.
+export async function healthcheck(projectDir, { baseUrl, port = 7777, timeoutMs } = {}) {
+  const dir = path.resolve(projectDir);
+  let analysis = null;
+  try {
+    analysis = analyzeProject(dir);
+  } catch {} // the module re-tries and degrades honestly
+  return runHealthcheck(dir, { baseUrl, port, timeoutMs, analysis });
+}
+
 // ── install / uninstall the live panel (the agent's "setup" step) ────────────
 
 const INIT_START = INIT_MARKER; // one string, shared with state.scaffoldMounted (the hook reads it too)
@@ -1033,10 +1054,28 @@ function unmountPanel(src) {
   return out;
 }
 
+// The hard gate on every scaffold-writing verb (init / prepare_preview / more_directions):
+// a version-skewed tool must NOT stamp panel code into the project. This is the filmed-demo
+// bug at its root — an MCP server frozen at 0.11 stamped a panel into a 0.13 project, the
+// scaffold didn't match the package, and Next 500'd with a white page that read as "the dev
+// server is down". `status` mentioning drift was too quiet; the break happens HERE, so the
+// refusal happens here. allowVersionSkew:true is the deliberate override (mixed checkouts).
+function assertNoVersionSkew(dir, { allow = false, verb = "font_lab_init" } = {}) {
+  const skew = versionSkew(dir);
+  if (!skew) return null;
+  if (allow) return skew; // surfaced in the result so the override is never silent
+  throw new Error(
+    `VERSION SKEW — refusing to stamp panel code: ${skew.message} ` +
+      `(A skewed ${verb} is how a broken half-panel ships: the stamped files stop matching the installed package and Next 500s with a white page.) ` +
+      `After upgrading + reloading, re-run ${verb}. Pass allowVersionSkew:true ONLY for a deliberately mixed checkout.`,
+  );
+}
+
 // Set the project up so the human can preview live: self-host the parity bundles, drop in the
 // portable dev panel, and mount it (dev-only) in the layout. Idempotent + reversible (uninit).
-export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, tracked, log } = {}) {
+export async function init(projectDir, { directions, vibe, count, allowFallback = true, fetch = true, tracked, allowVersionSkew = false, log } = {}) {
   const dir = path.resolve(projectDir);
+  const skew = assertNoVersionSkew(dir, { allow: allowVersionSkew, verb: "font_lab_init" });
   const analysis = analyzeProject(dir);
   if (!analysis.supported)
     throw new Error(
@@ -1086,6 +1125,30 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
     ],
   });
 
+  // The self-check: NEVER report success on a scaffold that would 500. Every file just stamped
+  // must exist and every relative import in app/_fontlab/ must resolve — the exact class that
+  // shipped in the field as `Module not found: Can't resolve './fl-census'` → white page.
+  const selfCheck = checkScaffold(dir);
+  if (!selfCheck.complete) {
+    const what = [
+      selfCheck.missing.length ? `missing: ${selfCheck.missing.join(", ")}` : null,
+      selfCheck.unresolvedImports.length
+        ? `unresolved imports: ${selfCheck.unresolvedImports.map((u) => `${u.file} → "${u.specifier}"`).join(", ")}`
+        : null,
+      !selfCheck.layoutMounted ? "panel not mounted in the layout" : null,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(
+      `init self-check FAILED — the stamped scaffold is incomplete (${what}). Next would 500 (Module not found) and the site would read as a dead server, so init refuses to report success. ` +
+        "This usually means a stale or mixed font-lab install: run `npx font-lab upgrade`, then font_lab_init again.",
+    );
+  }
+
+  // CSP is the OTHER silent panel-killer (page serves, client never hydrates, panel absent) —
+  // scan now, at exactly the moment the agent is about to say "open your site".
+  const csp = scanCsp(dir);
+
   return {
     analysis,
     mode,
@@ -1099,20 +1162,27 @@ export async function init(projectDir, { directions, vibe, count, allowFallback 
     mounted,
     scaffoldSelfIgnored: selfIgnored,
     layout: path.relative(dir, layout),
+    selfCheck: { complete: true, panelDir: selfCheck.panelDir },
+    ...(skew ? { versionSkewAllowed: skew } : {}),
+    ...(csp.blockers.length || csp.warnings.length ? { csp } : {}),
     nextStep:
-      mode === "fallback"
+      (csp.blockers.length
+        ? `FIRST — the project's CSP will kill the live panel in the human's browser (${csp.blockers.map((b) => `${b.directive} missing ${b.missing}`).join("; ")}): apply the dev-only allowances in csp.patch and RESTART the dev server (Next reads headers at startup). Then: `
+        : "") +
+      (mode === "fallback"
         ? "The panel is up with the STARTER MENU (badged 'not tailored yet' in-panel). Good enough to verify the panel mounts — but it's not tailored to this project. Before the human commits, run intake (font_lab_start) → font_lab_compose_directions → font_lab_prepare_preview so the options fit their brief. Then read_pick → apply."
-        : "Start your dev server, then have the human flip fonts in the panel (bottom-right) and Pick. " +
-          "Want more options? compose additional directions and call font_lab_more_directions. Then read_pick → apply.",
+        : "Start your dev server, then run font_lab_healthcheck({ projectDir }) and DO NOT invite the human until it reports ready:true — it proves the homepage serves (200, not a white 500), the scaffold is complete, versions align, the :7777 endpoint is up, and the CSP is clear. " +
+          "Then have the human flip fonts in the panel (bottom-right) and Pick. Want more options? compose additional directions and call font_lab_more_directions. Then read_pick → apply."),
   };
 }
 
 // Grow the live panel (#4): admit + APPEND newly-composed directions to the current preview set and
 // rebuild, so the human can keep exploring without losing what's already there.
-export async function expandPreview(projectDir, { directions, fetch = true, log, menuMode } = {}) {
+export async function expandPreview(projectDir, { directions, fetch = true, log, menuMode, allowVersionSkew = false } = {}) {
   if (!Array.isArray(directions) || !directions.length)
     throw new Error("expandPreview: provide the new `directions` to add (compose them first with compose_directions)");
   const dir = path.resolve(projectDir);
+  assertNoVersionSkew(dir, { allow: allowVersionSkew, verb: "font_lab_more_directions" });
   const analysis = analyzeProject(dir);
   const merged = mergeDirections(readPreviewSet(dir), directions);
   await ensureAdmitted(dir, directions);
