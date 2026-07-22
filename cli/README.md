@@ -78,9 +78,13 @@ npx font-lab upgrade
 
 It does everything in one pass: installs the new package, re-stamps the panel from the new template
 (keeping your existing directions), re-pins the MCP registration, and shuts down a stale `:7777`
-endpoint. The only manual step left: reload your agent session so the MCP server restarts.
+endpoint. The only manual step left — and it's a **hard gate**: reload your agent session so the
+MCP server restarts. Until then the old server keeps running, and `font_lab_init` **refuses on the
+version skew** (a skewed init is how broken half-panels used to ship — a 0.11 MCP stamping into a
+0.13 project produced a panel importing files that were never written → Next 500 → white page).
 
-After upgrading, `font_lab_status` confirms all four copies are in sync.
+After upgrading, `font_lab_status` confirms all four copies are in sync — and
+`font_lab_healthcheck` proves the page actually serves before anyone is told to open it.
 
 **Works across agents, not just Claude Code.** With no `--host`, install **auto-detects** which
 agents you have and wires them all — writing each one's MCP config in the right place and format,
@@ -89,7 +93,7 @@ plus a skill (Claude) or an `AGENTS.md` protocol block (everyone else):
 | Host | MCP config | Instructions |
 |---|---|---|
 | Claude Code | project `.mcp.json` | `~/.claude/skills/font-lab` + turn-start hook |
-| Cursor | `~/.cursor/mcp.json` | `AGENTS.md` + `.cursor/rules/font-lab.mdc` |
+| Cursor | project `.cursor/mcp.json` (migrates off the old global `~/.cursor/mcp.json`) | `AGENTS.md` + `.cursor/rules/font-lab.mdc` |
 | Codex | `~/.codex/config.toml` | `AGENTS.md` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | `AGENTS.md` |
 | VS Code | `.vscode/mcp.json` (`servers`) | `AGENTS.md` |
@@ -115,7 +119,11 @@ Once installed, just ask *"use Font Lab to pick fonts."* The agent runs a consis
    `font_lab_check_fonts` confirms a face ships before it's offered. `font_lab_curate` is the
    no-brief fallback.
 3. **Choose** — headless (`font_lab_screenshot_directions` → pick from images, works anywhere) or
-   live (the flip/mix/compare panel on your real site). **You always make the pick.**
+   live (the flip/mix/compare panel on your real site). On the live path the agent **verifies
+   before inviting**: `font_lab_init` self-checks its stamp and refuses on version skew, then
+   `font_lab_healthcheck` proves the page serves (homepage 200, scaffold complete, `:7777` up,
+   CSP clear — with a paste-ready dev-only patch when a strict CSP would silently block the
+   panel) before you're ever told to open the site. **You always make the pick.**
 4. **Ship** — `font_lab_apply` writes the exact `next/font` + Tailwind code, reversibly
    (`font_lab_undo`).
 5. **Finish** — click **done ✓** in the panel (or just say so) and the agent runs

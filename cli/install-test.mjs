@@ -76,10 +76,17 @@ try {
   writeFileSync(path.join(pinProj, "node_modules", "font-lab", "mcp.mjs"), "// stub\n");
   const e1 = mcpEntryFor("claude", pinProj, { local: false });
   ok(e1.command === "node" && e1.args[0] === path.join("node_modules", "font-lab", "mcp.mjs"), "project-scoped host + local dep pins to node_modules (npm install IS the MCP upgrade)");
+  // Cursor moved to project scope (.cursor/mcp.json) after the filmed dogfood: its old global
+  // `npx -y font-lab@latest` entry froze at 0.11 while the project ran 0.13 and stamped a
+  // broken panel. With a local dep it now pins exactly like Claude's .mcp.json.
   const e2 = mcpEntryFor("cursor", pinProj, { local: false });
-  ok(e2.command === "npx" && e2.args.includes("font-lab@latest"), "global-config host uses npx @latest (re-resolves per session)");
+  ok(e2.command === "node" && e2.args[0] === path.join("node_modules", "font-lab", "mcp.mjs"), "cursor pins to the project's own install (the 0.11-vs-0.13 skew fix)");
+  const e2b = mcpEntryFor("codex", pinProj, { local: false });
+  ok(e2b.command === "npx" && e2b.args.includes("font-lab@latest"), "global-config host uses npx @latest (re-resolves per session)");
   const e3 = mcpEntryFor("claude", path.join(TMP, "nodep"), { local: false });
   ok(e3.command === "npx" && e3.args.includes("font-lab@latest"), "project host without a local dep falls back to npx @latest");
+  const e3b = mcpEntryFor("cursor", path.join(TMP, "nodep"), { local: false });
+  ok(e3b.command === "npx" && e3b.args.includes("font-lab@latest"), "cursor without a local dep falls back to npx @latest too");
 
   // ── TOML re-pin: a changed registration REPLACES the stale section ────────
   const toml2 = path.join(TMP, "repin.toml");

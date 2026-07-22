@@ -24,6 +24,10 @@ importers:
       playwright:
         specifier: 1.56.1
         version: 1.56.1
+    optionalDependencies:
+      playwright-core:
+        specifier: ^1.56.1
+        version: 1.56.1
 
 packages:
 

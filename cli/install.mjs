@@ -65,10 +65,18 @@ const HOSTS = {
   },
   cursor: {
     label: "Cursor",
-    mcp: () => ({ file: path.join(HOME, ".cursor", "mcp.json"), format: "json", key: "mcpServers" }),
-    mcpScope: "global",
+    // PROJECT-scoped since the filmed dogfood: the global ~/.cursor/mcp.json form ran
+    // `npx -y font-lab@latest`, whose cache froze at 0.11 while the project was on 0.13 — that
+    // skewed MCP stamped a broken panel (the exact trap mcpEntryFor documents). Cursor reads
+    // .cursor/mcp.json inside the project (project config wins on a name collision), which lets
+    // mcpEntryFor pin the launch to node_modules/font-lab — `npm install` IS the MCP upgrade,
+    // same as Claude's .mcp.json. The old global entry is migrated off on install (and the
+    // init-time version-skew gate backstops anyone still launching through a stale global).
+    mcp: (project) => ({ file: path.join(project, ".cursor", "mcp.json"), format: "json", key: "mcpServers" }),
+    legacyMcp: () => ({ file: path.join(HOME, ".cursor", "mcp.json"), format: "json", key: "mcpServers" }),
+    mcpScope: "project",
     instructions: "agents",
-    detect: () => existsSync(path.join(HOME, ".cursor")),
+    detect: (project) => existsSync(path.join(HOME, ".cursor")) || existsSync(path.join(project, ".cursor")),
   },
   codex: {
     label: "Codex",
@@ -241,7 +249,7 @@ export function agentsBlock() {
     "**MCP tools not live yet (fresh install) or the server dropped?** Every tool is also `npx font-lab run <tool> '<json-args>'` — the same table, same JSON out (`npx font-lab run` lists them). Never block on a session reload and never hand-roll an MCP client.",
     "",
     "**Setup — who starts what (this is where it usually goes wrong):** the live panel needs TWO long-running local processes up at the same time — the **dev server** (your project's `npm run dev` / `pnpm dev` / …) and the **pick + edit endpoint** (`npx font-lab --project <dir>`, on :7777). Neither ever exits.",
-    "- **If you have a local terminal** (Cursor, Claude Code, Windsurf, VS Code, Gemini CLI): **start BOTH yourself as background tasks and leave them running** (skip whichever is already up). Do NOT run them in the foreground — they never return and your turn will hang. Then tell the human to open their site.",
+    "- **If you have a local terminal** (Cursor, Claude Code, Windsurf, VS Code, Gemini CLI): **start BOTH yourself as background tasks and leave them running** (skip whichever is already up). Do NOT run them in the foreground — they never return and your turn will hang. Then **VERIFY FIRST**: run `font_lab_healthcheck({ projectDir })` and clear its blockers BEFORE telling the human to open their site — it proves the homepage serves 200 (a stale scaffold's `Module not found` 500 looks like a dead server), the `app/_fontlab/` scaffold is complete, versions align (`font_lab_init` refuses to stamp on skew — `npx font-lab upgrade`, then reload the session), the `:7777` endpoint is up, and the CSP allows dev `'unsafe-eval'` + `connect-src http://127.0.0.1:7777` (findings include a paste-ready dev-only patch; **restart the dev server after any `next.config.*`/CSP change** — headers are startup-bound). A white page or a missing panel is yours to catch here, not the human's.",
     "- **If you're a cloud / container agent** (`font_lab_start`'s `environment` block detects this): the human cannot reach this machine's localhost — the live panel and :7777 are not the choosing moment here, so say so up front and never hand over a localhost URL. Run the whole loop yourself headlessly: screenshots (chat-sized `heroShot` images) → `font_lab_select` → `apply` → `font_lab_verify`; make copy edits directly in source. In an EPHEMERAL workspace (work lost on reclaim), run `font_lab_finish` first (scaffolding out, commit plan in), then commit the ship pile on your working branch with the plan's commands and say what you committed — never push anywhere the human didn't designate.",
     "- **Only the human can:** reload this session once after install so the MCP tools load (the `run` CLI covers you until then), and make the actual pick / retype copy in their browser.",
     "",
@@ -388,7 +396,15 @@ function writeMcpFor(host, project, dry) {
   const entry = mcpEntryFor(host, project);
   const m = HOSTS[host].mcp(project);
   const changed = m.format === "toml" ? writeTomlMcp(m.file, entry, dry) : writeJsonMcp(m.file, m.key, entry, dry);
-  return { file: m.file, changed, entry };
+  // A host that moved scopes (Cursor: global → project) leaves its old registration behind —
+  // and a stale global entry is a second, skew-prone launch path. Migrate it off.
+  let migratedFrom = null;
+  if (HOSTS[host].legacyMcp) {
+    const l = HOSTS[host].legacyMcp(project);
+    const removed = l.format === "toml" ? removeTomlMcp(l.file, dry) : removeJsonMcp(l.file, l.key, dry);
+    if (removed) migratedFrom = l.file;
+  }
+  return { file: m.file, changed, entry, migratedFrom };
 }
 
 // ---- install / uninstall ---------------------------------------------------
@@ -411,9 +427,10 @@ export function runInstall() {
 
   if (doMcp) {
     for (const h of hosts) {
-      const { file, changed, entry } = writeMcpFor(h, project, dry);
+      const { file, changed, entry, migratedFrom } = writeMcpFor(h, project, dry);
       const cmd = [entry.command, ...entry.args].join(" ");
       steps.push(`mcp[${h}]  → ${tildify(file)}  (${cmd})${changed ? "" : "  (already set)"}`);
+      if (migratedFrom) steps.push(`mcp[${h}]  ← removed the old global entry in ${tildify(migratedFrom)} (a stale npx-cache launch path — the project-pinned one above replaces it)`);
       footprint.push({ kind: "mcp", host: h, scope: HOSTS[h].mcpScope, path: tildify(file) });
     }
   }
@@ -478,11 +495,13 @@ export function runInstall() {
 export function uninstallAll(project, { dry = false } = {}) {
   const removed = [];
 
-  // MCP from every known host (so you don't have to remember which you installed)
+  // MCP from every known host (so you don't have to remember which you installed) — including
+  // legacy locations a host has since moved away from (Cursor's old global entry).
   for (const [h, def] of Object.entries(HOSTS)) {
-    const m = def.mcp(project);
-    const r = m.format === "toml" ? removeTomlMcp(m.file, dry) : removeJsonMcp(m.file, m.key, dry);
-    if (r) removed.push({ what: `mcp[${h}]`, file: tildify(m.file) });
+    for (const m of [def.mcp(project), def.legacyMcp?.(project)].filter(Boolean)) {
+      const r = m.format === "toml" ? removeTomlMcp(m.file, dry) : removeJsonMcp(m.file, m.key, dry);
+      if (r) removed.push({ what: `mcp[${h}]`, file: tildify(m.file) });
+    }
   }
 
   // the Claude skill
